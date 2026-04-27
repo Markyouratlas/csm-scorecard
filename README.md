@@ -1,6 +1,6 @@
 # CSM Scorecard
 
-Weekly scorecard dashboard with real authentication and a database. Each CSM
+Weekly scorecard dashboard with real authentication and a database. Each CSM 
 signs in to log their week. Data saves automatically and persists across
 sessions and devices. Managers see a consolidated view across the whole team.
 
