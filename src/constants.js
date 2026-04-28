@@ -1,0 +1,81 @@
+export const BLANK_WEEK = () => ({
+  meetings: {
+    onboarding1:     [0, 0, 0, 0, 0],
+    onboarding2:     [0, 0, 0, 0, 0],
+    extraOnboarding: [0, 0, 0, 0, 0],
+    launch:          [0, 0, 0, 0, 0],
+    followup:        [0, 0, 0, 0, 0],
+    support:         [0, 0, 0, 0, 0],
+  },
+  pipeline: {
+    preOnboarding: 0,
+    kickoffScheduled: 0,
+    inContact: 0,
+    obInProgress: 0,
+    implementationBacklog: 0,
+    implementation: 0,
+    implementationReview: 0,
+    launch: 0,
+    paused: 0,
+    cancelled: 0,
+  },
+  launchedThisWeek: 0,
+  customersToLaunch: 0,
+  backlogDays: 0,
+  cancelledThisWeek: 0,
+  stillOnHold: 0,
+  notes: '',
+  ttfvCustomers: [],
+  retention: { churnRate: '', nrr: '', nps: '', healthScore: '' },
+})
+
+export const sum = (arr) => arr.reduce((a, b) => a + (Number(b) || 0), 0)
+export const avg = (arr) => (arr.length ? sum(arr) / arr.length : 0)
+
+export const fmt = (n, digits = 1) => {
+  if (n === null || n === undefined || n === '' || isNaN(n)) return '—'
+  const num = Number(n)
+  return Number.isInteger(num) ? num.toString() : num.toFixed(digits)
+}
+
+export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+
+export const MEETING_CATEGORIES = [
+  { key: 'onboarding1',     label: 'Onboarding 1' },
+  { key: 'onboarding2',     label: 'Onboarding 2' },
+  { key: 'extraOnboarding', label: 'Extra Onboarding' },
+  { key: 'launch',          label: 'Launch' },
+  { key: 'followup',        label: 'Follow-up' },
+  { key: 'support',         label: 'Support' },
+]
+
+export const PIPELINE_STAGES = [
+  { key: 'preOnboarding',          label: 'Pre-Onboarding' },
+  { key: 'kickoffScheduled',       label: 'Kickoff Scheduled' },
+  { key: 'inContact',              label: 'In Contact' },
+  { key: 'obInProgress',           label: 'OB In Progress' },
+  { key: 'implementationBacklog',  label: 'Implementation Backlog' },
+  { key: 'implementation',         label: 'Implementation' },
+  { key: 'implementationReview',   label: 'Implementation Review' },
+  { key: 'launch',                 label: 'Launch' },
+  { key: 'paused',                 label: 'Paused' },
+  { key: 'cancelled',              label: 'Cancelled' },
+]
+
+export const customerTtfv = (c) => (Number(c.stage1) || 0) + (Number(c.stage2) || 0) + (Number(c.stage3) || 0)
+
+export const avgTtfv = (customers) => {
+  const valid = (customers || []).filter(c => c.name && c.name.trim() && customerTtfv(c) > 0)
+  if (!valid.length) return 0
+  const total = valid.reduce((s, c) => s + customerTtfv(c), 0)
+  return Math.round((total / valid.length) * 10) / 10
+}
+
+// Helper to make a fresh customer entry
+export const newCustomer = () => ({
+  id: 'c_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
+  name: '',
+  stage1: 0,
+  stage2: 0,
+  stage3: 0,
+})
