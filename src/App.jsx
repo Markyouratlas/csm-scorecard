@@ -3,17 +3,22 @@ import { Loader2 } from 'lucide-react'
 import { supabase } from './supabase'
 import AuthScreen from './AuthScreen'
 import CsmView from './CsmView'
+import ImplementationView from './ImplementationView'
+import SupportView from './SupportView'
+import AeView from './AeView'
+import GrowthView from './GrowthView'
+import AdStrategistView from './AdStrategistView'
+import EngineerView from './EngineerView'
 import ManagerView from './ManagerView'
-import { BLANK_WEEK } from './constants'
-import { getWeekKey } from './dateUtils'
+import ComingSoonView from './ComingSoonView'
+import { accessTier } from './teams'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('self') // 'self' | 'manager' (managers can toggle)
+  const [viewMode, setViewMode] = useState('self') // 'self' | 'manager'
 
-  // ---- Watch auth state ----
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -29,46 +34,25 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // ---- Load profile when signed in ----
   useEffect(() => {
     if (!session) return
     setLoading(true)
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single()
+    supabase.from('profiles').select('*').eq('id', session.user.id).single()
       .then(({ data, error }) => {
-        if (error) {
-          console.error('Profile load error', error)
-        }
+        if (error) console.error('Profile load error', error)
         setProfile(data)
-        setViewMode(data?.role === 'manager' ? 'manager' : 'self')
+        // Default landing: managers go to manager view, members go to self
+        const tier = accessTier(data)
+        setViewMode(tier === 'member' ? 'self' : 'manager')
         setLoading(false)
       })
   }, [session])
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-  }
+  const handleSignOut = async () => { await supabase.auth.signOut() }
 
-  if (loading) {
-    return (
-      <Shell>
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-stone-700" />
-        </div>
-      </Shell>
-    )
-  }
+  if (loading) return <Shell><div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div></Shell>
 
-  if (!session) {
-    return (
-      <Shell>
-        <AuthScreen />
-      </Shell>
-    )
-  }
+  if (!session) return <Shell><AuthScreen /></Shell>
 
   if (!profile) {
     return (
@@ -76,36 +60,67 @@ export default function App() {
         <div className="min-h-screen flex items-center justify-center px-6">
           <div className="text-center max-w-md">
             <div className="display-font text-3xl font-medium text-stone-900 mb-3">Profile not found</div>
-            <p className="text-stone-600 mb-6">Your account exists but the profile record is missing. This usually means the database isn't set up yet.</p>
-            <button onClick={handleSignOut} className="px-4 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm">
-              Sign out
-            </button>
+            <p className="text-stone-600 mb-6">Your account exists but the profile record is missing. Database may not be set up.</p>
+            <button onClick={handleSignOut} className="px-4 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm">Sign out</button>
           </div>
         </div>
       </Shell>
     )
   }
 
-  return (
-    <Shell>
-      {profile.role === 'manager' && viewMode === 'manager' ? (
+  const tier = accessTier(profile)
+  const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
+
+  // Manager view (executives + team leads)
+  if (canSeeManagerView && viewMode === 'manager') {
+    return (
+      <Shell>
         <ManagerView
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
         />
-      ) : (
-        <CsmView
-          profile={profile}
-          onSignOut={handleSignOut}
-          onSwitchToManager={profile.role === 'manager' ? () => setViewMode('manager') : null}
-        />
-      )}
+      </Shell>
+    )
+  }
+
+  // Personal scorecard — route based on role_type
+  return (
+    <Shell>
+      <PersonalScorecard
+        profile={profile}
+        onSignOut={handleSignOut}
+        onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+        onProfileUpdated={setProfile}
+      />
     </Shell>
   )
 }
 
-// Wrapper that injects the global font + style sheet used everywhere
+// Routes to the right scorecard component based on the user's role.
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
+  const role = profile.role_type
+  const props = { profile, onSignOut, onSwitchToManager, onProfileUpdated }
+  switch (role) {
+    case 'csm':
+      return <CsmView {...props} />
+    case 'implementation':
+      return <ImplementationView {...props} />
+    case 'support':
+      return <SupportView {...props} />
+    case 'account_executive':
+      return <AeView {...props} />
+    case 'growth_manager':
+      return <GrowthView {...props} />
+    case 'ad_strategist':
+      return <AdStrategistView {...props} />
+    case 'engineer':
+      return <EngineerView {...props} />
+    default:
+      return <ComingSoonView {...props} />
+  }
+}
+
 function Shell({ children }) {
   return (
     <div className="min-h-screen bg-stone-50" style={{ fontFamily: "'Inter Tight', sans-serif" }}>

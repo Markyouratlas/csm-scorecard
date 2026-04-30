@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
-  Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck
+  Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
+  Settings as SettingsIcon, Calendar, Heart
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -10,13 +11,18 @@ import {
 } from './constants'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { fireConfetti } from './confetti'
+import SettingsModal from './SettingsModal'
+import { useTargets } from './useTargets'
+import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
+import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function CsmView({ profile, onSignOut, onSwitchToManager }) {
+export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
   const [section, setSection] = useState('meetings')
   const [weekData, setWeekData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
+  const [showSettings, setShowSettings] = useState(false)
   const weekKey = useMemo(() => getWeekKey(), [])
 
   // ----- Load this week's scorecard -----
@@ -98,6 +104,8 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager }) {
     { id: 'launches', label: 'Launches & TTFV', icon: TrendingUp },
     { id: 'testimonials', label: 'Testimonials', icon: Quote },
     { id: 'retention', label: 'Retention', icon: Activity },
+    { id: 'health',   label: 'Health Scores', icon: Heart },
+    { id: 'monthly',  label: 'Monthly View',  icon: Calendar },
   ]
 
   return (
@@ -120,6 +128,9 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager }) {
                 <LayoutDashboard className="w-4 h-4" /> Manager view
               </button>
             )}
+            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
+              <SettingsIcon className="w-4 h-4" />
+            </button>
             <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
               <LogOut className="w-4 h-4" /> Sign out
             </button>
@@ -171,8 +182,17 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager }) {
           {section === 'launches' && <LaunchesSection weekData={weekData} setField={setField} update={update} />}
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
+          {section === 'health' && <HealthSection weekData={weekData} update={update} />}
+          {section === 'monthly' && <CsmMonthlyView profile={profile} />}
         </div>
       </div>
+      {showSettings && (
+        <SettingsModal
+          profile={profile}
+          onClose={() => setShowSettings(false)}
+          onSaved={onProfileUpdated}
+        />
+      )}
     </div>
   )
 }
@@ -752,6 +772,181 @@ function SummaryTile({ label, value, sublabel, color, icon: Icon }) {
       </div>
       <div className="display-font text-4xl font-medium text-stone-900 num-tabular leading-none">{value}</div>
       <div className="text-xs text-stone-500 mt-2">{sublabel}</div>
+    </div>
+  )
+}
+
+// ============================================================================
+//  Health Scores Section (per-customer 🟢🟡🔴)
+// ============================================================================
+
+const HEALTH_OPTIONS = [
+  { key: '',       label: '—',        color: '#D6D3D1', textColor: '#78716C' },
+  { key: 'green',  label: '🟢 Healthy', color: '#10B981', textColor: '#047857' },
+  { key: 'yellow', label: '🟡 At Risk', color: '#F59E0B', textColor: '#A16207' },
+  { key: 'red',    label: '🔴 Critical', color: '#EF4444', textColor: '#B91C1C' },
+]
+
+function HealthSection({ weekData, update }) {
+  const customers = weekData.ttfvCustomers || []
+
+  const setHealth = (id, score) => update(d => ({
+    ...d,
+    ttfvCustomers: (d.ttfvCustomers || []).map(c => c.id === id ? { ...c, healthScore: score } : c),
+  }))
+
+  const counts = {
+    green: customers.filter(c => c.healthScore === 'green').length,
+    yellow: customers.filter(c => c.healthScore === 'yellow').length,
+    red: customers.filter(c => c.healthScore === 'red').length,
+    unrated: customers.filter(c => !c.healthScore).length,
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <HealthTile label="Healthy" count={counts.green} color="#10B981" />
+        <HealthTile label="At Risk" count={counts.yellow} color="#F59E0B" />
+        <HealthTile label="Critical" count={counts.red} color="#EF4444" />
+        <HealthTile label="Unrated" count={counts.unrated} color="#A8A29E" />
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Customer health scores</div>
+        <p className="text-sm text-stone-600 mb-4">
+          Manually rate each customer's health. <span className="text-stone-500">In the future, these can be populated automatically from your application.</span>
+        </p>
+        {customers.length === 0 ? (
+          <div className="border-2 border-dashed border-stone-300 p-8 text-center">
+            <div className="display-font text-lg font-medium text-stone-700 mb-1">No customers yet</div>
+            <p className="text-sm text-stone-500">Add customers in the "Launches & TTFV" tab.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50">
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[200px]">Health Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map(c => (
+                  <tr key={c.id} className="border-b border-stone-100">
+                    <td className="py-2 px-3 font-medium text-stone-800">{c.name || <span className="text-stone-400 italic">Unnamed</span>}</td>
+                    <td className="py-2 px-3">
+                      <select value={c.healthScore || ''} onChange={(e) => setHealth(c.id, e.target.value)}
+                        className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
+                        style={{ color: HEALTH_OPTIONS.find(h => h.key === (c.healthScore || ''))?.textColor }}>
+                        {HEALTH_OPTIONS.map(h => <option key={h.key} value={h.key}>{h.label}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HealthTile({ label, count, color }) {
+  return (
+    <div className="border border-stone-200 bg-white p-4 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: color }} />
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">{label}</div>
+      <div className="display-font text-3xl font-medium text-stone-900 num-tabular">{count}</div>
+    </div>
+  )
+}
+
+// ============================================================================
+//  Monthly View (with NRR + NPS inputs)
+// ============================================================================
+
+function CsmMonthlyView({ profile }) {
+  const monthKey = useMemo(() => getMonthKey(), [])
+  const { weeks, monthly, loading, saveMonthly } = useMtdData(profile.id, monthKey)
+  const { targets } = useTargets(profile.id, profile.role_type)
+  const [localMonthly, setLocalMonthly] = useState({})
+
+  useEffect(() => { setLocalMonthly(monthly || {}) }, [monthly])
+
+  const handleSave = (key, value) => {
+    const next = { ...localMonthly, [key]: value }
+    setLocalMonthly(next)
+    saveMonthly({ [key]: value })
+  }
+
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+
+  // Compute NRR
+  const startMrr = Number(localMonthly.startingMrr) || 0
+  const expansionMrr = Number(localMonthly.expansionMrr) || 0
+  const churnedMrr = Number(localMonthly.churnedMrr) || 0
+  const contractionMrr = Number(localMonthly.contractionMrr) || 0
+  const nrrPct = startMrr > 0 ? ((startMrr + expansionMrr - churnedMrr - contractionMrr) / startMrr) * 100 : null
+
+  // MTD aggregates from weekly data
+  let totalLaunches = 0
+  let totalTestimonials = 0
+  for (const w of weeks) {
+    const data = w.data || {}
+    if (data.launches) totalLaunches += Number(data.launches.count || 0)
+    if (data.testimonials) totalTestimonials += Number(data.testimonials.count || 0)
+  }
+
+  const npsScore = localMonthly.npsScore !== undefined && localMonthly.npsScore !== '' && !isNaN(Number(localMonthly.npsScore))
+    ? Number(localMonthly.npsScore) : null
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Net Revenue Retention</div>
+        <p className="text-sm text-stone-600 mb-4">Enter monthly MRR figures. NRR = (Starting + Expansion − Churn − Contraction) / Starting.</p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <MonthlyInput label="Starting MRR" value={localMonthly.startingMrr} onChange={(v) => handleSave('startingMrr', v)} prefix="$" />
+          <MonthlyInput label="Expansion MRR" value={localMonthly.expansionMrr} onChange={(v) => handleSave('expansionMrr', v)} prefix="$" />
+          <MonthlyInput label="Churned MRR" value={localMonthly.churnedMrr} onChange={(v) => handleSave('churnedMrr', v)} prefix="$" />
+          <MonthlyInput label="Contraction MRR" value={localMonthly.contractionMrr} onChange={(v) => handleSave('contractionMrr', v)} prefix="$" />
+        </div>
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">NPS Score</div>
+        <p className="text-sm text-stone-600 mb-4">Aggregate NPS from customer surveys this month. Range: -100 to +100.</p>
+        <div className="max-w-xs">
+          <MonthlyInput label="NPS Score" value={localMonthly.npsScore} onChange={(v) => handleSave('npsScore', v)} placeholder="e.g. 47" />
+        </div>
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Month-to-date</div>
+        <div className="text-sm text-stone-600 mb-4">{formatMonthLabel(monthKey)} · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} of data</div>
+        <MtdLegend />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <MtdCard label="Net Revenue Retention" value={nrrPct} target={targets.nrr_pct} unit="pct" />
+          <MtdCard label="NPS Score" value={npsScore} target={targets.nps_score} />
+          <MtdCard label="Launches" value={totalLaunches} target={targets.launches_count} />
+          <MtdCard label="Testimonials" value={totalTestimonials} target={targets.testimonials_count} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MonthlyInput({ label, value, onChange, prefix, placeholder }) {
+  return (
+    <div className="border border-stone-200 p-4">
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">{label}</div>
+      <div className="flex items-baseline gap-1">
+        {prefix && <span className="text-stone-500 display-font text-xl">{prefix}</span>}
+        <input type="number" step="any" value={value || ''} onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || '0'}
+          className="w-full py-2 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-xl display-font font-medium bg-transparent" />
+      </div>
     </div>
   )
 }

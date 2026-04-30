@@ -1,18 +1,31 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
-  CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download
+  CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
+  Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
   sum, BLANK_WEEK, PIPELINE_STAGES, MEETING_CATEGORIES, avgTtfv, customerTtfv
 } from './constants'
+import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS } from './teams'
 
 export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
-  const [tab, setTab] = useState('overview')
-  const [csms, setCsms] = useState([])
-  const [data, setData] = useState({})
+  const tier = accessTier(profile)
+  const isExec = tier === 'executive'
+
+  // For team leads, lock the visible team to their own
+  const visibleTeams = useMemo(() => {
+    if (isExec) return TEAMS
+    return TEAMS.filter(t => t.key === profile.team)
+  }, [isExec, profile.team])
+
+  // Default tab: 'overview' for execs, the lead's team key for leads
+  const [tab, setTab] = useState(() => isExec ? 'overview' : profile.team)
+  const [allProfiles, setAllProfiles] = useState([])
+  const [scorecardData, setScorecardData] = useState({})
   const [loading, setLoading] = useState(true)
   const weekKey = useMemo(() => getWeekKey(), [])
 
@@ -22,28 +35,19 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
     if (pErr) console.error(pErr)
     const { data: scorecards, error: sErr } = await supabase.from('weekly_scorecards').select('*').eq('week_key', weekKey)
     if (sErr) console.error(sErr)
-    const map = {}
-    ;(scorecards || []).forEach(s => { map[s.user_id] = s.data })
-    setCsms(profiles || [])
-    setData(map)
+    const map = {}; (scorecards || []).forEach(s => { map[s.user_id] = s.data })
+    setAllProfiles(profiles || [])
+    setScorecardData(map)
     setLoading(false)
   }, [weekKey])
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  const promoteToManager = async (id) => {
-    await supabase.from('profiles').update({ role: 'manager' }).eq('id', id)
-    loadAll()
-  }
-  const demoteToCsm = async (id) => {
-    await supabase.from('profiles').update({ role: 'csm' }).eq('id', id)
-    loadAll()
-  }
-  const removeUser = async (id) => {
-    if (!confirm('Remove this user from the roster? Their account remains, but they will no longer appear in the dashboard.')) return
-    await supabase.from('profiles').delete().eq('id', id)
-    loadAll()
-  }
+  // Filter profiles for team leads — they only see their team
+  const visibleProfiles = useMemo(() => {
+    if (isExec) return allProfiles
+    return allProfiles.filter(p => p.team === profile.team)
+  }, [isExec, allProfiles, profile.team])
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
 
@@ -53,10 +57,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-sm flex items-center justify-center" style={{ background: '#1C1917' }}>
-              <LayoutDashboard className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />
+              {isExec
+                ? <Crown className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />
+                : <LayoutDashboard className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />}
             </div>
             <div>
-              <div className="display-font text-lg font-medium text-stone-900 leading-tight">Manager Dashboard</div>
+              <div className="display-font text-lg font-medium text-stone-900 leading-tight">
+                {isExec ? 'Executive Dashboard' : `${getTeamLabel(profile.team)} Dashboard`}
+              </div>
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Week of {formatWeekLabel(weekKey)}</div>
             </div>
           </div>
@@ -72,90 +80,207 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-10">
+        {/* Tab nav */}
         <div className="flex flex-wrap gap-2 mb-8">
-          <TabButton active={tab === 'overview'} onClick={() => setTab('overview')} icon={LayoutDashboard}>Overview</TabButton>
-          <TabButton active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={Users}>Pipeline</TabButton>
-          <TabButton active={tab === 'testimonials'} onClick={() => setTab('testimonials')} icon={Quote}>Testimonials</TabButton>
+          {isExec && (
+            <TabButton active={tab === 'overview'} onClick={() => setTab('overview')} icon={LayoutDashboard}>Overview</TabButton>
+          )}
+          {visibleTeams.map(team => (
+            <TabButton key={team.key} active={tab === team.key} onClick={() => setTab(team.key)} icon={Briefcase} color={team.color}>
+              {team.label}
+            </TabButton>
+          ))}
+          {/* Testimonials tab — visible to executives, or to team leads of CS team */}
+          {(isExec || (profile.is_team_lead && profile.team === 'customer_success')) && (
+            <TabButton active={tab === 'testimonials'} onClick={() => setTab('testimonials')} icon={Quote}>Testimonials</TabButton>
+          )}
           <TabButton active={tab === 'roster'} onClick={() => setTab('roster')} icon={UserCircle2}>Roster</TabButton>
         </div>
 
-        {tab === 'overview' && <OverviewTab csms={csms} data={data} />}
-        {tab === 'pipeline' && <PipelineTab csms={csms} data={data} />}
-        {tab === 'testimonials' && <TestimonialsManagerTab csms={csms} />}
-        {tab === 'roster' && <RosterTab csms={csms} currentUserId={profile.id} onPromote={promoteToManager} onDemote={demoteToCsm} onRemove={removeUser} />}
+        {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} />}
+        {visibleTeams.find(t => t.key === tab) && (
+          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} />
+        )}
+        {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
+        {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
       </div>
     </div>
   )
 }
 
-function TabButton({ active, onClick, icon: Icon, children }) {
+function TabButton({ active, onClick, icon: Icon, children, color }) {
   return (
     <button onClick={onClick}
       className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
-      <Icon className="w-4 h-4" /> {children}
+      <Icon className="w-4 h-4" style={!active && color ? { color } : {}} /> {children}
     </button>
   )
 }
 
 // ============================================================================
-//  Overview
+//  Executive Overview — one row per team
 // ============================================================================
 
-function OverviewTab({ csms, data }) {
-  const totalLaunched = csms.reduce((s, c) => s + (data[c.id]?.launchedThisWeek || 0), 0)
-
-  // Aggregate avg TTFV across all customers across all CSMs
-  const allCustomers = useMemo(() => {
-    return csms.flatMap(c => (data[c.id]?.ttfvCustomers || []))
-  }, [csms, data])
-  const teamAvgTtfv = avgTtfv(allCustomers)
-
-  // Total meetings across all CSMs
-  const totalMeetings = csms.reduce((s, c) => {
-    const m = data[c.id]?.meetings
-    if (!m) return s
-    return s + Object.values(m).reduce((sub, arr) => sub + sum(arr), 0)
-  }, 0)
-
-  // Live testimonial counts (from testimonial_candidates table)
-  const [testimonialStats, setTestimonialStats] = useState({ uploaded: 0, qualified: 0 })
-  useEffect(() => {
-    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
-    Promise.all([
-      supabase.from('testimonial_candidates')
-        .select('id', { count: 'exact', head: true })
-        .not('video_uploaded_at', 'is', null)
-        .gte('video_uploaded_at', monthStart.toISOString()),
-      supabase.from('testimonial_candidates')
-        .select('id', { count: 'exact', head: true })
-        .eq('qualified', true)
-        .gte('qualified_at', monthStart.toISOString()),
-    ]).then(([up, qu]) => {
-      setTestimonialStats({ uploaded: up.count ?? 0, qualified: qu.count ?? 0 })
+function ExecOverviewTab({ profiles, data }) {
+  const teamStats = useMemo(() => {
+    return TEAMS.map(team => {
+      const members = profiles.filter(p => p.team === team.key)
+      // For now, only CSM team has live scorecard data flowing through
+      const launched = members.reduce((s, m) => s + (data[m.id]?.launchedThisWeek || 0), 0)
+      const allCustomers = members.flatMap(m => data[m.id]?.ttfvCustomers || [])
+      const ttfv = avgTtfv(allCustomers)
+      return {
+        team,
+        memberCount: members.length,
+        leadCount: members.filter(m => m.is_team_lead).length,
+        liveRoles: team.roles.filter(r => r.status === 'live').length,
+        totalRoles: team.roles.length,
+        launched,
+        ttfv,
+      }
     })
-  }, [csms])
+  }, [profiles, data])
 
   return (
     <div className="space-y-8">
       <div className="fade-up">
-        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Team performance · this week</div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Executive view · this week</div>
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-          The team's <em className="font-light">scorecard.</em>
+          Every team's <em className="font-light">scorecard.</em>
         </h1>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 fade-up" style={{ animationDelay: '60ms' }}>
-        <KpiTile label="Launched" value={totalLaunched} sublabel="This week" color="#0F766E" icon={Award} />
-        <KpiTile label="Avg TTFV" value={teamAvgTtfv || '—'} unit={teamAvgTtfv ? 'days' : ''} sublabel={teamAvgTtfv && teamAvgTtfv <= 14 ? '✓ On target' : teamAvgTtfv ? '↑ Above goal' : 'No data'} color="#1C1917" icon={Clock} />
-        <KpiTile label="Testimonials Uploaded" value={testimonialStats.uploaded} sublabel="This month" color="#7C3AED" icon={Quote} />
-        <KpiTile label="Qualified" value={testimonialStats.qualified} sublabel="Commission-eligible" color="#BE185D" icon={ShieldCheck} />
-        <KpiTile label="Meetings" value={totalMeetings} sublabel="Across all CSMs" color="#C2410C" icon={CalendarCheck} />
+      <div className="grid md:grid-cols-2 gap-4 fade-up" style={{ animationDelay: '60ms' }}>
+        {teamStats.map(({ team, memberCount, leadCount, liveRoles, totalRoles, launched, ttfv }) => (
+          <div key={team.key} className="bg-white border border-stone-200 p-6 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5" style={{ background: team.color }} />
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <div className="display-font text-2xl font-medium text-stone-900">{team.label}</div>
+                <div className="text-xs text-stone-500 mt-1">{memberCount} member{memberCount !== 1 ? 's' : ''} · {leadCount} lead{leadCount !== 1 ? 's' : ''}</div>
+              </div>
+              <Briefcase className="w-5 h-5" style={{ color: team.color }} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              {team.key === 'customer_success' ? (
+                <>
+                  <MiniStat label="Launched" value={launched} />
+                  <MiniStat label="Avg TTFV" value={ttfv ? `${ttfv}d` : '—'} />
+                </>
+              ) : (
+                <>
+                  <MiniStat label="Roles built" value={`${liveRoles}/${totalRoles}`} sublabel={liveRoles === totalRoles ? '✓ Complete' : '○ Phasing in'} />
+                  <MiniStat label="Members" value={memberCount} />
+                </>
+              )}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {team.roles.map(r => (
+                <span key={r.key}
+                  className={`mono-font text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded ${r.status === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
+                  {r.label}{r.status === 'coming_soon' ? ' · soon' : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value, sublabel }) {
+  return (
+    <div className="border border-stone-200 p-3">
+      <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500 mb-1">{label}</div>
+      <div className="display-font text-2xl font-medium text-stone-900 num-tabular leading-none">{value}</div>
+      {sublabel && <div className="text-[10px] text-stone-500 mt-1">{sublabel}</div>}
+    </div>
+  )
+}
+
+// ============================================================================
+//  Team Tab — one component, switches by team key
+// ============================================================================
+
+function TeamTab({ teamKey, profiles, data }) {
+  const team = getTeam(teamKey)
+  const members = profiles.filter(p => p.team === teamKey)
+  const [roleSubTab, setRoleSubTab] = useState(team.roles[0].key)
+  const activeRole = team.roles.find(r => r.key === roleSubTab) || team.roles[0]
+  const roleMembers = members.filter(m => m.role_type === activeRole.key)
+
+  return (
+    <div className="space-y-8">
+      <div className="fade-up">
+        <div className="mono-font text-xs uppercase tracking-[0.2em] mb-3" style={{ color: team.color }}>
+          {team.label} · this week
+        </div>
+        <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
+          {team.label} <em className="font-light">team.</em>
+        </h1>
       </div>
 
-      <div className="fade-up" style={{ animationDelay: '120ms' }}>
+      {/* Role sub-tabs */}
+      {team.roles.length > 1 && (
+        <div className="flex flex-wrap gap-2 fade-up">
+          {team.roles.map(r => {
+            const active = r.key === roleSubTab
+            const count = members.filter(m => m.role_type === r.key).length
+            return (
+              <button key={r.key} onClick={() => setRoleSubTab(r.key)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm transition-all ${active ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
+                {r.label}
+                <span className={`mono-font text-[9px] px-1.5 py-0.5 rounded ${active ? 'bg-stone-700' : 'bg-stone-100'}`}>{count}</span>
+                {r.status === 'coming_soon' && <span className="mono-font text-[9px] uppercase tracking-widest text-amber-700">soon</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Role section */}
+      {teamKey === 'customer_success' && activeRole.key === 'csm' ? (
+        <CsmTeamSection members={roleMembers} data={data} />
+      ) : (
+        <RoleTeamSection role={activeRole} members={roleMembers} data={data} />
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+//  CSM team section (existing functionality, ported in)
+// ============================================================================
+
+function CsmTeamSection({ members, data }) {
+  const totalLaunched = members.reduce((s, c) => s + (data[c.id]?.launchedThisWeek || 0), 0)
+  const allCustomers = members.flatMap(c => data[c.id]?.ttfvCustomers || [])
+  const teamAvgTtfv = avgTtfv(allCustomers)
+  const totalMeetings = members.reduce((s, c) => {
+    const m = data[c.id]?.meetings
+    if (!m) return s
+    return s + Object.values(m).reduce((sub, arr) => sub + sum(arr), 0)
+  }, 0)
+  const totals = PIPELINE_STAGES.reduce(
+    (acc, p) => ({ ...acc, [p.key]: members.reduce((s, c) => s + (data[c.id]?.pipeline?.[p.key] || 0), 0) }), {})
+  const grandTotal = PIPELINE_STAGES.reduce((s, p) => s + totals[p.key], 0)
+
+  return (
+    <div className="space-y-6">
+      {/* KPIs */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiTile label="Launched" value={totalLaunched} sublabel="This week" color="#0F766E" icon={Award} />
+        <KpiTile label="Avg TTFV" value={teamAvgTtfv || '—'} unit={teamAvgTtfv ? 'days' : ''} sublabel={teamAvgTtfv && teamAvgTtfv <= 14 ? '✓ On target' : teamAvgTtfv ? '↑ Above goal' : 'No data'} color="#1C1917" icon={Clock} />
+        <KpiTile label="Meetings" value={totalMeetings} sublabel="All categories" color="#C2410C" icon={CalendarCheck} />
+        <KpiTile label="Customers in pipeline" value={grandTotal} sublabel="Across all CSMs" color="#7C3AED" icon={Users} />
+      </div>
+
+      {/* Per-CSM breakdown */}
+      <div>
         <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By CSM</div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[700px]">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">CSM</th>
@@ -166,10 +291,8 @@ function OverviewTab({ csms, data }) {
               </tr>
             </thead>
             <tbody>
-              {csms.length === 0 && (
-                <tr><td colSpan={5} className="py-12 text-center text-stone-500">No CSMs yet. People who sign up will show here automatically.</td></tr>
-              )}
-              {csms.map(c => {
+              {members.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
+              {members.map(c => {
                 const d = data[c.id]
                 const customers = d?.ttfvCustomers || []
                 const ttfv = avgTtfv(customers)
@@ -182,7 +305,10 @@ function OverviewTab({ csms, data }) {
                           {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                         </div>
                         <div>
-                          <div className="font-medium text-stone-900">{c.name}</div>
+                          <div className="font-medium text-stone-900 flex items-center gap-1.5">
+                            {c.name}
+                            {c.is_team_lead && <span title="Team Lead"><UserCheck className="w-3.5 h-3.5 text-amber-600" /></span>}
+                          </div>
                           <div className="text-xs text-stone-500">{c.title}</div>
                         </div>
                       </div>
@@ -198,8 +324,346 @@ function OverviewTab({ csms, data }) {
           </table>
         </div>
       </div>
+
+      {/* Pipeline rollup */}
+      {members.length > 0 && (
+        <div>
+          <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Customer pipeline</div>
+          <div className="bg-white border border-stone-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50">
+                  <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage</th>
+                  {members.map(c => (
+                    <th key={c.id} className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: c.color }}>
+                      {c.name.split(' ')[0]}
+                    </th>
+                  ))}
+                  <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold bg-stone-100">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PIPELINE_STAGES.map(stage => (
+                  <tr key={stage.key} className="border-b border-stone-100 hover:bg-stone-50/40 transition-colors">
+                    <td className="py-3 px-4 font-medium text-stone-800">
+                      {stage.label}
+                      {stage.key === 'launch' && <span className="ml-2 mono-font text-[9px] uppercase tracking-widest text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">North Star</span>}
+                    </td>
+                    {members.map(c => (
+                      <td key={c.id} className="py-3 px-3 text-right num-tabular text-stone-700">{data[c.id]?.pipeline?.[stage.key] || 0}</td>
+                    ))}
+                    <td className="py-3 px-4 text-right num-tabular font-bold text-stone-900 bg-stone-100">{totals[stage.key]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+function RoleTeamSection({ role, members, data }) {
+  if (members.length === 0) {
+    return (
+      <div className="bg-white border border-stone-200 p-8">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">No {role.label}s yet</div>
+        <p className="text-sm text-stone-600">When someone signs up under this role, they'll appear here with their weekly stats.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <RoleKpis role={role} members={members} data={data} />
+
+      <div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By {role.label}</div>
+        <div className="bg-white border border-stone-200 overflow-x-auto">
+          <RoleMemberTable role={role} members={members} data={data} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RoleKpis({ role, members, data }) {
+  // Compute role-specific aggregates
+  let kpis = []
+
+  if (role.key === 'implementation') {
+    const totalCompleted = members.reduce((s, m) => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      return s + wd.reduce((sub, di) => sub + (Number(daily[di]?.completed) || 0), 0)
+    }, 0)
+    const totalNew = members.reduce((s, m) => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      return s + wd.reduce((sub, di) => sub + (Number(daily[di]?.newTickets) || 0), 0)
+    }, 0)
+    const totalProjects = members.reduce((s, m) => s + ((data[m.id]?.projects || []).length), 0)
+    const stuck = members.reduce((s, m) => s + (data[m.id]?.projects || []).filter(p => p.status === 'stuck').length, 0)
+    kpis = [
+      { label: 'Tickets Completed', value: totalCompleted, sublabel: 'This week', color: '#0F766E', icon: Award },
+      { label: 'New Tickets', value: totalNew, sublabel: 'Inbound load', color: '#1C1917', icon: Ticket },
+      { label: 'Active Projects', value: totalProjects, sublabel: 'Across team', color: '#7C3AED', icon: Briefcase },
+      { label: 'Stuck', value: stuck, sublabel: stuck > 0 ? '⚠ Needs attention' : '✓ All flowing', color: stuck > 0 ? '#B91C1C' : '#0F766E', icon: Clock },
+    ]
+  } else if (role.key === 'support') {
+    const totalClosed = members.reduce((s, m) => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      return s + wd.reduce((sub, di) => sub + (Number(daily[di]?.ticketsClosed) || 0), 0)
+    }, 0)
+    // Avg response time across team
+    const respTimes = members.map(m => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      return avgDays(wd.map(i => daily[i] || {}), 'firstResponseHours', 'ticketsReceived')
+    }).filter(v => v !== null)
+    const teamAvgResp = respTimes.length ? respTimes.reduce((s, v) => s + v, 0) / respTimes.length : null
+    // Avg CSAT
+    const csatPerMember = members.map(m => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.csat?.daily || []
+      const valid = wd.map(i => daily[i]).filter(v => v !== null && v !== undefined && v !== '' && !isNaN(Number(v)))
+      return valid.length ? valid.reduce((s, v) => s + Number(v), 0) / valid.length : null
+    }).filter(v => v !== null)
+    const teamAvgCsat = csatPerMember.length ? csatPerMember.reduce((s, v) => s + v, 0) / csatPerMember.length : null
+    const totalEscalations = members.reduce((s, m) => s + ((data[m.id]?.escalations || []).length), 0)
+    kpis = [
+      { label: 'Tickets Closed', value: totalClosed, sublabel: 'This week', color: '#0F766E', icon: Award },
+      { label: 'Avg Response', value: teamAvgResp !== null ? teamAvgResp.toFixed(1) : '—', unit: teamAvgResp !== null ? 'hrs' : '', sublabel: teamAvgResp !== null ? (teamAvgResp <= 4 ? '✓ Fast' : '↑ Slow') : '—', color: '#1C1917', icon: Clock },
+      { label: 'Avg CSAT', value: teamAvgCsat !== null ? teamAvgCsat.toFixed(2) : '—', unit: teamAvgCsat !== null ? '/5' : '', sublabel: '—', color: '#7C3AED', icon: Star },
+      { label: 'Escalations', value: totalEscalations, sublabel: 'This week', color: '#A16207', icon: Headphones },
+    ]
+  } else if (role.key === 'account_executive') {
+    let totalBooked = 0, totalCompleted = 0, totalSignups = 0, pipeValue = 0
+    members.forEach(m => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      wd.forEach(di => {
+        totalBooked += Number(daily[di]?.demosBooked) || 0
+        totalCompleted += Number(daily[di]?.demosCompleted) || 0
+        totalSignups += Number(daily[di]?.trialSignups) || 0
+      })
+      pipeValue += (data[m.id]?.deals || []).reduce((s, d) => s + (Number(d.value) || 0), 0)
+    })
+    const showUp = showUpRate(totalCompleted, totalBooked)
+    const close = closeRate(totalSignups, totalCompleted)
+    kpis = [
+      { label: 'Demos Completed', value: totalCompleted, sublabel: 'This week', color: '#1E40AF', icon: Award },
+      { label: 'Show-Up Rate', value: showUp !== null ? `${(showUp * 100).toFixed(1)}%` : '—', sublabel: showUp !== null ? (showUp >= 0.75 ? '✓ At target' : '↓ Below') : '—', color: '#1C1917', icon: Users },
+      { label: 'Close Rate', value: close !== null ? `${(close * 100).toFixed(1)}%` : '—', sublabel: close !== null ? (close >= 0.30 ? '✓ At target' : '↓ Below') : '—', color: '#0F766E', icon: Target },
+      { label: 'Pipeline Value', value: pipeValue > 0 ? `$${(pipeValue / 1000).toFixed(0)}k` : '—', sublabel: 'Active deals', color: '#7C3AED', icon: Briefcase },
+    ]
+  } else if (role.key === 'growth_manager' || role.key === 'ad_strategist') {
+    let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalLeads = 0, totalBooked = 0
+    members.forEach(m => {
+      const wd = m.work_days || DEFAULT_WORK_DAYS
+      const daily = data[m.id]?.daily || []
+      wd.forEach(di => {
+        totalSpend += Number(daily[di]?.adSpend) || 0
+        totalImpressions += Number(daily[di]?.impressions) || 0
+        totalClicks += Number(daily[di]?.clicks) || 0
+        totalLeads += Number(daily[di]?.leads) || 0
+        totalBooked += Number(daily[di]?.demosBooked) || 0
+      })
+    })
+    const cplValue = cpl(totalSpend, totalLeads)
+    const ctrValue = ctr(totalClicks, totalImpressions)
+    const cpmValue = cpm(totalSpend, totalImpressions)
+    if (role.key === 'growth_manager') {
+      const bookingValue = bookingRate(totalBooked, totalLeads)
+      kpis = [
+        { label: 'Total Leads', value: totalLeads, sublabel: 'This week', color: '#BE185D', icon: Users },
+        { label: 'CPL', value: cplValue !== null ? `$${cplValue.toFixed(2)}` : '—', sublabel: cplValue !== null ? (cplValue <= 5 ? '✓ At/below $5' : '↑ Above $5') : '—', color: '#1C1917', icon: BarChart3 },
+        { label: 'Booking Rate', value: bookingValue !== null ? `${(bookingValue * 100).toFixed(1)}%` : '—', sublabel: bookingValue !== null ? (bookingValue >= 0.20 ? '✓ At target' : '↓ Below') : '—', color: '#0F766E', icon: Target },
+        { label: 'Ad Spend', value: totalSpend > 0 ? `$${totalSpend.toLocaleString()}` : '—', sublabel: 'This week', color: '#A16207', icon: Megaphone },
+      ]
+    } else {
+      kpis = [
+        { label: 'CPL', value: cplValue !== null ? `$${cplValue.toFixed(2)}` : '—', sublabel: cplValue !== null ? (cplValue <= 5 ? '✓ At/below $5' : '↑ Above $5') : '—', color: '#BE185D', icon: BarChart3 },
+        { label: 'CTR', value: ctrValue !== null ? `${(ctrValue * 100).toFixed(2)}%` : '—', sublabel: ctrValue !== null ? (ctrValue >= 0.05 ? '✓ At target' : '↓ Below') : '—', color: '#1C1917', icon: Target },
+        { label: 'CPM', value: cpmValue !== null ? `$${cpmValue.toFixed(2)}` : '—', sublabel: cpmValue !== null ? (cpmValue <= 10 ? '✓ At/below $10' : '↑ Above $10') : '—', color: '#0F766E', icon: Users },
+        { label: 'Spend', value: totalSpend > 0 ? `$${totalSpend.toLocaleString()}` : '—', sublabel: 'This week', color: '#A16207', icon: Megaphone },
+      ]
+    }
+  } else if (role.key === 'engineer') {
+    let totalItems = 0, totalPrs = 0, totalBugs = 0
+    const categoryTotals = {}
+    members.forEach(m => {
+      const d = data[m.id] || {}
+      const themes = d.themes || []
+      for (const t of themes) {
+        const count = (t.bullets || []).length
+        totalItems += count
+        const cat = t.category || 'Uncategorized'
+        categoryTotals[cat] = (categoryTotals[cat] || 0) + count
+      }
+      if (d.prsMerged !== '' && d.prsMerged !== null && !isNaN(Number(d.prsMerged))) totalPrs += Number(d.prsMerged)
+      if (d.bugsIntroduced !== '' && d.bugsIntroduced !== null && !isNaN(Number(d.bugsIntroduced))) totalBugs += Number(d.bugsIntroduced)
+    })
+    const topCategory = Object.entries(categoryTotals).sort(([, a], [, b]) => b - a)[0]
+    kpis = [
+      { label: 'Items Shipped', value: totalItems, sublabel: 'This week', color: '#7C3AED', icon: Award },
+      { label: 'PRs Merged', value: totalPrs, sublabel: 'Self-reported', color: '#1C1917', icon: Briefcase },
+      { label: 'Bugs Introduced', value: totalBugs, sublabel: totalBugs <= 12 ? '✓ Under team target' : '↑ Above team target', color: totalBugs <= 12 ? '#0F766E' : '#A16207', icon: BarChart3 },
+      { label: 'Top Focus', value: topCategory ? topCategory[0] : '—', sublabel: topCategory ? `${topCategory[1]} items` : 'No data', color: '#BE185D', icon: Target },
+    ]
+  } else {
+    return null
+  }
+
+  return (
+    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {kpis.map((k, i) => (
+        <KpiTile key={i} label={k.label} value={k.value} unit={k.unit} sublabel={k.sublabel} color={k.color} icon={k.icon} />
+      ))}
+    </div>
+  )
+}
+
+function RoleMemberTable({ role, members, data }) {
+  // Each role gets its own column set
+  let columns = []
+  if (role.key === 'implementation') {
+    columns = [
+      { key: 'completed', label: 'Completed', compute: (m) => sumWorkDays(m, data, 'completed') },
+      { key: 'newTickets', label: 'New', compute: (m) => sumWorkDays(m, data, 'newTickets') },
+      { key: 'pending', label: 'Pending (EOD)', compute: (m) => endOfWeekValue(m, data, 'pending') },
+      { key: 'projects', label: 'Active Projects', compute: (m) => (data[m.id]?.projects || []).length },
+    ]
+  } else if (role.key === 'support') {
+    columns = [
+      { key: 'closed', label: 'Closed', compute: (m) => sumWorkDays(m, data, 'ticketsClosed') },
+      { key: 'received', label: 'Received', compute: (m) => sumWorkDays(m, data, 'ticketsReceived') },
+      { key: 'response', label: 'Avg Response', compute: (m) => avgResponseStr(m, data) },
+      { key: 'csat', label: 'CSAT', compute: (m) => avgCsatStr(m, data) },
+    ]
+  } else if (role.key === 'account_executive') {
+    columns = [
+      { key: 'completed', label: 'Demos Completed', compute: (m) => sumWorkDays(m, data, 'demosCompleted') },
+      { key: 'booked', label: 'Demos Booked', compute: (m) => sumWorkDays(m, data, 'demosBooked') },
+      { key: 'signups', label: 'Trial Signups', compute: (m) => sumWorkDays(m, data, 'trialSignups') },
+      { key: 'pipeline', label: 'Pipeline ($)', compute: (m) => {
+        const v = (data[m.id]?.deals || []).reduce((s, d) => s + (Number(d.value) || 0), 0)
+        return v > 0 ? `$${v.toLocaleString()}` : '—'
+      } },
+    ]
+  } else if (role.key === 'growth_manager') {
+    columns = [
+      { key: 'leads', label: 'Leads', compute: (m) => sumWorkDays(m, data, 'leads') },
+      { key: 'spend', label: 'Spend', compute: (m) => `$${sumWorkDays(m, data, 'adSpend').toLocaleString()}` },
+      { key: 'cpl', label: 'CPL', compute: (m) => {
+        const spend = sumWorkDays(m, data, 'adSpend')
+        const leads = sumWorkDays(m, data, 'leads')
+        const v = cpl(spend, leads)
+        return v !== null ? `$${v.toFixed(2)}` : '—'
+      } },
+      { key: 'demos', label: 'Demos Booked', compute: (m) => sumWorkDays(m, data, 'demosBooked') },
+    ]
+  } else if (role.key === 'ad_strategist') {
+    columns = [
+      { key: 'spend', label: 'Spend', compute: (m) => `$${sumWorkDays(m, data, 'adSpend').toLocaleString()}` },
+      { key: 'impressions', label: 'Impressions', compute: (m) => sumWorkDays(m, data, 'impressions').toLocaleString() },
+      { key: 'leads', label: 'Leads', compute: (m) => sumWorkDays(m, data, 'leads') },
+      { key: 'cpl', label: 'CPL', compute: (m) => {
+        const spend = sumWorkDays(m, data, 'adSpend')
+        const leads = sumWorkDays(m, data, 'leads')
+        const v = cpl(spend, leads)
+        return v !== null ? `$${v.toFixed(2)}` : '—'
+      } },
+    ]
+  } else if (role.key === 'engineer') {
+    columns = [
+      { key: 'items', label: 'Items Shipped', compute: (m) => {
+        const themes = data[m.id]?.themes || []
+        return themes.reduce((s, t) => s + (t.bullets || []).length, 0)
+      } },
+      { key: 'prs', label: 'PRs Merged', compute: (m) => data[m.id]?.prsMerged || '—' },
+      { key: 'bugs', label: 'Bugs', compute: (m) => data[m.id]?.bugsIntroduced || '—' },
+      { key: 'topFocus', label: 'Top Focus', compute: (m) => {
+        const themes = data[m.id]?.themes || []
+        const cats = {}
+        for (const t of themes) {
+          const cat = t.category || 'Uncategorized'
+          cats[cat] = (cats[cat] || 0) + (t.bullets || []).length
+        }
+        const top = Object.entries(cats).sort(([, a], [, b]) => b - a)[0]
+        return top ? top[0] : '—'
+      } },
+    ]
+  }
+
+  return (
+    <table className="w-full text-sm min-w-[700px]">
+      <thead>
+        <tr className="border-b border-stone-200 bg-stone-50">
+          <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Member</th>
+          {columns.map(c => (
+            <th key={c.key} className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">{c.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {members.map(m => (
+          <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50/40 transition-colors">
+            <td className="py-3 px-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: 'Fraunces, serif' }}>
+                  {m.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+                <div>
+                  <div className="font-medium text-stone-900 flex items-center gap-1.5">
+                    {m.name}
+                    {m.is_team_lead && <span title="Team Lead"><UserCheck className="w-3.5 h-3.5 text-amber-600" /></span>}
+                  </div>
+                  <div className="text-xs text-stone-500">{m.title}</div>
+                </div>
+              </div>
+            </td>
+            {columns.map(c => (
+              <td key={c.key} className="py-3 px-3 text-right num-tabular text-stone-700">{c.compute(m)}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+// ----- Helpers used by RoleMemberTable -----
+
+function sumWorkDays(member, data, key) {
+  const wd = member.work_days || DEFAULT_WORK_DAYS
+  const daily = data[member.id]?.daily || []
+  return wd.reduce((s, di) => s + (Number(daily[di]?.[key]) || 0), 0)
+}
+
+function endOfWeekValue(member, data, key) {
+  const wd = member.work_days || DEFAULT_WORK_DAYS
+  const daily = data[member.id]?.daily || []
+  const lastDay = wd[wd.length - 1]
+  return Number(daily[lastDay]?.[key]) || 0
+}
+
+function avgResponseStr(member, data) {
+  const wd = member.work_days || DEFAULT_WORK_DAYS
+  const daily = data[member.id]?.daily || []
+  const v = avgDays(wd.map(i => daily[i] || {}), 'firstResponseHours', 'ticketsReceived')
+  return v !== null ? `${v.toFixed(1)}h` : '—'
+}
+
+function avgCsatStr(member, data) {
+  const wd = member.work_days || DEFAULT_WORK_DAYS
+  const csatDaily = data[member.id]?.csat?.daily || []
+  const valid = wd.map(i => csatDaily[i]).filter(v => v !== null && v !== undefined && v !== '' && !isNaN(Number(v)))
+  if (!valid.length) return '—'
+  const avg = valid.reduce((s, v) => s + Number(v), 0) / valid.length
+  return avg.toFixed(2)
 }
 
 function KpiTile({ label, value, unit, sublabel, color, icon: Icon }) {
@@ -220,74 +684,14 @@ function KpiTile({ label, value, unit, sublabel, color, icon: Icon }) {
 }
 
 // ============================================================================
-//  Pipeline
+//  Testimonials Manager Tab — unchanged, just visible to leads/execs
 // ============================================================================
 
-function PipelineTab({ csms, data }) {
-  const totals = PIPELINE_STAGES.reduce((acc, p) => ({ ...acc, [p.key]: csms.reduce((s, c) => s + (data[c.id]?.pipeline?.[p.key] || 0), 0) }), {})
-  const grandTotal = PIPELINE_STAGES.reduce((s, p) => s + totals[p.key], 0)
-
-  return (
-    <div className="space-y-8">
-      <div className="fade-up">
-        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Pipeline · this week</div>
-        <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-          Where every customer <em className="font-light">sits.</em>
-        </h1>
-      </div>
-
-      <div className="bg-white border border-stone-200 overflow-x-auto fade-up" style={{ animationDelay: '60ms' }}>
-        <table className="w-full text-sm min-w-[640px]">
-          <thead>
-            <tr className="border-b border-stone-200 bg-stone-50">
-              <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage</th>
-              {csms.map(c => (
-                <th key={c.id} className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: c.color }}>
-                  {c.name.split(' ')[0]}
-                </th>
-              ))}
-              <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold bg-stone-100">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PIPELINE_STAGES.map(stage => (
-              <tr key={stage.key} className="border-b border-stone-100 hover:bg-stone-50/40 transition-colors">
-                <td className="py-3 px-4 font-medium text-stone-800">
-                  {stage.label}
-                  {stage.key === 'launch' && <span className="ml-2 mono-font text-[9px] uppercase tracking-widest text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">North Star</span>}
-                </td>
-                {csms.map(c => (
-                  <td key={c.id} className="py-3 px-3 text-right num-tabular text-stone-700">{data[c.id]?.pipeline?.[stage.key] || 0}</td>
-                ))}
-                <td className="py-3 px-4 text-right num-tabular font-bold text-stone-900 bg-stone-100">{totals[stage.key]}</td>
-              </tr>
-            ))}
-            <tr className="bg-stone-900 text-stone-50">
-              <td className="py-4 px-4 mono-font text-[10px] uppercase tracking-widest font-medium">Total Clients</td>
-              {csms.map(c => {
-                const t = PIPELINE_STAGES.reduce((s, p) => s + (data[c.id]?.pipeline?.[p.key] || 0), 0)
-                return <td key={c.id} className="py-4 px-3 text-right num-tabular font-bold text-base">{t}</td>
-              })}
-              <td className="py-4 px-4 text-right num-tabular font-bold text-xl" style={{ color: '#F59E0B' }}>{grandTotal}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-//  Testimonials Manager Tab
-// ============================================================================
-
-function TestimonialsManagerTab({ csms }) {
+function TestimonialsManagerTab({ profiles }) {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const csmById = useMemo(() => {
-    const m = {}; csms.forEach(c => { m[c.id] = c }); return m
-  }, [csms])
+  const csmById = useMemo(() => { const m = {}; profiles.forEach(c => { m[c.id] = c }); return m }, [profiles])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -329,8 +733,10 @@ function TestimonialsManagerTab({ csms }) {
     window.open(data.signedUrl, '_blank')
   }
 
-  const withVideo = candidates.filter(c => c.video_uploaded_at)
-  const withoutVideo = candidates.filter(c => !c.video_uploaded_at)
+  // Filter to only candidates from CSMs visible to this manager
+  const visibleCandidates = candidates.filter(c => csmById[c.csm_id])
+  const withVideo = visibleCandidates.filter(c => c.video_uploaded_at)
+  const withoutVideo = visibleCandidates.filter(c => !c.video_uploaded_at)
 
   return (
     <div className="space-y-8">
@@ -402,9 +808,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
                     </div>
                     <span className="text-stone-800 font-medium">{csm.name}</span>
                   </div>
-                ) : (
-                  <span className="text-stone-400 italic">Removed CSM</span>
-                )}
+                ) : <span className="text-stone-400 italic">Removed CSM</span>}
               </td>
               <td className="py-3 px-3 text-stone-800">{c.customer_name || <span className="text-stone-400 italic">unnamed</span>}</td>
               <td className="py-3 px-3 text-right num-tabular font-semibold text-stone-900">{c.score ?? 0}</td>
@@ -417,10 +821,8 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
                 </td>
               )}
               <td className="py-3 px-3">
-                <button
-                  onClick={() => onToggleQualified(c)}
-                  className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 transition-colors ${c.qualified ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-stone-300 hover:border-stone-900 text-stone-700'}`}
-                >
+                <button onClick={() => onToggleQualified(c)}
+                  className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 transition-colors ${c.qualified ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-stone-300 hover:border-stone-900 text-stone-700'}`}>
                   <ShieldCheck className="w-3.5 h-3.5" /> {c.qualified ? 'Qualified' : 'Mark qualified'}
                 </button>
               </td>
@@ -438,10 +840,31 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
 }
 
 // ============================================================================
-//  Roster
+//  Roster — now shows team/role/lead with edit controls
 // ============================================================================
 
-function RosterTab({ csms, currentUserId, onPromote, onDemote, onRemove }) {
+function RosterTab({ profiles, currentUser, reload, isExec }) {
+  const [editing, setEditing] = useState(null) // profile id being edited
+
+  const setRole = async (id, newRole) => {
+    await supabase.from('profiles').update({ role: newRole }).eq('id', id)
+    reload()
+  }
+  const setTeamLead = async (id, isLead) => {
+    await supabase.from('profiles').update({ is_team_lead: isLead }).eq('id', id)
+    reload()
+  }
+  const setTeamRole = async (id, team, role_type) => {
+    await supabase.from('profiles').update({ team, role_type }).eq('id', id)
+    setEditing(null)
+    reload()
+  }
+  const removeUser = async (id) => {
+    if (!confirm('Remove this user from the roster?')) return
+    await supabase.from('profiles').delete().eq('id', id)
+    reload()
+  }
+
   return (
     <div className="space-y-8">
       <div className="fade-up">
@@ -449,49 +872,142 @@ function RosterTab({ csms, currentUserId, onPromote, onDemote, onRemove }) {
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
           Manage the <em className="font-light">team.</em>
         </h1>
-        <p className="text-stone-600 mt-3 max-w-xl">New CSMs appear here automatically when they sign up. Promote someone to manager to give them this view, or remove someone who has left the team.</p>
+        <p className="text-stone-600 mt-3 max-w-xl">
+          {isExec
+            ? 'Promote leads, change teams, mark executives. Members appear automatically when they sign up.'
+            : 'Manage members on your team.'}
+        </p>
       </div>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 fade-up" style={{ animationDelay: '60ms' }}>
-        {csms.map(c => (
-          <div key={c.id} className="bg-white border border-stone-200 overflow-hidden">
-            <div className="h-2" style={{ background: c.color }} />
-            <div className="p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: c.color, fontFamily: 'Fraunces, serif' }}>
-                  {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="display-font text-lg font-medium text-stone-900 truncate">{c.name}</div>
-                  <div className="text-xs text-stone-500 mt-0.5">{c.title}</div>
-                  <div className="mt-1.5">
-                    {c.role === 'manager'
-                      ? <span className="mono-font text-[9px] uppercase tracking-widest text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded">Manager</span>
-                      : <span className="mono-font text-[9px] uppercase tracking-widest text-stone-600 bg-stone-100 px-1.5 py-0.5 rounded">CSM</span>}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {c.role === 'manager' ? (
-                  <button onClick={() => onDemote(c.id)} disabled={c.id === currentUserId}
-                    className="flex-1 flex items-center justify-center gap-2 py-2 border border-stone-300 hover:bg-stone-100 transition-colors text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                    <ShieldOff className="w-3.5 h-3.5" /> Make CSM
-                  </button>
-                ) : (
-                  <button onClick={() => onPromote(c.id)}
-                    className="flex-1 flex items-center justify-center gap-2 py-2 border border-stone-300 hover:bg-stone-100 transition-colors text-sm font-medium">
-                    <Shield className="w-3.5 h-3.5" /> Make Manager
-                  </button>
-                )}
-                <button onClick={() => onRemove(c.id)} disabled={c.id === currentUserId}
-                  className="flex items-center justify-center gap-2 py-2 px-3 border border-stone-300 hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
+        {profiles.map(c => (
+          <RosterCard
+            key={c.id}
+            profile={c}
+            currentUser={currentUser}
+            isExec={isExec}
+            isEditing={editing === c.id}
+            onStartEdit={() => setEditing(c.id)}
+            onCancelEdit={() => setEditing(null)}
+            onSetRole={(role) => setRole(c.id, role)}
+            onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
+            onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
+            onRemove={() => removeUser(c.id)}
+          />
         ))}
       </div>
     </div>
+  )
+}
+
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onRemove }) {
+  const team = getTeam(profile.team)
+  const roleLabel = getRoleLabel(profile.team, profile.role_type)
+  const tier = accessTier(profile)
+  const isSelf = profile.id === currentUser.id
+
+  const [editTeam, setEditTeam] = useState(profile.team)
+  const [editRole, setEditRole] = useState(profile.role_type)
+  const editRolesAvailable = TEAMS.find(t => t.key === editTeam)?.roles || []
+
+  const onTeamChange = (t) => {
+    setEditTeam(t)
+    const first = TEAMS.find(x => x.key === t)?.roles?.[0]?.key
+    if (first) setEditRole(first)
+  }
+
+  return (
+    <div className="bg-white border border-stone-200 overflow-hidden">
+      <div className="h-2" style={{ background: profile.color }} />
+      <div className="p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+            {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="display-font text-lg font-medium text-stone-900 truncate">{profile.name}</div>
+            <div className="text-xs text-stone-500 mt-0.5 truncate">{profile.title}</div>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {tier === 'executive' && <Badge color="amber" icon={Crown}>Executive</Badge>}
+              {tier === 'team_lead' && <Badge color="amber" icon={UserCheck}>Lead</Badge>}
+              <Badge color="stone">{team?.label || profile.team}</Badge>
+              <Badge color="stone">{roleLabel}</Badge>
+            </div>
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div className="space-y-2 border-t border-stone-200 pt-3 mt-1">
+            <div>
+              <label className="mono-font text-[9px] uppercase tracking-widest text-stone-500 block mb-1">Team</label>
+              <select value={editTeam} onChange={(e) => onTeamChange(e.target.value)}
+                className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white">
+                {TEAMS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mono-font text-[9px] uppercase tracking-widest text-stone-500 block mb-1">Role</label>
+              <select value={editRole} onChange={(e) => setEditRole(e.target.value)}
+                className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white">
+                {editRolesAvailable.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => onSetTeamRole(editTeam, editRole)}
+                className="flex-1 py-1.5 bg-stone-900 text-stone-50 text-xs hover:bg-stone-800 transition-colors">Save</button>
+              <button onClick={onCancelEdit}
+                className="flex-1 py-1.5 border border-stone-300 text-xs hover:bg-stone-100 transition-colors">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <button onClick={() => onSetTeamLead(!profile.is_team_lead)} disabled={isSelf || profile.role === 'executive'}
+                title={isSelf ? "Can't change your own lead status" : ''}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                {profile.is_team_lead ? <><ShieldOff className="w-3 h-3" /> Remove lead</> : <><Shield className="w-3 h-3" /> Make lead</>}
+              </button>
+              <button onClick={onStartEdit}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs">
+                Edit role
+              </button>
+            </div>
+            {isExec && (
+              <div className="flex gap-2">
+                {profile.role === 'executive' ? (
+                  <button onClick={() => onSetRole('csm')} disabled={isSelf}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition-colors text-xs disabled:opacity-40">
+                    <Crown className="w-3 h-3" /> Demote from exec
+                  </button>
+                ) : (
+                  <button onClick={() => onSetRole('executive')}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-900 transition-colors text-xs">
+                    <Crown className="w-3 h-3" /> Make exec
+                  </button>
+                )}
+                <button onClick={onRemove} disabled={isSelf}
+                  className="flex items-center justify-center px-3 py-1.5 border border-stone-300 hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Badge({ color, icon: Icon, children }) {
+  const colors = {
+    amber: 'text-amber-800 bg-amber-50',
+    stone: 'text-stone-600 bg-stone-100',
+    emerald: 'text-emerald-700 bg-emerald-50',
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 mono-font text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded ${colors[color] || colors.stone}`}>
+      {Icon && <Icon className="w-3 h-3" />}
+      {children}
+    </span>
   )
 }

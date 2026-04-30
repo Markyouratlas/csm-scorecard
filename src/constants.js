@@ -78,4 +78,5 @@ export const newCustomer = () => ({
   stage1: 0,
   stage2: 0,
   stage3: 0,
+  healthScore: '',  // 'green' | 'yellow' | 'red' | ''
 })
