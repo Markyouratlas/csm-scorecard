@@ -35,18 +35,49 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // When the session changes (sign in / out), reset the profile state so we
+  // don't briefly show stale data from the previous user, then load fresh.
   useEffect(() => {
-    if (!session) return
+    if (!session) {
+      setProfile(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
-    supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      .then(({ data, error }) => {
-        if (error) console.error('Profile load error', error)
+    setProfile(null)  // clear stale profile from previous session
+
+    // Try to load profile, with one automatic retry to handle the brief race
+    // condition that can happen right after signup (profile was just inserted
+    // but the auth session may not yet have RLS context to read it).
+    const loadProfile = async (attempt = 1) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+
+      if (data) {
         setProfile(data)
-        // Default landing: managers go to manager view, members go to self
         const tier = accessTier(data)
         setViewMode(tier === 'member' ? 'self' : 'manager')
         setLoading(false)
-      })
+        return
+      }
+
+      // No profile found — if this is the first attempt, retry once after a brief
+      // delay (handles race condition immediately after signup).
+      if (attempt === 1) {
+        await new Promise(r => setTimeout(r, 600))
+        return loadProfile(2)
+      }
+
+      // Still no profile after retry — log error and stop loading so the user
+      // sees the "Profile not found" screen.
+      if (error) console.error('Profile load error', error)
+      setLoading(false)
+    }
+
+    loadProfile()
   }, [session])
 
   const handleSignOut = async () => { await supabase.auth.signOut() }
