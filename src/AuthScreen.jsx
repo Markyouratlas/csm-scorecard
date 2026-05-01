@@ -80,6 +80,15 @@ export default function AuthScreen() {
 
         if (!data.session) {
           setInfo('Check your email to confirm your account, then come back and sign in.')
+        } else {
+          // Profile is freshly inserted but the auth session may not yet have
+          // the proper RLS context to read it back. Force a sign-out and sign-in
+          // to establish a clean session that can read the profile.
+          await supabase.auth.signOut()
+          // Brief delay to ensure the profile insert is fully committed
+          await new Promise(r => setTimeout(r, 300))
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+          if (signInError) throw signInError
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
