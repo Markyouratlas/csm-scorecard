@@ -18,8 +18,8 @@ const ESCALATION_STATUSES = [
   { key: 'resolved', label: 'Resolved', color: '#0F766E' },
 ]
 
-export default function SupportView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
-  const weekKey = useMemo(() => getWeekKey(), [])
+export default function SupportView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_SUPPORT_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)

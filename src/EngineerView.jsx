@@ -33,8 +33,8 @@ const STATUS_COLORS = {
   'Carry-over':  '#78716C',
 }
 
-export default function EngineerView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
-  const weekKey = useMemo(() => getWeekKey(), [])
+export default function EngineerView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_ENGINEER_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)

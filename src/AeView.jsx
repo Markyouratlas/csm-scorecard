@@ -12,8 +12,8 @@ import ScorecardShell, {
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function AeView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
-  const weekKey = useMemo(() => getWeekKey(), [])
+export default function AeView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_AE_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)

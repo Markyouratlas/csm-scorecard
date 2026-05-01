@@ -4,6 +4,20 @@
 
 export const TEAMS = [
   {
+    key: 'leadership',
+    label: 'Leadership',
+    color: '#6639a6',
+    isLeadership: true,  // marker — leadership team has no scorecards
+    roles: [
+      { key: 'ceo',     label: 'CEO',                            status: 'leadership' },
+      { key: 'coo',     label: 'COO',                            status: 'leadership' },
+      { key: 'cto',     label: 'CTO',                            status: 'leadership' },
+      { key: 'cfo',     label: 'CFO',                            status: 'leadership' },
+      { key: 'vp',      label: 'VP',                             status: 'leadership' },
+      { key: 'other',   label: 'Other (Leadership)',             status: 'leadership' },
+    ],
+  },
+  {
     key: 'customer_success',
     label: 'Customer Success',
     color: '#0F766E',
@@ -39,6 +53,14 @@ export const TEAMS = [
     ],
   },
 ]
+
+// Quick check: is this team a leadership team (no scorecard)?
+export const isLeadershipTeam = (teamKey) => getTeam(teamKey)?.isLeadership === true
+
+// Quick check: is this role a leadership role (no scorecard)?
+export const isLeadershipRole = (roleType) => {
+  return ['ceo', 'coo', 'cto', 'cfo', 'vp', 'other'].includes(roleType)
+}
 
 // Lookup helpers
 export const getTeam = (teamKey) => TEAMS.find(t => t.key === teamKey)

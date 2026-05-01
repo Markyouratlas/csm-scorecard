@@ -3,6 +3,7 @@ import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon } fro
 import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
+import AtlasLogo from './AtlasLogo'
 
 // Standard header used by every role's scorecard.
 // Children = the question/title and content of the page.
@@ -22,13 +23,17 @@ export default function ScorecardShell({
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
-              {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-            </div>
-            <div>
-              <div className="display-font text-lg font-medium text-stone-900 leading-tight">{profile.name}</div>
-              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
-                {profile.title || getRoleLabel(profile.team, profile.role_type)}
+            <AtlasLogo height={28} />
+            <div className="hidden md:block h-8 w-px bg-stone-300" />
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+                {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+              </div>
+              <div>
+                <div className="display-font text-base font-medium text-stone-900 leading-tight">{profile.name}</div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
+                  {profile.title || getRoleLabel(profile.team, profile.role_type)}
+                </div>
               </div>
             </div>
           </div>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import { Sparkles, ChevronRight, Loader2 } from 'lucide-react'
 import { supabase } from './supabase'
 import { TEAMS, DEFAULT_WORK_DAYS } from './teams'
+import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 
 export default function AuthScreen() {
   const [mode, setMode] = useState('signin')
@@ -94,14 +95,15 @@ export default function AuthScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center px-6 py-12" style={{ background: 'radial-gradient(ellipse at top, #FAF8F4 0%, #F0EBE0 100%)' }}>
       <div className="w-full max-w-md fade-up">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-sm flex items-center justify-center" style={{ background: '#1C1917' }}>
-            <Sparkles className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />
+        <div className="mb-8 flex items-center gap-3">
+          <AtlasLogo height={48} />
+          <div className="border-l border-stone-300 pl-3 ml-1">
+            <div className="mono-font text-[10px] uppercase tracking-[0.2em] text-stone-500">Scorecard</div>
+            <div className="text-xs text-stone-600 mt-0.5">Internal Tool</div>
           </div>
-          <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-600">Internal Tool</div>
         </div>
         <h1 className="display-font text-5xl md:text-6xl font-medium leading-[0.95] tracking-tight text-stone-900 mb-3">
-          The <em className="font-light">Scorecard</em>
+          {mode === 'signin' ? <>Welcome <em className="font-light">back.</em></> : <>Get <em className="font-light">started.</em></>}
         </h1>
         <p className="text-stone-600 text-base max-w-xl mb-10 leading-relaxed">
           {mode === 'signin' ? 'Sign in to log your week.' : 'Create your account to get started.'}
@@ -129,7 +131,9 @@ export default function AuthScreen() {
                   </select>
                 </div>
                 <div>
-                  <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1">Role</label>
+                  <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1">
+                    {team === 'leadership' ? 'Title' : 'Role'}
+                  </label>
                   <select value={roleType} onChange={(e) => setRoleType(e.target.value)}
                     className="w-full py-2 px-3 border border-stone-300 focus:border-stone-900 transition-colors text-sm bg-white">
                     {availableRoles.map(r => (
@@ -140,14 +144,21 @@ export default function AuthScreen() {
                   </select>
                 </div>
               </div>
-              <label className="flex items-start gap-3 text-sm text-stone-700 cursor-pointer select-none pt-1">
-                <input type="checkbox" checked={isTeamLead} onChange={(e) => setIsTeamLead(e.target.checked)}
-                  className="mt-0.5 accent-stone-900" />
-                <span>
-                  I'm a <strong>team lead</strong>
-                  <span className="block text-xs text-stone-500 mt-0.5">Team leads can see their whole team's scorecards. An executive can change this later.</span>
-                </span>
-              </label>
+              {team === 'leadership' ? (
+                <div className="text-xs text-stone-600 leading-relaxed p-3 border-l-2 bg-stone-50" style={{ borderColor: '#6639a6' }}>
+                  <strong style={{ color: '#6639a6' }}>Heads up:</strong> Leadership members don't have a personal scorecard.
+                  After signup, an existing executive will need to grant you executive access — then you'll land on the Executive Dashboard with full visibility.
+                </div>
+              ) : (
+                <label className="flex items-start gap-3 text-sm text-stone-700 cursor-pointer select-none pt-1">
+                  <input type="checkbox" checked={isTeamLead} onChange={(e) => setIsTeamLead(e.target.checked)}
+                    className="mt-0.5 accent-stone-900" />
+                  <span>
+                    I'm a <strong>team lead</strong>
+                    <span className="block text-xs text-stone-500 mt-0.5">Team leads can see their whole team's scorecards. An executive can change this later.</span>
+                  </span>
+                </label>
+              )}
             </>
           )}
           <div>
@@ -165,7 +176,8 @@ export default function AuthScreen() {
           {info && <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">{info}</div>}
 
           <button onClick={handleSubmit} disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium disabled:opacity-50">
+            style={{ backgroundColor: ATLAS_PURPLE }}
+            className="w-full flex items-center justify-center gap-2 py-3 text-stone-50 hover:opacity-90 transition-opacity text-sm font-medium disabled:opacity-50">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
             {mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>

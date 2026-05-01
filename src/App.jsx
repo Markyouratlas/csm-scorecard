@@ -11,7 +11,8 @@ import AdStrategistView from './AdStrategistView'
 import EngineerView from './EngineerView'
 import ManagerView from './ManagerView'
 import ComingSoonView from './ComingSoonView'
-import { accessTier } from './teams'
+import LeadershipPendingView from './LeadershipPendingView'
+import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -71,8 +72,37 @@ export default function App() {
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
 
+  // Leadership team members who haven't been promoted to executive yet
+  // see a "waiting for approval" screen instead of an irrelevant scorecard.
+  const isLeadershipMember = isLeadershipTeam(profile.team) && tier !== 'executive'
+  if (isLeadershipMember) {
+    return (
+      <Shell>
+        <LeadershipPendingView
+          profile={profile}
+          onSignOut={handleSignOut}
+          onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
+
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
+    return (
+      <Shell>
+        <ManagerView
+          profile={profile}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={() => setViewMode('self')}
+        />
+      </Shell>
+    )
+  }
+
+  // For executives whose personal role is also Leadership (no scorecard),
+  // there's no useful "self view" — bounce them to manager view.
+  if (canSeeManagerView && viewMode === 'self' && isLeadershipRole(profile.role_type)) {
     return (
       <Shell>
         <ManagerView

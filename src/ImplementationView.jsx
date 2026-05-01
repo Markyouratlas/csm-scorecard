@@ -19,8 +19,8 @@ const PROJECT_STATUSES = [
   { key: 'done',        label: 'Done',        color: '#1C1917' },
 ]
 
-export default function ImplementationView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
-  const weekKey = useMemo(() => getWeekKey(), [])
+export default function ImplementationView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_IMPLEMENTATION_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)

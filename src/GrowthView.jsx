@@ -10,8 +10,8 @@ import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function GrowthView({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
-  const weekKey = useMemo(() => getWeekKey(), [])
+export default function GrowthView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_GROWTH_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)

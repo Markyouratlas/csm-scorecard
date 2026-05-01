@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
-  Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star
+  Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
+  Archive, ArchiveRestore, Eye
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -10,7 +11,10 @@ import {
 } from './constants'
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
-import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS } from './teams'
+import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
+
+import ScorecardViewer from './ScorecardViewer'
+import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 
 export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
   const tier = accessTier(profile)
@@ -29,6 +33,12 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
   const [loading, setLoading] = useState(true)
   const weekKey = useMemo(() => getWeekKey(), [])
 
+  // When set, we're viewing one specific member's scorecard (not the dashboard)
+  const [viewingMember, setViewingMember] = useState(null)
+
+  // Whether to include archived users in the visible roster + dashboards.
+  const [showArchived, setShowArchived] = useState(false)
+
   const loadAll = useCallback(async () => {
     setLoading(true)
     const { data: profiles, error: pErr } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
@@ -44,24 +54,43 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
   useEffect(() => { loadAll() }, [loadAll])
 
   // Filter profiles for team leads — they only see their team
+  // Also filter out archived users unless showArchived is enabled
   const visibleProfiles = useMemo(() => {
-    if (isExec) return allProfiles
-    return allProfiles.filter(p => p.team === profile.team)
-  }, [isExec, allProfiles, profile.team])
+    let result = isExec ? allProfiles : allProfiles.filter(p => p.team === profile.team)
+    if (!showArchived) {
+      result = result.filter(p => !p.archived_at)
+    }
+    return result
+  }, [isExec, allProfiles, profile.team, showArchived])
+
+  const archivedCount = useMemo(
+    () => (isExec ? allProfiles : allProfiles.filter(p => p.team === profile.team)).filter(p => p.archived_at).length,
+    [isExec, allProfiles, profile.team]
+  )
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+
+  // If viewing a specific member's scorecard, render that instead of the dashboard
+  if (viewingMember) {
+    return (
+      <ScorecardViewer
+        targetProfile={viewingMember}
+        viewer={profile}
+        onBack={() => {
+          setViewingMember(null)
+          loadAll()  // refresh data when returning, in case edits were made
+        }}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-sm flex items-center justify-center" style={{ background: '#1C1917' }}>
-              {isExec
-                ? <Crown className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />
-                : <LayoutDashboard className="w-5 h-5" style={{ color: '#F59E0B' }} strokeWidth={2.5} />}
-            </div>
-            <div>
+            <AtlasLogo height={32} />
+            <div className="border-l border-stone-300 pl-4">
               <div className="display-font text-lg font-medium text-stone-900 leading-tight">
                 {isExec ? 'Executive Dashboard' : `${getTeamLabel(profile.team)} Dashboard`}
               </div>
@@ -69,9 +98,21 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <UserCircle2 className="w-4 h-4" /> My scorecard
-            </button>
+            {archivedCount > 0 && (
+              <button
+                onClick={() => setShowArchived(s => !s)}
+                className={`flex items-center gap-1.5 text-xs px-3 py-2 transition-colors ${showArchived ? 'bg-stone-200 text-stone-900' : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100'}`}
+                title={showArchived ? 'Hide archived users' : `Show ${archivedCount} archived user${archivedCount === 1 ? '' : 's'}`}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+              </button>
+            )}
+            {!isLeadershipRole(profile.role_type) && (
+              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
+                <UserCircle2 className="w-4 h-4" /> My scorecard
+              </button>
+            )}
             <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
               <LogOut className="w-4 h-4" /> Sign out
             </button>
@@ -99,7 +140,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
 
         {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} />}
         {visibleTeams.find(t => t.key === tab) && (
-          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} />
+          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} onViewMember={setViewingMember} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
         {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
@@ -203,7 +244,7 @@ function MiniStat({ label, value, sublabel }) {
 //  Team Tab — one component, switches by team key
 // ============================================================================
 
-function TeamTab({ teamKey, profiles, data }) {
+function TeamTab({ teamKey, profiles, data, onViewMember }) {
   const team = getTeam(teamKey)
   const members = profiles.filter(p => p.team === teamKey)
   const [roleSubTab, setRoleSubTab] = useState(team.roles[0].key)
@@ -241,9 +282,9 @@ function TeamTab({ teamKey, profiles, data }) {
 
       {/* Role section */}
       {teamKey === 'customer_success' && activeRole.key === 'csm' ? (
-        <CsmTeamSection members={roleMembers} data={data} />
+        <CsmTeamSection members={roleMembers} data={data} onViewMember={onViewMember} />
       ) : (
-        <RoleTeamSection role={activeRole} members={roleMembers} data={data} />
+        <RoleTeamSection role={activeRole} members={roleMembers} data={data} onViewMember={onViewMember} />
       )}
     </div>
   )
@@ -253,7 +294,7 @@ function TeamTab({ teamKey, profiles, data }) {
 //  CSM team section (existing functionality, ported in)
 // ============================================================================
 
-function CsmTeamSection({ members, data }) {
+function CsmTeamSection({ members, data, onViewMember }) {
   const totalLaunched = members.reduce((s, c) => s + (data[c.id]?.launchedThisWeek || 0), 0)
   const allCustomers = members.flatMap(c => data[c.id]?.ttfvCustomers || [])
   const teamAvgTtfv = avgTtfv(allCustomers)
@@ -298,7 +339,10 @@ function CsmTeamSection({ members, data }) {
                 const ttfv = avgTtfv(customers)
                 const meetings = d?.meetings ? Object.values(d.meetings).reduce((s, arr) => s + sum(arr), 0) : 0
                 return (
-                  <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50/40 transition-colors">
+                  <tr key={c.id}
+                      onClick={() => onViewMember && onViewMember(c)}
+                      className={`border-b border-stone-100 transition-colors ${onViewMember ? 'cursor-pointer hover:bg-stone-50' : 'hover:bg-stone-50/40'}`}
+                      title={onViewMember ? `View ${c.name}'s scorecard` : undefined}>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: c.color, fontFamily: 'Fraunces, serif' }}>
@@ -364,7 +408,7 @@ function CsmTeamSection({ members, data }) {
   )
 }
 
-function RoleTeamSection({ role, members, data }) {
+function RoleTeamSection({ role, members, data, onViewMember }) {
   if (members.length === 0) {
     return (
       <div className="bg-white border border-stone-200 p-8">
@@ -379,9 +423,16 @@ function RoleTeamSection({ role, members, data }) {
       <RoleKpis role={role} members={members} data={data} />
 
       <div>
-        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By {role.label}</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500">By {role.label}</div>
+          {onViewMember && (
+            <div className="text-xs text-stone-500 italic">
+              Click a row to view their full scorecard
+            </div>
+          )}
+        </div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <RoleMemberTable role={role} members={members} data={data} />
+          <RoleMemberTable role={role} members={members} data={data} onViewMember={onViewMember} />
         </div>
       </div>
     </div>
@@ -526,7 +577,7 @@ function RoleKpis({ role, members, data }) {
   )
 }
 
-function RoleMemberTable({ role, members, data }) {
+function RoleMemberTable({ role, members, data, onViewMember }) {
   // Each role gets its own column set
   let columns = []
   if (role.key === 'implementation') {
@@ -610,7 +661,10 @@ function RoleMemberTable({ role, members, data }) {
       </thead>
       <tbody>
         {members.map(m => (
-          <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50/40 transition-colors">
+          <tr key={m.id}
+              onClick={() => onViewMember && onViewMember(m)}
+              className={`border-b border-stone-100 transition-colors ${onViewMember ? 'cursor-pointer hover:bg-stone-50' : 'hover:bg-stone-50/40'}`}
+              title={onViewMember ? `View ${m.name}'s scorecard` : undefined}>
             <td className="py-3 px-4">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: 'Fraunces, serif' }}>
@@ -845,6 +899,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
 
 function RosterTab({ profiles, currentUser, reload, isExec }) {
   const [editing, setEditing] = useState(null) // profile id being edited
+  const [showPreview, setShowPreview] = useState(false)
 
   const setRole = async (id, newRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id)
@@ -859,11 +914,26 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
     setEditing(null)
     reload()
   }
+  const archiveUser = async (id) => {
+    if (!confirm("Archive this user? They'll be hidden from the roster but their data will be preserved. You can restore them later.")) return
+    await supabase.from('profiles').update({ archived_at: new Date().toISOString() }).eq('id', id)
+    reload()
+  }
+  const unarchiveUser = async (id) => {
+    await supabase.from('profiles').update({ archived_at: null }).eq('id', id)
+    reload()
+  }
   const removeUser = async (id) => {
-    if (!confirm('Remove this user from the roster?')) return
+    if (!confirm("⚠️ PERMANENTLY DELETE this user?\n\nThis cannot be undone. All their scorecards and data will be lost forever.\n\nIf they just left the company, use 'Archive' instead — that preserves their data.\n\nAre you absolutely sure?")) return
     await supabase.from('profiles').delete().eq('id', id)
     reload()
   }
+
+  // Sort: active first (alphabetical), then archived (alphabetical)
+  const sortedProfiles = [...profiles].sort((a, b) => {
+    if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? 1 : -1
+    return a.name.localeCompare(b.name)
+  })
 
   return (
     <div className="space-y-8">
@@ -879,8 +949,20 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
         </p>
       </div>
 
+      {isExec && (
+        <div className="fade-up" style={{ animationDelay: '40ms' }}>
+          <button
+            onClick={() => setShowPreview(s => !s)}
+            className="flex items-center gap-2 px-4 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium"
+          >
+            <Eye className="w-4 h-4" /> {showPreview ? 'Hide' : 'Show'} scorecard previews
+          </button>
+          {showPreview && <ScorecardPreviews />}
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 fade-up" style={{ animationDelay: '60ms' }}>
-        {profiles.map(c => (
+        {sortedProfiles.map(c => (
           <RosterCard
             key={c.id}
             profile={c}
@@ -892,6 +974,8 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
             onSetRole={(role) => setRole(c.id, role)}
             onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
             onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
+            onArchive={() => archiveUser(c.id)}
+            onUnarchive={() => unarchiveUser(c.id)}
             onRemove={() => removeUser(c.id)}
           />
         ))}
@@ -900,7 +984,91 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onRemove }) {
+// ============================================================================
+//  Scorecard previews — describes what each role's scorecard contains.
+//  For a live preview with sample data, use the demo users in the roster.
+// ============================================================================
+
+const ROLE_PREVIEWS = {
+  csm: {
+    name: 'CSM',
+    teamLabel: 'Customer Success',
+    teamColor: '#0F766E',
+    description: 'Tracks daily customer meetings, pipeline, launches, time-to-first-value, testimonials, retention, and customer health scores.',
+    sections: ['Daily Meetings', 'Pipeline', 'Launches & TTFV', 'Testimonials', 'Retention', 'Health Scores', 'Monthly View (NRR + NPS)'],
+  },
+  implementation: {
+    name: 'Implementation Specialist',
+    teamLabel: 'Customer Success',
+    teamColor: '#14B8A6',
+    description: 'Tracks daily ticket throughput and per-customer implementation projects with tier-based SLA tracking (14-day Standard / 30-day Enterprise).',
+    sections: ['Daily Tickets', 'Projects (with tier + SLA)', 'Monthly View'],
+  },
+  support: {
+    name: 'Customer Support Associate',
+    teamLabel: 'Customer Success',
+    teamColor: '#06B6D4',
+    description: 'Tracks daily ticket volume, response times, CSAT scores, and escalations.',
+    sections: ['Daily Tickets', 'Escalations', 'CSAT Tracking', 'Monthly View'],
+  },
+  account_executive: {
+    name: 'Account Executive',
+    teamLabel: 'Sales',
+    teamColor: '#1E40AF',
+    description: 'Tracks daily demos and trial signups, plus a deal pipeline with both MRR and one-time value tracking.',
+    sections: ['Daily Funnel', 'Pipeline (MRR + ACV)', 'Monthly View'],
+  },
+  growth_manager: {
+    name: 'Growth Manager',
+    teamLabel: 'Marketing',
+    teamColor: '#BE185D',
+    description: 'Tracks the full funnel: visitors → opt-ins → leads → SQLs → demos → customers, with auto-calculated CPL, CAC, and conversion rates.',
+    sections: ['Daily Funnel', 'Monthly View (CAC, CPL, conversion rates)'],
+  },
+  ad_strategist: {
+    name: 'Ad Strategist',
+    teamLabel: 'Marketing',
+    teamColor: '#DB2777',
+    description: 'Tracks daily ad performance (spend, impressions, clicks, leads), active campaigns, and creative tests.',
+    sections: ['Daily Performance', 'Active Campaigns', 'Creative Tests', 'Monthly View'],
+  },
+  engineer: {
+    name: 'Engineer',
+    teamLabel: 'Product',
+    teamColor: '#7C3AED',
+    description: 'Themed work format that matches how engineers naturally write Slack updates. Track shipped items by category, with PR links and in-flight work.',
+    sections: ['Quick Numbers', 'Work Areas (themed bullets with PRs)', 'In-Flight / Open', 'Monthly View'],
+  },
+}
+
+function ScorecardPreviews() {
+  return (
+    <div className="mt-4 bg-white border border-stone-200 p-5 fade-up">
+      <div className="text-sm text-stone-600 mb-5">
+        Each role has a tailored scorecard. Click into the demo users in your roster to see them with sample data filled in.
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {Object.entries(ROLE_PREVIEWS).map(([key, info]) => (
+          <div key={key} className="border border-stone-200 p-4 hover:border-stone-900 transition-colors">
+            <div className="mono-font text-[9px] uppercase tracking-widest mb-1.5" style={{ color: info.teamColor }}>
+              {info.teamLabel}
+            </div>
+            <div className="display-font text-base font-medium text-stone-900 mb-2">{info.name}</div>
+            <p className="text-xs text-stone-600 mb-3 leading-relaxed">{info.description}</p>
+            <div className="text-[10px] mono-font uppercase tracking-widest text-stone-500 mb-1.5">Sections</div>
+            <div className="flex flex-wrap gap-1">
+              {info.sections.map(s => (
+                <span key={s} className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-700">{s}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onArchive, onUnarchive, onRemove }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -917,8 +1085,14 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
   }
 
   return (
-    <div className="bg-white border border-stone-200 overflow-hidden">
-      <div className="h-2" style={{ background: profile.color }} />
+    <div className={`bg-white border border-stone-200 overflow-hidden transition-opacity ${profile.archived_at ? 'opacity-60' : ''}`}>
+      <div className="h-2" style={{ background: profile.archived_at ? '#A8A29E' : profile.color }} />
+      {profile.archived_at && (
+        <div className="bg-stone-100 border-b border-stone-200 px-3 py-1.5 flex items-center gap-1.5">
+          <Archive className="w-3 h-3 text-stone-500" />
+          <span className="mono-font text-[10px] uppercase tracking-widest text-stone-600">Archived</span>
+        </div>
+      )}
       <div className="p-5">
         <div className="flex items-start gap-3 mb-4">
           <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
@@ -975,7 +1149,7 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
             {isExec && (
               <div className="flex gap-2">
                 {profile.role === 'executive' ? (
-                  <button onClick={() => onSetRole('csm')} disabled={isSelf}
+                  <button onClick={() => onSetRole('member')} disabled={isSelf}
                     className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition-colors text-xs disabled:opacity-40">
                     <Crown className="w-3 h-3" /> Demote from exec
                   </button>
@@ -985,7 +1159,21 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
                     <Crown className="w-3 h-3" /> Make exec
                   </button>
                 )}
+                {profile.archived_at ? (
+                  <button onClick={onUnarchive} disabled={isSelf}
+                    title="Restore this user — they'll appear in the roster again"
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs disabled:opacity-40">
+                    <ArchiveRestore className="w-3 h-3" /> Restore
+                  </button>
+                ) : (
+                  <button onClick={onArchive} disabled={isSelf}
+                    title="Archive this user — they're hidden but their data is preserved"
+                    className="flex items-center justify-center px-3 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                    <Archive className="w-3 h-3" />
+                  </button>
+                )}
                 <button onClick={onRemove} disabled={isSelf}
+                  title="Permanently delete this user — cannot be undone"
                   className="flex items-center justify-center px-3 py-1.5 border border-stone-300 hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
                   <Trash2 className="w-3 h-3" />
                 </button>
