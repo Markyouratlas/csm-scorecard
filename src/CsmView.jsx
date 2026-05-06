@@ -183,7 +183,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
 
         <div className="fade-up" style={{ animationDelay: '160ms' }}>
           {section === 'meetings' && <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />}
-          {section === 'pipeline' && <PipelineSection weekData={weekData} setPipeline={setPipeline} />}
+          {section === 'pipeline' && <PipelineSection weekData={weekData} setPipeline={setPipeline} update={update} />}
           {section === 'launches' && <LaunchesSection weekData={weekData} setField={setField} update={update} />}
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
@@ -300,21 +300,101 @@ function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay })
 //  Pipeline section
 // ============================================================================
 
-function PipelineSection({ weekData, setPipeline }) {
+// Atlas brand purple — used to flag Channel Partner customers everywhere
+const CHANNEL_PARTNER_COLOR = '#6639a6'
+
+function PipelineSection({ weekData, setPipeline, update }) {
   const totalClients = PIPELINE_STAGES.reduce((s, p) => s + (weekData.pipeline[p.key] || 0), 0)
+  const customers = weekData.ttfvCustomers || []
+  const channelPartners = customers.filter(c => c.channelPartner && c.name && c.name.trim())
+
+  const toggleChannelPartner = (id, value) => update(d => ({
+    ...d,
+    ttfvCustomers: (d.ttfvCustomers || []).map(c => c.id === id ? { ...c, channelPartner: value } : c),
+  }))
+
   return (
-    <div className="bg-white border border-stone-200 p-6">
-      <div className="display-font text-2xl font-medium text-stone-900 mb-1">Customer pipeline</div>
-      <p className="text-sm text-stone-600 mb-6">Where do your customers currently sit? Total: <span className="font-semibold text-stone-900 num-tabular">{totalClients}</span></p>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {PIPELINE_STAGES.map(stage => (
-          <div key={stage.key} className="border border-stone-200 p-4">
-            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">{stage.label}</div>
-            <input type="number" min="0" value={weekData.pipeline[stage.key] || ''} onChange={(e) => setPipeline(stage.key, e.target.value)}
-              className="w-full py-2 px-3 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-2xl display-font font-medium" />
-          </div>
-        ))}
+    <div className="space-y-6">
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Customer pipeline</div>
+        <p className="text-sm text-stone-600 mb-6">Where do your customers currently sit? Total: <span className="font-semibold text-stone-900 num-tabular">{totalClients}</span></p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {PIPELINE_STAGES.map(stage => (
+            <div key={stage.key} className="border border-stone-200 p-4">
+              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">{stage.label}</div>
+              <input type="number" min="0" value={weekData.pipeline[stage.key] || ''} onChange={(e) => setPipeline(stage.key, e.target.value)}
+                className="w-full py-2 px-3 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-2xl display-font font-medium" />
+            </div>
+          ))}
+        </div>
       </div>
+
+      <ChannelPartnersPanel
+        customers={channelPartners}
+        onToggleChannelPartner={toggleChannelPartner}
+      />
+    </div>
+  )
+}
+
+function ChannelPartnersPanel({ customers, onToggleChannelPartner }) {
+  return (
+    <div className="bg-white border border-stone-200 p-6 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: CHANNEL_PARTNER_COLOR }} />
+      <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Star className="w-5 h-5" style={{ color: CHANNEL_PARTNER_COLOR, fill: CHANNEL_PARTNER_COLOR }} />
+            <div className="display-font text-2xl font-medium text-stone-900">Channel Partners</div>
+            <span className="mono-font text-[10px] uppercase tracking-widest px-2 py-0.5 rounded text-white num-tabular"
+              style={{ background: CHANNEL_PARTNER_COLOR }}>
+              {customers.length}
+            </span>
+          </div>
+          <p className="text-sm text-stone-600">Priority customers — flag any customer in <span className="font-medium">Launches & TTFV</span> to surface them here.</p>
+        </div>
+      </div>
+
+      {customers.length === 0 ? (
+        <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
+          <div className="display-font text-lg font-medium text-stone-700 mb-1">No channel partners flagged</div>
+          <p className="text-sm text-stone-500">Open the <span className="font-medium">Launches & TTFV</span> tab and toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on any customer to mark them as a channel partner.</p>
+        </div>
+      ) : (
+        <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {customers.map(c => {
+            const total = customerTtfv(c)
+            const healthMeta = HEALTH_OPTIONS.find(h => h.key === (c.healthScore || ''))
+            return (
+              <div key={c.id} className="border border-stone-200 p-4 relative group hover:border-stone-900 transition-colors"
+                style={{ borderLeftWidth: 3, borderLeftColor: CHANNEL_PARTNER_COLOR }}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="font-medium text-stone-900 leading-tight truncate" title={c.name}>{c.name}</div>
+                  <button
+                    onClick={() => onToggleChannelPartner(c.id, false)}
+                    title="Unflag as channel partner"
+                    className="p-1 -m-1 text-stone-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-stone-600">
+                  <span className="num-tabular">
+                    TTFV: <span className="font-semibold text-stone-900">{total > 0 ? `${total}d` : '—'}</span>
+                  </span>
+                  {c.healthScore ? (
+                    <span className="inline-flex items-center gap-1" style={{ color: healthMeta?.textColor }}>
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: healthMeta?.color }} />
+                      {healthMeta?.label.replace(/^[^\w]+\s*/, '')}
+                    </span>
+                  ) : (
+                    <span className="text-stone-400">No health rating</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -369,6 +449,7 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
   // Track which customer rows have already had confetti this session (to fire on every change to ≤14, but not on initial load)
   const initializedRef = useRef(false)
   const lastTotalsRef = useRef({})
+  const [showOnlyChannelPartners, setShowOnlyChannelPartners] = useState(false)
 
   useEffect(() => {
     // After first run, mark initialized so confetti only fires on subsequent changes
@@ -397,6 +478,11 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
     Object.keys(lastTotalsRef.current).forEach(id => { if (!ids.has(id)) delete lastTotalsRef.current[id] })
   }, [customers])
 
+  const channelPartnerCount = customers.filter(c => c.channelPartner).length
+  const visibleCustomers = showOnlyChannelPartners
+    ? customers.filter(c => c.channelPartner)
+    : customers
+
   return (
     <div className="bg-white border border-stone-200 p-6">
       <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
@@ -410,6 +496,29 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
         </button>
       </div>
 
+      {/* Filter chips */}
+      {customers.length > 0 && (
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
+          <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Filter:</span>
+          <button
+            onClick={() => setShowOnlyChannelPartners(false)}
+            className={`text-xs px-2.5 py-1 transition-colors ${!showOnlyChannelPartners ? 'bg-stone-900 text-stone-50' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}>
+            All ({customers.length})
+          </button>
+          <button
+            onClick={() => setShowOnlyChannelPartners(true)}
+            className={`flex items-center gap-1.5 text-xs px-2.5 py-1 transition-colors ${showOnlyChannelPartners ? 'text-white' : 'border text-stone-600 hover:text-stone-900'}`}
+            style={showOnlyChannelPartners
+              ? { background: CHANNEL_PARTNER_COLOR }
+              : { borderColor: '#E7E5E4' }}
+            onMouseEnter={(e) => { if (!showOnlyChannelPartners) e.currentTarget.style.borderColor = CHANNEL_PARTNER_COLOR }}
+            onMouseLeave={(e) => { if (!showOnlyChannelPartners) e.currentTarget.style.borderColor = '#E7E5E4' }}>
+            <Star className={`w-3 h-3 ${showOnlyChannelPartners ? '' : ''}`} style={{ fill: showOnlyChannelPartners ? '#fff' : 'transparent' }} />
+            Channel Partners ({channelPartnerCount})
+          </button>
+        </div>
+      )}
+
       {customers.length === 0 ? (
         <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
           <div className="display-font text-lg font-medium text-stone-700 mb-1">No customers yet</div>
@@ -418,11 +527,19 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
             <Plus className="w-4 h-4" /> Add customer
           </button>
         </div>
+      ) : visibleCustomers.length === 0 ? (
+        <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
+          <div className="display-font text-lg font-medium text-stone-700 mb-1">No channel partners flagged yet</div>
+          <p className="text-sm text-stone-500">Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on any customer below to flag them.</p>
+        </div>
       ) : (
         <div className="mt-6 overflow-x-auto">
-          <table className="w-full text-sm min-w-[700px]">
+          <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
+                <th className="text-center py-2 pl-3 pr-1 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[44px]" title="Channel Partner">
+                  <Star className="w-3.5 h-3.5 inline" style={{ color: CHANNEL_PARTNER_COLOR }} />
+                </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
                 <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage 1<br/><span className="text-[8px] normal-case tracking-normal text-stone-400">Signed → Kickoff</span></th>
                 <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage 2<br/><span className="text-[8px] normal-case tracking-normal text-stone-400">Kickoff → Onboarded</span></th>
@@ -432,12 +549,27 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
               </tr>
             </thead>
             <tbody>
-              {customers.map(c => {
+              {visibleCustomers.map(c => {
                 const total = customerTtfv(c)
                 const hasName = c.name && c.name.trim()
                 const isHit = hasName && total > 0 && total <= 14
+                const isCp = !!c.channelPartner
                 return (
                   <tr key={c.id} className={`border-b border-stone-100 transition-colors ${isHit ? 'bg-emerald-50/40' : ''}`}>
+                    <td className="py-2 pl-3 pr-1 text-center">
+                      <button
+                        onClick={() => updateCustomer(c.id, { channelPartner: !isCp })}
+                        title={isCp ? 'Unflag as channel partner' : 'Flag as channel partner'}
+                        className="p-1.5 transition-colors hover:bg-stone-100">
+                        <Star
+                          className="w-4 h-4 transition-all"
+                          style={{
+                            color: isCp ? CHANNEL_PARTNER_COLOR : '#D6D3D1',
+                            fill: isCp ? CHANNEL_PARTNER_COLOR : 'transparent',
+                          }}
+                        />
+                      </button>
+                    </td>
                     <td className="py-2 px-3">
                       <input
                         value={c.name}
@@ -725,16 +857,65 @@ function CandidateRow({ candidate: c, onUpdate, onUpload, onDownload, onRemove }
 // ============================================================================
 
 function RetentionSection({ weekData, setRetention }) {
+  const customers = weekData.ttfvCustomers || []
+  const channelPartners = customers.filter(c => c.channelPartner)
+  const cpHealth = {
+    green: channelPartners.filter(c => c.healthScore === 'green').length,
+    yellow: channelPartners.filter(c => c.healthScore === 'yellow').length,
+    red: channelPartners.filter(c => c.healthScore === 'red').length,
+    unrated: channelPartners.filter(c => !c.healthScore).length,
+  }
+
   return (
-    <div className="bg-white border border-stone-200 p-6">
-      <div className="display-font text-2xl font-medium text-stone-900 mb-1">Retention & health</div>
-      <p className="text-sm text-stone-600 mb-6">Pulled manually from your other systems for now.</p>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <TextField label="Churn Rate (%)" value={weekData.retention.churnRate} onChange={(v) => setRetention('churnRate', v)} />
-        <TextField label="NRR (%)" value={weekData.retention.nrr} onChange={(v) => setRetention('nrr', v)} />
-        <TextField label="NPS" value={weekData.retention.nps} onChange={(v) => setRetention('nps', v)} />
-        <TextField label="Health Score" value={weekData.retention.healthScore} onChange={(v) => setRetention('healthScore', v)} />
+    <div className="space-y-6">
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Retention & health</div>
+        <p className="text-sm text-stone-600 mb-6">Pulled manually from your other systems for now.</p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <TextField label="Churn Rate (%)" value={weekData.retention.churnRate} onChange={(v) => setRetention('churnRate', v)} />
+          <TextField label="NRR (%)" value={weekData.retention.nrr} onChange={(v) => setRetention('nrr', v)} />
+          <TextField label="NPS" value={weekData.retention.nps} onChange={(v) => setRetention('nps', v)} />
+          <TextField label="Health Score" value={weekData.retention.healthScore} onChange={(v) => setRetention('healthScore', v)} />
+        </div>
       </div>
+
+      {/* Channel Partner retention snapshot */}
+      <div className="bg-white border border-stone-200 p-6 relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1" style={{ background: CHANNEL_PARTNER_COLOR }} />
+        <div className="flex items-center gap-2 mb-1">
+          <Star className="w-5 h-5" style={{ color: CHANNEL_PARTNER_COLOR, fill: CHANNEL_PARTNER_COLOR }} />
+          <div className="display-font text-2xl font-medium text-stone-900">Channel Partner retention</div>
+          <span className="mono-font text-[10px] uppercase tracking-widest px-2 py-0.5 rounded text-white num-tabular"
+            style={{ background: CHANNEL_PARTNER_COLOR }}>
+            {channelPartners.length}
+          </span>
+        </div>
+        <p className="text-sm text-stone-600 mb-4">Health rollup for your priority customers — drill into <span className="font-medium">Health Scores</span> to update.</p>
+        {channelPartners.length === 0 ? (
+          <div className="border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">
+            No channel partners flagged. Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on a customer in the <span className="font-medium">Launches & TTFV</span> tab.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <RetentionMiniTile label="Healthy"  count={cpHealth.green}   total={channelPartners.length} color="#10B981" />
+            <RetentionMiniTile label="At Risk"  count={cpHealth.yellow}  total={channelPartners.length} color="#F59E0B" />
+            <RetentionMiniTile label="Critical" count={cpHealth.red}     total={channelPartners.length} color="#EF4444" />
+            <RetentionMiniTile label="Unrated"  count={cpHealth.unrated} total={channelPartners.length} color="#A8A29E" />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RetentionMiniTile({ label, count, total, color }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0
+  return (
+    <div className="border border-stone-200 p-3 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: color }} />
+      <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500 mb-1">{label}</div>
+      <div className="display-font text-2xl font-medium text-stone-900 num-tabular leading-none">{count}</div>
+      <div className="text-[10px] text-stone-500 mt-1 num-tabular">{pct}% of CPs</div>
     </div>
   )
 }
@@ -794,6 +975,7 @@ const HEALTH_OPTIONS = [
 
 function HealthSection({ weekData, update }) {
   const customers = weekData.ttfvCustomers || []
+  const [showOnlyChannelPartners, setShowOnlyChannelPartners] = useState(false)
 
   const setHealth = (id, score) => update(d => ({
     ...d,
@@ -806,6 +988,11 @@ function HealthSection({ weekData, update }) {
     red: customers.filter(c => c.healthScore === 'red').length,
     unrated: customers.filter(c => !c.healthScore).length,
   }
+
+  const channelPartnerCount = customers.filter(c => c.channelPartner).length
+  const visibleCustomers = showOnlyChannelPartners
+    ? customers.filter(c => c.channelPartner)
+    : customers
 
   return (
     <div className="space-y-6">
@@ -821,10 +1008,36 @@ function HealthSection({ weekData, update }) {
         <p className="text-sm text-stone-600 mb-4">
           Manually rate each customer's health. <span className="text-stone-500">In the future, these can be populated automatically from your application.</span>
         </p>
+
+        {customers.length > 0 && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Filter:</span>
+            <button
+              onClick={() => setShowOnlyChannelPartners(false)}
+              className={`text-xs px-2.5 py-1 transition-colors ${!showOnlyChannelPartners ? 'bg-stone-900 text-stone-50' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}>
+              All ({customers.length})
+            </button>
+            <button
+              onClick={() => setShowOnlyChannelPartners(true)}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 transition-colors ${showOnlyChannelPartners ? 'text-white' : 'border text-stone-600 hover:text-stone-900'}`}
+              style={showOnlyChannelPartners
+                ? { background: CHANNEL_PARTNER_COLOR }
+                : { borderColor: '#E7E5E4' }}>
+              <Star className="w-3 h-3" style={{ fill: showOnlyChannelPartners ? '#fff' : 'transparent' }} />
+              Channel Partners ({channelPartnerCount})
+            </button>
+          </div>
+        )}
+
         {customers.length === 0 ? (
           <div className="border-2 border-dashed border-stone-300 p-8 text-center">
             <div className="display-font text-lg font-medium text-stone-700 mb-1">No customers yet</div>
             <p className="text-sm text-stone-500">Add customers in the "Launches & TTFV" tab.</p>
+          </div>
+        ) : visibleCustomers.length === 0 ? (
+          <div className="border-2 border-dashed border-stone-300 p-8 text-center">
+            <div className="display-font text-lg font-medium text-stone-700 mb-1">No channel partners flagged</div>
+            <p className="text-sm text-stone-500">Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on a customer in the TTFV tab.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -836,9 +1049,22 @@ function HealthSection({ weekData, update }) {
                 </tr>
               </thead>
               <tbody>
-                {customers.map(c => (
+                {visibleCustomers.map(c => (
                   <tr key={c.id} className="border-b border-stone-100">
-                    <td className="py-2 px-3 font-medium text-stone-800">{c.name || <span className="text-stone-400 italic">Unnamed</span>}</td>
+                    <td className="py-2 px-3 font-medium text-stone-800">
+                      <div className="flex items-center gap-2">
+                        {c.channelPartner && (
+                          <Star className="w-3.5 h-3.5 flex-shrink-0" style={{ color: CHANNEL_PARTNER_COLOR, fill: CHANNEL_PARTNER_COLOR }} title="Channel Partner" />
+                        )}
+                        <span>{c.name || <span className="text-stone-400 italic">Unnamed</span>}</span>
+                        {c.channelPartner && (
+                          <span className="mono-font text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded text-white"
+                            style={{ background: CHANNEL_PARTNER_COLOR }}>
+                            Priority
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-2 px-3">
                       <select value={c.healthScore || ''} onChange={(e) => setHealth(c.id, e.target.value)}
                         className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
