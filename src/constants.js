@@ -79,4 +79,5 @@ export const newCustomer = () => ({
   stage2: 0,
   stage3: 0,
   healthScore: '',  // 'green' | 'yellow' | 'red' | ''
+  channelPartner: false,  // priority flag — flows through TTFV / Health / Pipeline / Retention
 })
