@@ -3,7 +3,7 @@
 export function getWeekKey(date = new Date()) {
   const d = new Date(date)
   const day = d.getDay() // 0 = Sun, 1 = Mon ...
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // adjust to Monday
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // adjust to Monday 
   const monday = new Date(d.setDate(diff))
   monday.setHours(0, 0, 0, 0)
   return monday.toISOString().slice(0, 10) // YYYY-MM-DD
