@@ -1136,13 +1136,19 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
         ) : (
           <div className="space-y-2">
             <div className="flex gap-2">
-              <button onClick={() => onSetTeamLead(!profile.is_team_lead)} disabled={isSelf || profile.role === 'executive'}
-                title={isSelf ? "Can't change your own lead status" : ''}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
-                {profile.is_team_lead ? <><ShieldOff className="w-3 h-3" /> Remove lead</> : <><Shield className="w-3 h-3" /> Make lead</>}
-              </button>
+              {isExec ? (
+                <button onClick={() => onSetTeamLead(!profile.is_team_lead)} disabled={isSelf || profile.role === 'executive'}
+                  title={isSelf ? "Can't change your own lead status" : profile.role === 'executive' ? "Executives don't need lead status — they already see everything" : ''}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                  {profile.is_team_lead ? <><ShieldOff className="w-3 h-3" /> Remove lead</> : <><Shield className="w-3 h-3" /> Make lead</>}
+                </button>
+              ) : profile.is_team_lead ? (
+                <div className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+                  <Shield className="w-3 h-3" /> Team Lead
+                </div>
+              ) : null}
               <button onClick={onStartEdit}
-                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs">
+                className={`${isExec || profile.is_team_lead ? 'flex-1' : 'w-full'} flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs`}>
                 Edit role
               </button>
             </div>

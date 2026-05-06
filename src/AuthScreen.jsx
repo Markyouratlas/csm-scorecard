@@ -12,7 +12,6 @@ export default function AuthScreen() {
   const [title, setTitle] = useState('')
   const [team, setTeam] = useState('customer_success')
   const [roleType, setRoleType] = useState('csm')
-  const [isTeamLead, setIsTeamLead] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [info, setInfo] = useState('')
@@ -72,7 +71,7 @@ export default function AuthScreen() {
             role: isFirstUser ? 'executive' : 'member',
             team,
             role_type: roleType,
-            is_team_lead: isFirstUser ? true : isTeamLead,
+            is_team_lead: isFirstUser ? true : false,
             work_days: DEFAULT_WORK_DAYS,
           })
           if (profileError) throw profileError
@@ -153,20 +152,11 @@ export default function AuthScreen() {
                   </select>
                 </div>
               </div>
-              {team === 'leadership' ? (
+              {team === 'leadership' && (
                 <div className="text-xs text-stone-600 leading-relaxed p-3 border-l-2 bg-stone-50" style={{ borderColor: '#6639a6' }}>
                   <strong style={{ color: '#6639a6' }}>Heads up:</strong> Leadership members don't have a personal scorecard.
                   After signup, an existing executive will need to grant you executive access — then you'll land on the Executive Dashboard with full visibility.
                 </div>
-              ) : (
-                <label className="flex items-start gap-3 text-sm text-stone-700 cursor-pointer select-none pt-1">
-                  <input type="checkbox" checked={isTeamLead} onChange={(e) => setIsTeamLead(e.target.checked)}
-                    className="mt-0.5 accent-stone-900" />
-                  <span>
-                    I'm a <strong>team lead</strong>
-                    <span className="block text-xs text-stone-500 mt-0.5">Team leads can see their whole team's scorecards. An executive can change this later.</span>
-                  </span>
-                </label>
               )}
             </>
           )}
