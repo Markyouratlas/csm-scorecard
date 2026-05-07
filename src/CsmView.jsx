@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart
+  Settings as SettingsIcon, Calendar, Heart, Lightbulb, UserMinus, DollarSign, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
   BLANK_WEEK, sum, fmt, DAYS, MEETING_CATEGORIES, PIPELINE_STAGES,
-  customerTtfv, avgTtfv, newCustomer
+  customerTtfv, avgTtfv, newCustomer,
+  FEATURE_REQUEST_STATUSES, FEATURE_REQUEST_PRIORITIES,
+  CANCELLATION_CATEGORIES, cancellationCategoryLabel
 } from './constants'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { fireConfetti } from './confetti'
@@ -100,13 +102,15 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
   const avgTtfvDays = avgTtfv(weekData.ttfvCustomers)
 
   const sections = [
-    { id: 'meetings', label: 'Daily Meetings', icon: CalendarCheck },
-    { id: 'pipeline', label: 'Pipeline', icon: Users },
-    { id: 'launches', label: 'Launches & TTFV', icon: TrendingUp },
-    { id: 'testimonials', label: 'Testimonials', icon: Quote },
-    { id: 'retention', label: 'Retention', icon: Activity },
-    { id: 'health',   label: 'Health Scores', icon: Heart },
-    { id: 'monthly',  label: 'Monthly View',  icon: Calendar },
+    { id: 'meetings',         label: 'Daily Meetings',    icon: CalendarCheck },
+    { id: 'pipeline',         label: 'Pipeline',          icon: Users },
+    { id: 'launches',         label: 'Launches & TTFV',   icon: TrendingUp },
+    { id: 'testimonials',     label: 'Testimonials',      icon: Quote },
+    { id: 'retention',        label: 'Retention',         icon: Activity },
+    { id: 'health',           label: 'Health Scores',     icon: Heart },
+    { id: 'feature_requests', label: 'Feature Requests',  icon: Lightbulb },
+    { id: 'cancellations',    label: 'Cancellations',     icon: UserMinus },
+    { id: 'monthly',          label: 'Monthly View',      icon: Calendar },
   ]
 
   return (
@@ -188,6 +192,8 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
           {section === 'health' && <HealthSection weekData={weekData} update={update} />}
+          {section === 'feature_requests' && <FeatureRequestsSection profile={profile} />}
+          {section === 'cancellations' && <CancellationsSection profile={profile} />}
           {section === 'monthly' && <CsmMonthlyView profile={profile} />}
         </div>
       </div>
@@ -264,9 +270,9 @@ function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay })
       <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="border-b border-stone-200">
-            <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Type</th>
+            <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Type</th>
             {DAYS.map(d => <th key={d} className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">{d}</th>)}
-            <th className="text-right py-2 pl-3 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold">Total</th>
+            <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -274,21 +280,21 @@ function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay })
             const rowTotal = sum(weekData.meetings[cat.key])
             return (
               <tr key={cat.key} className="border-b border-stone-100">
-                <td className="py-2 pr-3 font-medium text-stone-800 whitespace-nowrap">{cat.label}</td>
+                <td className="py-2 px-3 font-medium text-stone-800 whitespace-nowrap">{cat.label}</td>
                 {DAYS.map((_, di) => (
                   <td key={di} className="py-2 px-2 text-center">
                     <input type="number" min="0" value={weekData.meetings[cat.key][di] || ''} onChange={(e) => setMeeting(cat.key, di, e.target.value)}
                       className="w-12 text-center py-1 border border-stone-200 focus:border-stone-900 transition-colors num-tabular" />
                   </td>
                 ))}
-                <td className="py-2 pl-3 text-right num-tabular font-semibold text-stone-900">{rowTotal}</td>
+                <td className="py-2 px-3 text-right num-tabular font-semibold text-stone-900">{rowTotal}</td>
               </tr>
             )
           })}
           <tr className="bg-stone-900 text-stone-50">
-            <td className="py-3 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Daily Total</td>
+            <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Daily Total</td>
             {meetingsByDay.map((c, i) => <td key={i} className="py-3 px-2 text-center num-tabular font-bold">{c}</td>)}
-            <td className="py-3 pl-3 text-right num-tabular font-bold text-lg" style={{ color: '#F59E0B' }}>{totalMeetings}</td>
+            <td className="py-3 px-3 text-right num-tabular font-bold text-lg" style={{ color: '#F59E0B' }}>{totalMeetings}</td>
           </tr>
         </tbody>
       </table>
@@ -1179,5 +1185,468 @@ function MonthlyInput({ label, value, onChange, prefix, placeholder }) {
           className="w-full py-2 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-xl display-font font-medium bg-transparent" />
       </div>
     </div>
+  )
+}
+
+// ============================================================================
+//  Feature Requests Section
+// ============================================================================
+
+function FeatureRequestsSection({ profile }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [filter, setFilter] = useState('all') // 'all' | status key
+  const [expandedId, setExpandedId] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('feature_requests')
+      .select('*')
+      .eq('csm_id', profile.id)
+      .order('requested_date', { ascending: false })
+      .order('created_at', { ascending: false })
+    if (error) console.error('Load feature requests error', error)
+    setRequests(data || [])
+    setLoading(false)
+  }, [profile.id])
+
+  useEffect(() => { load() }, [load])
+
+  const addRequest = async () => {
+    setAdding(true)
+    const { data, error } = await supabase.from('feature_requests').insert({
+      csm_id: profile.id,
+      customer_name: '',
+      title: '',
+      description: '',
+      status: 'submitted',
+      priority: 'medium',
+      requested_date: new Date().toISOString().slice(0, 10),
+      notes: '',
+    }).select().single()
+    setAdding(false)
+    if (error) { console.error(error); alert(error.message); return }
+    setRequests(prev => [data, ...prev])
+    setExpandedId(data.id)
+  }
+
+  const updateRequest = async (id, patch) => {
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+    const { error } = await supabase.from('feature_requests').update(patch).eq('id', id)
+    if (error) { console.error(error); load() }
+  }
+
+  const removeRequest = async (id) => {
+    if (!confirm('Delete this feature request?')) return
+    const { error } = await supabase.from('feature_requests').delete().eq('id', id)
+    if (error) { console.error(error); alert(error.message); return }
+    setRequests(prev => prev.filter(r => r.id !== id))
+    if (expandedId === id) setExpandedId(null)
+  }
+
+  const counts = FEATURE_REQUEST_STATUSES.reduce((acc, s) => ({
+    ...acc, [s.key]: requests.filter(r => r.status === s.key).length,
+  }), {})
+
+  const visible = filter === 'all' ? requests : requests.filter(r => r.status === filter)
+
+  return (
+    <div className="space-y-6">
+      {/* Status summary tiles */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {FEATURE_REQUEST_STATUSES.map(s => (
+          <div key={s.key} className="border border-stone-200 bg-white p-4 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: s.color }} />
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">{s.label}</div>
+            <div className="display-font text-3xl font-medium text-stone-900 num-tabular">{counts[s.key]}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
+          <div>
+            <div className="display-font text-2xl font-medium text-stone-900">Feature requests</div>
+            <p className="text-sm text-stone-600 mt-1">Track what customers are asking for. Click any row to expand the description and notes.</p>
+          </div>
+          <button onClick={addRequest} disabled={adding}
+            className="flex items-center gap-2 px-3 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium disabled:opacity-50">
+            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add request
+          </button>
+        </div>
+
+        {/* Filter chips */}
+        {requests.length > 0 && (
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Filter:</span>
+            <button onClick={() => setFilter('all')}
+              className={`text-xs px-2.5 py-1 transition-colors ${filter === 'all' ? 'bg-stone-900 text-stone-50' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}>
+              All ({requests.length})
+            </button>
+            {FEATURE_REQUEST_STATUSES.map(s => counts[s.key] > 0 && (
+              <button key={s.key} onClick={() => setFilter(s.key)}
+                className={`text-xs px-2.5 py-1 transition-colors ${filter === s.key ? 'text-white' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}
+                style={filter === s.key ? { background: s.textColor } : undefined}>
+                {s.label} ({counts[s.key]})
+              </button>
+            ))}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
+        ) : requests.length === 0 ? (
+          <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
+            <Lightbulb className="w-6 h-6 text-stone-400 mx-auto mb-2" />
+            <div className="display-font text-lg font-medium text-stone-700 mb-1">No feature requests yet</div>
+            <p className="text-sm text-stone-500 mb-4">Capture what your customers are asking for so the product team can prioritize.</p>
+            <button onClick={addRequest} className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium">
+              <Plus className="w-4 h-4" /> Add first request
+            </button>
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center text-sm text-stone-500">
+            No requests in this status. <button onClick={() => setFilter('all')} className="underline ml-1">Show all</button>
+          </div>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-sm min-w-[1100px]">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50">
+                  <th className="w-7"></th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[170px]">Customer</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Title</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[150px]">Status</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[120px]">Priority</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[140px]">Requested</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map(r => (
+                  <FeatureRequestRow key={r.id} request={r}
+                    expanded={expandedId === r.id}
+                    onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                    onUpdate={(patch) => updateRequest(r.id, patch)}
+                    onRemove={() => removeRequest(r.id)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function FeatureRequestRow({ request: r, expanded, onToggleExpand, onUpdate, onRemove }) {
+  const stop = (e) => e.stopPropagation()
+  const statusMeta = FEATURE_REQUEST_STATUSES.find(s => s.key === r.status) || FEATURE_REQUEST_STATUSES[0]
+  const priorityMeta = FEATURE_REQUEST_PRIORITIES.find(p => p.key === r.priority) || FEATURE_REQUEST_PRIORITIES[1]
+
+  return (
+    <>
+      <tr className={`border-b border-stone-100 cursor-pointer transition-colors ${expanded ? 'bg-stone-50' : 'hover:bg-stone-50/50'}`}
+          onClick={onToggleExpand}>
+        <td className="py-2 pl-3 pr-1 text-stone-400">
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input value={r.customer_name || ''} onChange={(e) => onUpdate({ customer_name: e.target.value })}
+            placeholder="Customer name"
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input value={r.title || ''} onChange={(e) => onUpdate({ title: e.target.value })}
+            placeholder="Short feature title (e.g. 'Bulk export to CSV')"
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <select value={r.status} onChange={(e) => onUpdate({ status: e.target.value })}
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
+            style={{ color: statusMeta.textColor, fontWeight: 500 }}>
+            {FEATURE_REQUEST_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <select value={r.priority} onChange={(e) => onUpdate({ priority: e.target.value })}
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
+            style={{ color: priorityMeta.textColor, fontWeight: 500 }}>
+            {FEATURE_REQUEST_PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input type="date" value={r.requested_date || ''} onChange={(e) => onUpdate({ requested_date: e.target.value })}
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
+        </td>
+        <td className="py-2 px-3 text-right" onClick={stop}>
+          <button onClick={onRemove} className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-stone-50/60">
+          <td></td>
+          <td colSpan={6} className="py-5 pr-6">
+            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
+              <div>
+                <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Description / use case</label>
+                <ExpandingTextarea value={r.description || ''} onChange={(v) => onUpdate({ description: v })}
+                  placeholder="What's the customer trying to do? Why does this matter to them?" minRows={3} />
+              </div>
+              <div>
+                <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Internal notes</label>
+                <ExpandingTextarea value={r.notes || ''} onChange={(v) => onUpdate({ notes: v })}
+                  placeholder="Context, conversations with the customer, related tickets..." minRows={2} />
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ============================================================================
+//  Cancellations Section
+// ============================================================================
+
+function CancellationsSection({ profile }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [expandedId, setExpandedId] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('cancellations')
+      .select('*')
+      .eq('csm_id', profile.id)
+      .order('cancelled_date', { ascending: false })
+      .order('created_at', { ascending: false })
+    if (error) console.error('Load cancellations error', error)
+    setItems(data || [])
+    setLoading(false)
+  }, [profile.id])
+
+  useEffect(() => { load() }, [load])
+
+  const addItem = async () => {
+    setAdding(true)
+    const { data, error } = await supabase.from('cancellations').insert({
+      csm_id: profile.id,
+      customer_name: '',
+      customer_email: '',
+      plan_type: '',
+      monthly_amount: null,
+      reason_category: 'other',
+      reason_detail: '',
+      cancelled_date: new Date().toISOString().slice(0, 10),
+    }).select().single()
+    setAdding(false)
+    if (error) { console.error(error); alert(error.message); return }
+    setItems(prev => [data, ...prev])
+    setExpandedId(data.id)
+  }
+
+  const updateItem = async (id, patch) => {
+    setItems(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+    const { error } = await supabase.from('cancellations').update(patch).eq('id', id)
+    if (error) { console.error(error); load() }
+  }
+
+  const removeItem = async (id) => {
+    if (!confirm('Remove this cancellation record?')) return
+    const { error } = await supabase.from('cancellations').delete().eq('id', id)
+    if (error) { console.error(error); alert(error.message); return }
+    setItems(prev => prev.filter(c => c.id !== id))
+    if (expandedId === id) setExpandedId(null)
+  }
+
+  // Aggregates
+  const monthStart = useMemo(() => {
+    const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d
+  }, [])
+  const thisMonth = items.filter(c => c.cancelled_date && new Date(c.cancelled_date + 'T00:00:00') >= monthStart)
+  const totalThisMonth = thisMonth.length
+  const mrrLostThisMonth = thisMonth.reduce((s, c) => s + (Number(c.monthly_amount) || 0), 0)
+
+  // Top reason
+  const reasonCounts = items.reduce((acc, c) => {
+    const key = c.reason_category || 'other'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+  const topReasonEntry = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]
+  const topReason = topReasonEntry ? cancellationCategoryLabel(topReasonEntry[0]) : '—'
+
+  return (
+    <div className="space-y-6">
+      {/* Summary tiles */}
+      <div className="grid sm:grid-cols-3 gap-4">
+        <SummaryTile label="Cancellations This Month" value={totalThisMonth} sublabel={`${items.length} all-time`} color="#B91C1C" icon={UserMinus} />
+        <SummaryTile label="MRR Lost This Month" value={`$${mrrLostThisMonth.toFixed(0)}`} sublabel="Sum of monthly recurring" color="#A16207" icon={DollarSign} />
+        <SummaryTile label="Top Reason" value={<span className="text-2xl">{topReason}</span>} sublabel={topReasonEntry ? `${topReasonEntry[1]} of ${items.length}` : 'No data yet'} color="#7C3AED" icon={Activity} />
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
+          <div>
+            <div className="display-font text-2xl font-medium text-stone-900">Cancelled customers</div>
+            <p className="text-sm text-stone-600 mt-1">Capture each cancellation with enough detail to spot patterns. Click a row for the full reason.</p>
+          </div>
+          <button onClick={addItem} disabled={adding}
+            className="flex items-center gap-2 px-3 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium disabled:opacity-50">
+            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Log cancellation
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
+        ) : items.length === 0 ? (
+          <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
+            <UserMinus className="w-6 h-6 text-stone-400 mx-auto mb-2" />
+            <div className="display-font text-lg font-medium text-stone-700 mb-1">No cancellations logged</div>
+            <p className="text-sm text-stone-500 mb-4">When a customer cancels, log it here to track churn patterns over time.</p>
+            <button onClick={addItem} className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium">
+              <Plus className="w-4 h-4" /> Log first cancellation
+            </button>
+          </div>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-sm min-w-[1200px]">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50">
+                  <th className="w-7"></th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[180px]">Customer</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[220px]">Email</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[140px]">Plan</th>
+                  <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[130px]">Monthly $</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[180px]">Reason Category</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[140px]">Cancelled</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(c => (
+                  <CancellationRow key={c.id} item={c}
+                    expanded={expandedId === c.id}
+                    onToggleExpand={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                    onUpdate={(patch) => updateItem(c.id, patch)}
+                    onRemove={() => removeItem(c.id)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CancellationRow({ item: c, expanded, onToggleExpand, onUpdate, onRemove }) {
+  const stop = (e) => e.stopPropagation()
+  return (
+    <>
+      <tr className={`border-b border-stone-100 cursor-pointer transition-colors ${expanded ? 'bg-stone-50' : 'hover:bg-stone-50/50'}`}
+          onClick={onToggleExpand}>
+        <td className="py-2 pl-3 pr-1 text-stone-400">
+          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input value={c.customer_name || ''} onChange={(e) => onUpdate({ customer_name: e.target.value })}
+            placeholder="Customer name"
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input type="email" value={c.customer_email || ''} onChange={(e) => onUpdate({ customer_email: e.target.value })}
+            placeholder="email@example.com"
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input value={c.plan_type || ''} onChange={(e) => onUpdate({ plan_type: e.target.value })}
+            placeholder="Pro / Enterprise / etc."
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+        </td>
+        <td className="py-2 px-3 text-right" onClick={stop}>
+          <div className="flex items-center justify-end">
+            <span className="text-stone-400 mr-1">$</span>
+            <input type="number" step="any" min="0"
+              value={c.monthly_amount ?? ''}
+              onChange={(e) => onUpdate({ monthly_amount: e.target.value === '' ? null : Number(e.target.value) })}
+              placeholder="0"
+              className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm text-right" />
+          </div>
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <select value={c.reason_category || 'other'} onChange={(e) => onUpdate({ reason_category: e.target.value })}
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white">
+            {CANCELLATION_CATEGORIES.map(cat => <option key={cat.key} value={cat.key}>{cat.label}</option>)}
+          </select>
+        </td>
+        <td className="py-2 px-3" onClick={stop}>
+          <input type="date" value={c.cancelled_date || ''} onChange={(e) => onUpdate({ cancelled_date: e.target.value })}
+            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
+        </td>
+        <td className="py-2 px-3 text-right" onClick={stop}>
+          <button onClick={onRemove} className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-stone-50/60">
+          <td></td>
+          <td colSpan={7} className="py-5 pr-6">
+            <div className="bg-white border border-stone-200 p-5 ml-3">
+              <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">
+                Detailed cancellation reason
+              </label>
+              <ExpandingTextarea value={c.reason_detail || ''} onChange={(v) => onUpdate({ reason_detail: v })}
+                placeholder="What did the customer say? What did you learn? Anything we could have done differently?"
+                minRows={4} />
+              <div className="text-[11px] text-stone-500 mt-2">
+                Tip: the more specific you are here, the easier it'll be to spot churn patterns later.
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ============================================================================
+//  Auto-expanding textarea — grows as the user types, no scrollbar until huge
+// ============================================================================
+
+function ExpandingTextarea({ value, onChange, placeholder, minRows = 2, maxRows = 20 }) {
+  const ref = useRef(null)
+
+  // Resize whenever the value changes (incl. external updates)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    const lineHeight = 22 // approx for our text-sm leading-relaxed
+    const max = maxRows * lineHeight + 24 // padding
+    const next = Math.min(el.scrollHeight, max)
+    el.style.height = next + 'px'
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      rows={minRows}
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full py-2.5 px-3 border border-stone-300 focus:border-stone-900 transition-colors text-sm leading-relaxed resize-none overflow-hidden"
+      style={{ minHeight: minRows * 22 + 24 }}
+    />
   )
 }

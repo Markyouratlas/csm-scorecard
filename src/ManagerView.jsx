@@ -3,11 +3,12 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
-  sum, BLANK_WEEK, PIPELINE_STAGES, MEETING_CATEGORIES, avgTtfv, customerTtfv
+  sum, BLANK_WEEK, PIPELINE_STAGES, MEETING_CATEGORIES, avgTtfv, customerTtfv,
+  cancellationCategoryLabel
 } from './constants'
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -401,6 +402,102 @@ function CsmTeamSection({ members, data, onViewMember }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Cancellations + Feature Requests rollup (Batch 3) */}
+      {members.length > 0 && <CsmCancellationsFeatureRequestsRollup members={members} />}
+    </div>
+  )
+}
+
+function CsmCancellationsFeatureRequestsRollup({ members }) {
+  const [cancellations, setCancellations] = useState([])
+  const [featureRequests, setFeatureRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    const memberIds = members.map(m => m.id)
+    if (memberIds.length === 0) { setLoading(false); return }
+    Promise.all([
+      supabase.from('cancellations').select('*').in('csm_id', memberIds),
+      supabase.from('feature_requests').select('*').in('csm_id', memberIds),
+    ]).then(([c, f]) => {
+      if (cancelled) return
+      if (c.error) console.error('Cancellations load error', c.error)
+      if (f.error) console.error('Feature requests load error', f.error)
+      setCancellations(c.data || [])
+      setFeatureRequests(f.data || [])
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [members])
+
+  const monthStart = useMemo(() => {
+    const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d
+  }, [])
+
+  const cancelledThisMonth = cancellations.filter(c => c.cancelled_date && new Date(c.cancelled_date + 'T00:00:00') >= monthStart)
+  const mrrLost = cancelledThisMonth.reduce((s, c) => s + (Number(c.monthly_amount) || 0), 0)
+
+  // Top reason
+  const reasonCounts = cancellations.reduce((acc, c) => {
+    const k = c.reason_category || 'other'
+    acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
+  const topReasonEntry = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]
+  const topReason = topReasonEntry ? cancellationCategoryLabel(topReasonEntry[0]) : '—'
+
+  // Feature request stats
+  const frActive = featureRequests.filter(r => r.status !== 'shipped' && r.status !== 'declined').length
+  const frHighPriority = featureRequests.filter(r => r.priority === 'high' && r.status !== 'shipped' && r.status !== 'declined').length
+
+  if (loading) {
+    return (
+      <div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Customer signals</div>
+        <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Customer signals · all time</div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <KpiTile label="Cancellations (month)" value={cancelledThisMonth.length} sublabel={`${cancellations.length} all-time`} color="#B91C1C" icon={UserMinus} />
+          <KpiTile label="MRR Lost (month)" value={`$${mrrLost.toFixed(0)}`} sublabel="Sum of monthly recurring" color="#A16207" icon={DollarSign} />
+          <KpiTile label="Top cancel reason" value={<span className="text-2xl">{topReason}</span>} sublabel={topReasonEntry ? `${topReasonEntry[1]} of ${cancellations.length}` : 'No data yet'} color="#7C3AED" icon={Star} />
+          <KpiTile label="Active feature requests" value={frActive} sublabel={`${frHighPriority} high priority`} color="#F59E0B" icon={Lightbulb} />
+        </div>
+      </div>
+
+      {cancellations.length > 0 && (
+        <div>
+          <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Cancellations by reason · all time</div>
+          <div className="bg-white border border-stone-200 p-5">
+            <div className="space-y-2">
+              {Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).map(([key, count]) => {
+                const pct = Math.round((count / cancellations.length) * 100)
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <div className="w-44 text-sm text-stone-700 flex-shrink-0">{cancellationCategoryLabel(key)}</div>
+                    <div className="flex-1 bg-stone-100 h-6 relative overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 bg-stone-900" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="w-24 text-right text-sm num-tabular text-stone-700 flex-shrink-0">
+                      <span className="font-semibold text-stone-900">{count}</span>
+                      <span className="text-stone-500 ml-1.5">({pct}%)</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       )}

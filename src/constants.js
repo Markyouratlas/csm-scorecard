@@ -81,3 +81,36 @@ export const newCustomer = () => ({
   healthScore: '',  // 'green' | 'yellow' | 'red' | ''
   channelPartner: false,  // priority flag — flows through TTFV / Health / Pipeline / Retention
 })
+
+// =============================================================================
+//  Feature Requests
+// =============================================================================
+export const FEATURE_REQUEST_STATUSES = [
+  { key: 'submitted',     label: 'Submitted',    color: '#A8A29E', textColor: '#57534E' },
+  { key: 'under_review',  label: 'Under Review', color: '#3B82F6', textColor: '#1E40AF' },
+  { key: 'planned',       label: 'Planned',      color: '#7C3AED', textColor: '#6D28D9' },
+  { key: 'shipped',       label: 'Shipped',      color: '#10B981', textColor: '#047857' },
+  { key: 'declined',      label: 'Declined',     color: '#EF4444', textColor: '#B91C1C' },
+]
+
+export const FEATURE_REQUEST_PRIORITIES = [
+  { key: 'low',    label: 'Low',    color: '#A8A29E', textColor: '#57534E' },
+  { key: 'medium', label: 'Medium', color: '#F59E0B', textColor: '#A16207' },
+  { key: 'high',   label: 'High',   color: '#EF4444', textColor: '#B91C1C' },
+]
+
+// =============================================================================
+//  Cancellations
+// =============================================================================
+export const CANCELLATION_CATEGORIES = [
+  { key: 'price',                label: 'Price' },
+  { key: 'missing_feature',      label: 'Missing Feature' },
+  { key: 'switched_competitor',  label: 'Switched to Competitor' },
+  { key: 'no_longer_needed',     label: 'No Longer Needed' },
+  { key: 'poor_fit',             label: 'Poor Fit' },
+  { key: 'other',                label: 'Other' },
+]
+
+// Pretty label lookup (used in tables, manager view, etc.)
+export const cancellationCategoryLabel = (key) =>
+  CANCELLATION_CATEGORIES.find(c => c.key === key)?.label || 'Other'

@@ -159,7 +159,7 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
       <table className="w-full text-sm min-w-[760px]">
         <thead>
           <tr className="border-b border-stone-200">
-            <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+            <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
             {fields.map(f => (
               <th key={f.key} className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">
                 {f.label}
@@ -173,7 +173,7 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
             const date = dateFor(dayIdx)
             return (
               <tr key={dayIdx} className="border-b border-stone-100">
-                <td className="py-2 pr-3">
+                <td className="py-2 px-3">
                   <div className="font-medium text-stone-800">{DAY_NAMES[dayIdx]}</div>
                   <div className="text-[10px] text-stone-500 mono-font">{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                 </td>
@@ -187,7 +187,7 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
             )
           })}
           <tr className="bg-stone-900 text-stone-50">
-            <td className="py-3 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Weekly Total</td>
+            <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Weekly Total</td>
             {fields.map(f => {
               const total = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di][f.key]) || 0), 0)
               return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{total}</td>
@@ -391,7 +391,9 @@ function ProjectsSection({ weekData, update, profile }) {
                   {newSlaRate}% <span className="text-base text-stone-400 font-normal">({trackedOnTime} of {tracked.length})</span>
                 </div>
               ) : (
-                <div className="display-font text-3xl font-medium text-stone-400 num-tabular">—</div>
+                <div className="display-font text-2xl font-medium text-stone-400 num-tabular">
+                  Awaiting first activation
+                </div>
               )}
               <div className="text-xs text-stone-500 mt-1">
                 {tracked.length > 0
@@ -430,18 +432,18 @@ function ProjectsSection({ weekData, update, profile }) {
           </div>
         ) : (
           <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-sm min-w-[1200px]">
+            <table className="w-full text-sm min-w-[1280px]">
               <thead>
                 <tr className="border-b border-stone-200 bg-stone-50">
                   <th className="w-7"></th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium min-w-[220px]">Customer</th>
                   <SortableTh label="Tier"      col="tier"      sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[150px]" />
                   <SortableTh label="Status"    col="status"    sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[140px]" />
-                  <SortableTh label="Start"     col="start"     sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[140px]" />
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[140px]">Info Received</th>
-                  <SortableTh label="Activated" col="activated" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[140px]" />
+                  <SortableTh label="Start"     col="start"     sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[150px]" />
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[150px]">Info Received</th>
+                  <SortableTh label="Activated" col="activated" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[150px]" />
                   <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[120px]">On Time?</th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[180px]">Notes</th>
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[200px]">Notes</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>

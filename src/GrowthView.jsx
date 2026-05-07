@@ -114,7 +114,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
         <table className="w-full text-sm min-w-[920px]">
           <thead>
             <tr className="border-b border-stone-200">
-              <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Spend</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Visitors</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Opt-ins</th>
@@ -131,7 +131,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
               const date = dateFor(dayIdx)
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
-                  <td className="py-2 pr-3">
+                  <td className="py-2 px-3">
                     <div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div>
                     <div className="text-[9px] text-stone-500 mono-font">{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                   </td>
@@ -147,7 +147,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
               )
             })}
             <tr className="bg-stone-900 text-stone-50">
-              <td className="py-3 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+              <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">${totals.adSpend.toLocaleString()}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{totals.websiteVisitors.toLocaleString()}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{totals.optins.toLocaleString()}</td>
@@ -169,7 +169,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
         <table className="w-full text-sm min-w-[920px]">
           <thead>
             <tr className="border-b border-stone-200">
-              <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Booked</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Completed</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Trials</th>
@@ -185,7 +185,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
               const day = weekData.daily[dayIdx]
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
-                  <td className="py-2 pr-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
                   <NumCell value={day.demosBooked} onChange={(v) => setCell(dayIdx, 'demosBooked', v)} />
                   <NumCell value={day.demosCompleted} onChange={(v) => setCell(dayIdx, 'demosCompleted', v)} />
                   <NumCell value={day.trialSignups} onChange={(v) => setCell(dayIdx, 'trialSignups', v)} />
@@ -198,7 +198,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
               )
             })}
             <tr className="bg-stone-900 text-stone-50">
-              <td className="py-3 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+              <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosBooked.toLocaleString()}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosCompleted.toLocaleString()}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{totals.trialSignups.toLocaleString()}</td>
