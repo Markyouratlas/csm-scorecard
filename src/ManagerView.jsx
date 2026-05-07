@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -17,7 +17,7 @@ import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, D
 import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
+export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
 
@@ -88,7 +88,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
             <div className="border-l border-stone-300 pl-4">
@@ -98,7 +98,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Week of {formatWeekLabel(weekKey)}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {archivedCount > 0 && (
               <button
                 onClick={() => setShowArchived(s => !s)}
@@ -107,6 +107,16 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf }) {
               >
                 <Archive className="w-3.5 h-3.5" />
                 {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+              </button>
+            )}
+            {onSwitchToFeatureRequests && (
+              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
+                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
+              </button>
+            )}
+            {onSwitchToIntegrations && (
+              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
+                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
               </button>
             )}
             {!isLeadershipRole(profile.role_type) && (
@@ -424,7 +434,8 @@ function CsmCancellationsFeatureRequestsRollup({ members }) {
     if (memberIds.length === 0) { setLoading(false); return }
     Promise.all([
       supabase.from('cancellations').select('*').in('csm_id', memberIds),
-      supabase.from('feature_requests').select('*').in('csm_id', memberIds),
+      // Feature requests are now company-wide; filter to those logged by CS team members
+      supabase.from('feature_requests').select('*').in('logged_by_id', memberIds),
     ]).then(([c, f]) => {
       if (cancelled) return
       if (c.error) console.error('Cancellations load error', c.error)
@@ -452,9 +463,9 @@ function CsmCancellationsFeatureRequestsRollup({ members }) {
   const topReasonEntry = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]
   const topReason = topReasonEntry ? cancellationCategoryLabel(topReasonEntry[0]) : '—'
 
-  // Feature request stats
+  // Feature request stats — open = anything not shipped or declined
   const frActive = featureRequests.filter(r => r.status !== 'shipped' && r.status !== 'declined').length
-  const frHighPriority = featureRequests.filter(r => r.priority === 'high' && r.status !== 'shipped' && r.status !== 'declined').length
+  const frShipped = featureRequests.filter(r => r.status === 'shipped').length
 
   if (loading) {
     return (
@@ -473,7 +484,7 @@ function CsmCancellationsFeatureRequestsRollup({ members }) {
           <KpiTile label="Cancellations (month)" value={cancelledThisMonth.length} sublabel={`${cancellations.length} all-time`} color="#B91C1C" icon={UserMinus} />
           <KpiTile label="MRR Lost (month)" value={`$${mrrLost.toFixed(0)}`} sublabel="Sum of monthly recurring" color="#A16207" icon={DollarSign} />
           <KpiTile label="Top cancel reason" value={<span className="text-2xl">{topReason}</span>} sublabel={topReasonEntry ? `${topReasonEntry[1]} of ${cancellations.length}` : 'No data yet'} color="#7C3AED" icon={Star} />
-          <KpiTile label="Active feature requests" value={frActive} sublabel={`${frHighPriority} high priority`} color="#F59E0B" icon={Lightbulb} />
+          <KpiTile label="Active feature requests" value={frActive} sublabel={`${frShipped} shipped`} color="#F59E0B" icon={Lightbulb} />
         </div>
       </div>
 

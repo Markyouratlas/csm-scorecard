@@ -55,7 +55,7 @@ function readNotesHistory(project) {
   return []
 }
 
-export default function ImplementationView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+export default function ImplementationView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_IMPLEMENTATION_WEEK)
@@ -83,7 +83,7 @@ export default function ImplementationView({ profile, onSignOut, onSwitchToManag
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt}
+    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Implementation Specialist · Week of ${formatWeekLabel(weekKey)}`}

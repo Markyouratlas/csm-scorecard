@@ -12,7 +12,7 @@ import ScorecardShell, {
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function AeView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_AE_WEEK)
@@ -39,7 +39,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onProfil
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt}
+    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Account Executive · Week of ${formatWeekLabel(weekKey)}`}

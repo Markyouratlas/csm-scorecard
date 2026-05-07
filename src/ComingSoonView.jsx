@@ -1,8 +1,8 @@
 import React from 'react'
-import { LogOut, LayoutDashboard, Sparkles, Clock } from 'lucide-react'
+import { LogOut, LayoutDashboard, Sparkles, Clock, Lightbulb, Plug } from 'lucide-react'
 import { getRoleLabel, getTeamLabel, getTeamColor } from './teams'
 
-export default function ComingSoonView({ profile, onSignOut, onSwitchToManager }) {
+export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations }) {
   const teamLabel = getTeamLabel(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const color = getTeamColor(profile.team)
@@ -10,7 +10,7 @@ export default function ComingSoonView({ profile, onSignOut, onSwitchToManager }
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
               {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
@@ -20,7 +20,17 @@ export default function ComingSoonView({ profile, onSignOut, onSwitchToManager }
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">{profile.title || roleLabel}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {onSwitchToFeatureRequests && (
+              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
+                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
+              </button>
+            )}
+            {onSwitchToIntegrations && (
+              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
+                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
             {onSwitchToManager && (
               <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
                 <LayoutDashboard className="w-4 h-4" /> Manager view

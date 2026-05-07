@@ -12,7 +12,7 @@ import ScorecardShell, {
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function AdStrategistView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+export default function AdStrategistView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_AD_WEEK)
@@ -50,7 +50,7 @@ export default function AdStrategistView({ profile, onSignOut, onSwitchToManager
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt}
+    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Ad Strategist · Week of ${formatWeekLabel(weekKey)}`}

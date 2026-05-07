@@ -10,7 +10,7 @@ import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function GrowthView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_GROWTH_WEEK)
@@ -53,7 +53,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onPr
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt}
+    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Growth Manager · Week of ${formatWeekLabel(weekKey)}`}

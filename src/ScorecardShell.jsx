@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon } from 'lucide-react'
+import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug } from 'lucide-react'
 import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
@@ -14,6 +14,8 @@ export default function ScorecardShell({
   savedAt,
   onSignOut,
   onSwitchToManager,
+  onSwitchToFeatureRequests,
+  onSwitchToIntegrations,
   onProfileUpdated,
   children,
 }) {
@@ -21,7 +23,7 @@ export default function ScorecardShell({
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={28} />
             <div className="hidden md:block h-8 w-px bg-stone-300" />
@@ -37,8 +39,18 @@ export default function ScorecardShell({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <SaveIndicator saving={saving} savedAt={savedAt} />
+            {onSwitchToFeatureRequests && (
+              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
+                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
+              </button>
+            )}
+            {onSwitchToIntegrations && (
+              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
+                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
             {onSwitchToManager && (
               <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
                 <LayoutDashboard className="w-4 h-4" /> Manager view

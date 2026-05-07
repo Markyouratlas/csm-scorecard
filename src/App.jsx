@@ -12,13 +12,15 @@ import EngineerView from './EngineerView'
 import ManagerView from './ManagerView'
 import ComingSoonView from './ComingSoonView'
 import LeadershipPendingView from './LeadershipPendingView'
+import SharedPagesView from './SharedPagesView'
 import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('self') // 'self' | 'manager'
+  // 'self' | 'manager' | 'feature_requests' | 'integrations'
+  const [viewMode, setViewMode] = useState('self')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -118,6 +120,25 @@ export default function App() {
     )
   }
 
+  // Shared pages (Feature Requests / Integrations) — visible to everyone with a profile
+  if (viewMode === 'feature_requests' || viewMode === 'integrations') {
+    const canGoToSelf = !isLeadershipRole(profile.role_type)
+    return (
+      <Shell>
+        <SharedPagesView
+          profile={profile}
+          page={viewMode}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
+          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
+          onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
+
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
     return (
@@ -126,6 +147,8 @@ export default function App() {
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
         />
       </Shell>
     )
@@ -140,18 +163,22 @@ export default function App() {
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
         />
       </Shell>
     )
   }
 
-  // Personal scorecard — route based on role_type
+  // Personal scorecard — route based on role
   return (
     <Shell>
       <PersonalScorecard
         profile={profile}
         onSignOut={handleSignOut}
         onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+        onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+        onSwitchToIntegrations={() => setViewMode('integrations')}
         onProfileUpdated={setProfile}
       />
     </Shell>
@@ -159,9 +186,9 @@ export default function App() {
 }
 
 // Routes to the right scorecard component based on the user's role.
-function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onProfileUpdated }) {
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated }) {
   const role = profile.role_type
-  const props = { profile, onSignOut, onSwitchToManager, onProfileUpdated }
+  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated }
   switch (role) {
     case 'csm':
       return <CsmView {...props} />

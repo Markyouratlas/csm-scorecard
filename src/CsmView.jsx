@@ -2,13 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart, Lightbulb, UserMinus, DollarSign, ChevronDown, ChevronRight
+  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, DollarSign, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
   BLANK_WEEK, sum, fmt, DAYS, MEETING_CATEGORIES, PIPELINE_STAGES,
   customerTtfv, avgTtfv, newCustomer,
-  FEATURE_REQUEST_STATUSES, FEATURE_REQUEST_PRIORITIES,
   CANCELLATION_CATEGORIES, cancellationCategoryLabel
 } from './constants'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -19,7 +18,7 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfileUpdated, weekKey: propWeekKey }) {
+export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')
   const [weekData, setWeekData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -108,7 +107,6 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
     { id: 'testimonials',     label: 'Testimonials',      icon: Quote },
     { id: 'retention',        label: 'Retention',         icon: Activity },
     { id: 'health',           label: 'Health Scores',     icon: Heart },
-    { id: 'feature_requests', label: 'Feature Requests',  icon: Lightbulb },
     { id: 'cancellations',    label: 'Cancellations',     icon: UserMinus },
     { id: 'monthly',          label: 'Monthly View',      icon: Calendar },
   ]
@@ -116,7 +114,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={28} />
             <div className="hidden md:block h-8 w-px bg-stone-300" />
@@ -130,8 +128,18 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <SaveIndicator saving={saving} savedAt={savedAt} />
+            {onSwitchToFeatureRequests && (
+              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
+                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
+              </button>
+            )}
+            {onSwitchToIntegrations && (
+              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
+                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
             {onSwitchToManager && (
               <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
                 <LayoutDashboard className="w-4 h-4" /> Manager view
@@ -192,7 +200,6 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onProfi
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
           {section === 'health' && <HealthSection weekData={weekData} update={update} />}
-          {section === 'feature_requests' && <FeatureRequestsSection profile={profile} />}
           {section === 'cancellations' && <CancellationsSection profile={profile} />}
           {section === 'monthly' && <CsmMonthlyView profile={profile} />}
         </div>
@@ -1185,228 +1192,6 @@ function MonthlyInput({ label, value, onChange, prefix, placeholder }) {
           className="w-full py-2 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-xl display-font font-medium bg-transparent" />
       </div>
     </div>
-  )
-}
-
-// ============================================================================
-//  Feature Requests Section
-// ============================================================================
-
-function FeatureRequestsSection({ profile }) {
-  const [requests, setRequests] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(false)
-  const [filter, setFilter] = useState('all') // 'all' | status key
-  const [expandedId, setExpandedId] = useState(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('feature_requests')
-      .select('*')
-      .eq('csm_id', profile.id)
-      .order('requested_date', { ascending: false })
-      .order('created_at', { ascending: false })
-    if (error) console.error('Load feature requests error', error)
-    setRequests(data || [])
-    setLoading(false)
-  }, [profile.id])
-
-  useEffect(() => { load() }, [load])
-
-  const addRequest = async () => {
-    setAdding(true)
-    const { data, error } = await supabase.from('feature_requests').insert({
-      csm_id: profile.id,
-      customer_name: '',
-      title: '',
-      description: '',
-      status: 'submitted',
-      priority: 'medium',
-      requested_date: new Date().toISOString().slice(0, 10),
-      notes: '',
-    }).select().single()
-    setAdding(false)
-    if (error) { console.error(error); alert(error.message); return }
-    setRequests(prev => [data, ...prev])
-    setExpandedId(data.id)
-  }
-
-  const updateRequest = async (id, patch) => {
-    setRequests(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
-    const { error } = await supabase.from('feature_requests').update(patch).eq('id', id)
-    if (error) { console.error(error); load() }
-  }
-
-  const removeRequest = async (id) => {
-    if (!confirm('Delete this feature request?')) return
-    const { error } = await supabase.from('feature_requests').delete().eq('id', id)
-    if (error) { console.error(error); alert(error.message); return }
-    setRequests(prev => prev.filter(r => r.id !== id))
-    if (expandedId === id) setExpandedId(null)
-  }
-
-  const counts = FEATURE_REQUEST_STATUSES.reduce((acc, s) => ({
-    ...acc, [s.key]: requests.filter(r => r.status === s.key).length,
-  }), {})
-
-  const visible = filter === 'all' ? requests : requests.filter(r => r.status === filter)
-
-  return (
-    <div className="space-y-6">
-      {/* Status summary tiles */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {FEATURE_REQUEST_STATUSES.map(s => (
-          <div key={s.key} className="border border-stone-200 bg-white p-4 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: s.color }} />
-            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">{s.label}</div>
-            <div className="display-font text-3xl font-medium text-stone-900 num-tabular">{counts[s.key]}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-white border border-stone-200 p-6">
-        <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
-          <div>
-            <div className="display-font text-2xl font-medium text-stone-900">Feature requests</div>
-            <p className="text-sm text-stone-600 mt-1">Track what customers are asking for. Click any row to expand the description and notes.</p>
-          </div>
-          <button onClick={addRequest} disabled={adding}
-            className="flex items-center gap-2 px-3 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium disabled:opacity-50">
-            {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add request
-          </button>
-        </div>
-
-        {/* Filter chips */}
-        {requests.length > 0 && (
-          <div className="flex items-center gap-2 mt-4 flex-wrap">
-            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Filter:</span>
-            <button onClick={() => setFilter('all')}
-              className={`text-xs px-2.5 py-1 transition-colors ${filter === 'all' ? 'bg-stone-900 text-stone-50' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}>
-              All ({requests.length})
-            </button>
-            {FEATURE_REQUEST_STATUSES.map(s => counts[s.key] > 0 && (
-              <button key={s.key} onClick={() => setFilter(s.key)}
-                className={`text-xs px-2.5 py-1 transition-colors ${filter === s.key ? 'text-white' : 'border border-stone-200 text-stone-600 hover:border-stone-900'}`}
-                style={filter === s.key ? { background: s.textColor } : undefined}>
-                {s.label} ({counts[s.key]})
-              </button>
-            ))}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="py-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
-        ) : requests.length === 0 ? (
-          <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center">
-            <Lightbulb className="w-6 h-6 text-stone-400 mx-auto mb-2" />
-            <div className="display-font text-lg font-medium text-stone-700 mb-1">No feature requests yet</div>
-            <p className="text-sm text-stone-500 mb-4">Capture what your customers are asking for so the product team can prioritize.</p>
-            <button onClick={addRequest} className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium">
-              <Plus className="w-4 h-4" /> Add first request
-            </button>
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="mt-6 border-2 border-dashed border-stone-300 p-8 text-center text-sm text-stone-500">
-            No requests in this status. <button onClick={() => setFilter('all')} className="underline ml-1">Show all</button>
-          </div>
-        ) : (
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-sm min-w-[1100px]">
-              <thead>
-                <tr className="border-b border-stone-200 bg-stone-50">
-                  <th className="w-7"></th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[170px]">Customer</th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Title</th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[150px]">Status</th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[120px]">Priority</th>
-                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[140px]">Requested</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map(r => (
-                  <FeatureRequestRow key={r.id} request={r}
-                    expanded={expandedId === r.id}
-                    onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
-                    onUpdate={(patch) => updateRequest(r.id, patch)}
-                    onRemove={() => removeRequest(r.id)} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function FeatureRequestRow({ request: r, expanded, onToggleExpand, onUpdate, onRemove }) {
-  const stop = (e) => e.stopPropagation()
-  const statusMeta = FEATURE_REQUEST_STATUSES.find(s => s.key === r.status) || FEATURE_REQUEST_STATUSES[0]
-  const priorityMeta = FEATURE_REQUEST_PRIORITIES.find(p => p.key === r.priority) || FEATURE_REQUEST_PRIORITIES[1]
-
-  return (
-    <>
-      <tr className={`border-b border-stone-100 cursor-pointer transition-colors ${expanded ? 'bg-stone-50' : 'hover:bg-stone-50/50'}`}
-          onClick={onToggleExpand}>
-        <td className="py-2 pl-3 pr-1 text-stone-400">
-          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </td>
-        <td className="py-2 px-3" onClick={stop}>
-          <input value={r.customer_name || ''} onChange={(e) => onUpdate({ customer_name: e.target.value })}
-            placeholder="Customer name"
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
-        </td>
-        <td className="py-2 px-3" onClick={stop}>
-          <input value={r.title || ''} onChange={(e) => onUpdate({ title: e.target.value })}
-            placeholder="Short feature title (e.g. 'Bulk export to CSV')"
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
-        </td>
-        <td className="py-2 px-3" onClick={stop}>
-          <select value={r.status} onChange={(e) => onUpdate({ status: e.target.value })}
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
-            style={{ color: statusMeta.textColor, fontWeight: 500 }}>
-            {FEATURE_REQUEST_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </td>
-        <td className="py-2 px-3" onClick={stop}>
-          <select value={r.priority} onChange={(e) => onUpdate({ priority: e.target.value })}
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
-            style={{ color: priorityMeta.textColor, fontWeight: 500 }}>
-            {FEATURE_REQUEST_PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select>
-        </td>
-        <td className="py-2 px-3" onClick={stop}>
-          <input type="date" value={r.requested_date || ''} onChange={(e) => onUpdate({ requested_date: e.target.value })}
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
-        </td>
-        <td className="py-2 px-3 text-right" onClick={stop}>
-          <button onClick={onRemove} className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </td>
-      </tr>
-      {expanded && (
-        <tr className="bg-stone-50/60">
-          <td></td>
-          <td colSpan={6} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
-              <div>
-                <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Description / use case</label>
-                <ExpandingTextarea value={r.description || ''} onChange={(v) => onUpdate({ description: v })}
-                  placeholder="What's the customer trying to do? Why does this matter to them?" minRows={3} />
-              </div>
-              <div>
-                <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Internal notes</label>
-                <ExpandingTextarea value={r.notes || ''} onChange={(v) => onUpdate({ notes: v })}
-                  placeholder="Context, conversations with the customer, related tickets..." minRows={2} />
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
   )
 }
 
