@@ -182,8 +182,8 @@ export function PageHeader({ kicker, kickerColor, title, italicized }) {
   return (
     <div className="mb-10 fade-up">
       <div className="mono-font text-xs uppercase tracking-[0.2em] mb-3" style={{ color: kickerColor || '#78716C' }}>{kicker}</div>
-      <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-        {title}{italicized && <> <em className="font-light">{italicized}</em></>}
+      <h1 className="display-font text-5xl md:text-7xl font-medium leading-[1] tracking-tight text-stone-900">
+        {title}{italicized && <> <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>{italicized}</em></>}
       </h1>
     </div>
   )

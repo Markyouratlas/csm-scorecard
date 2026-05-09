@@ -14,7 +14,7 @@ export default function LeadershipPendingView({ profile, onSignOut, onProfileUpd
   const [showSettings, setShowSettings] = useState(false)
 
   return (
-    <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at top, #FAF8F4 0%, #F0EBE0 100%)' }}>
+    <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at top, #FAFAF7 0%, #EDE7F5 100%)' }}>
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">

@@ -171,8 +171,8 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
             Weekly Scorecard · Week of {formatWeekLabel(weekKey)}
           </div>
-          <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-            How was <em className="font-light">your week,</em><br />{profile.name.split(' ')[0]}?
+          <h1 className="display-font text-5xl md:text-7xl font-medium leading-[1] tracking-tight text-stone-900">
+            How was <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>your week,</em><br />{profile.name.split(' ')[0]}?
           </h1>
         </div>
 

@@ -297,7 +297,7 @@ function FeatureRequestsPage({ profile }) {
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white border border-stone-200 p-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center flex-1 min-w-[260px] max-w-md">
           <Search className="w-4 h-4 text-stone-400 mr-2 flex-shrink-0" />
           <input
@@ -328,7 +328,7 @@ function FeatureRequestsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (
@@ -456,7 +456,7 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
         <tr className="bg-stone-50/60">
           <td></td>
           <td colSpan={8} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
               <div>
                 <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Source / Link</label>
                 <input
@@ -635,7 +635,7 @@ function IntegrationsPage({ profile }) {
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white border border-stone-200 p-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center flex-1 min-w-[260px] max-w-md">
           <Search className="w-4 h-4 text-stone-400 mr-2 flex-shrink-0" />
           <input
@@ -674,7 +674,7 @@ function IntegrationsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (
@@ -817,7 +817,7 @@ function IntegrationRow({ item: r, expanded, onToggleExpand, onUpdate, onRemove,
         <tr className="bg-stone-50/60">
           <td></td>
           <td colSpan={9} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Auth method</label>
