@@ -8,6 +8,7 @@ import {
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 // Atlas brand
 const BRAND = '#6639A6'
@@ -33,10 +34,11 @@ export default function LeadershipDashboardView({
   const [showSettings, setShowSettings] = useState(false)
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
+  const headerRef = useGlassInteraction()
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #FAFAF7 0%, #EDE7F5 100%)' }}>
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
@@ -101,7 +103,7 @@ function LeadershipDashboardContent({ profile, onSwitchToApiGuide }) {
   return (
     <div className="space-y-10">
       {/* Hero */}
-      <section className="bg-white border border-stone-200 p-8 relative overflow-hidden">
+      <section className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 relative overflow-hidden">
         <div className="absolute -top-32 -right-32 w-[520px] h-[520px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.14), transparent 70%)' }}
         />
@@ -157,7 +159,7 @@ function LeadershipDashboardContent({ profile, onSwitchToApiGuide }) {
       </section>
 
       {/* Roadmap */}
-      <section className="bg-white border border-stone-200 p-6">
+      <section className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
         <div className="display-font text-xl font-medium text-stone-900 mb-1">What ships next</div>
         <p className="text-sm text-stone-600 mb-5">
           The Atlas Odyssey rollout is staged so you can demo at every checkpoint. Each phase is fully testable.
@@ -196,7 +198,7 @@ function LeadershipDashboardContent({ profile, onSwitchToApiGuide }) {
 function MetricGroupPlaceholder({ group, animationDelay }) {
   const Icon = group.icon
   return (
-    <div className="bg-white border border-stone-200 p-5 relative overflow-hidden fade-up hover:border-stone-300 transition-colors" style={{ animationDelay }}>
+    <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 relative overflow-hidden fade-up hover:border-stone-300 transition-colors" style={{ animationDelay }}>
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: group.color }} />
       <div className="flex items-start gap-3 mb-3">
         <div className="w-10 h-10 rounded flex items-center justify-center flex-shrink-0" style={{ background: `${group.color}14`, border: `1px solid ${group.color}33` }}>

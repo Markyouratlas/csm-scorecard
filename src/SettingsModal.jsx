@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { X, Loader2, Check, Settings as SettingsIcon, User, Briefcase, Calendar } from 'lucide-react'
 import { supabase } from './supabase'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 export default function SettingsModal({ profile, onClose, onSaved }) {
   const [name, setName] = useState(profile.name || '')
@@ -12,6 +13,7 @@ export default function SettingsModal({ profile, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [error, setError] = useState(null)
+  const modalRef = useGlassInteraction()
 
   const toggle = (idx) => {
     setWorkDays(prev => prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx].sort())
@@ -50,15 +52,15 @@ export default function SettingsModal({ profile, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-stone-50 max-w-lg w-full p-8 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div ref={modalRef} className="glass-modal max-w-lg w-full p-8 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-4 right-4 text-stone-500 hover:text-stone-900 transition-colors">
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-3 mb-6">
-          <SettingsIcon className="w-5 h-5 text-stone-700" />
-          <h2 className="display-font text-2xl font-medium text-stone-900">Your profile</h2>
+          <SettingsIcon className="w-5 h-5" style={{ color: '#6639A6' }} />
+          <h2 className="display-font text-3xl font-medium text-stone-900">Your <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>profile</em></h2>
         </div>
 
         {/* Name */}

@@ -14,14 +14,14 @@ export default function LeadershipPendingView({ profile, onSignOut, onProfileUpd
   const [showSettings, setShowSettings] = useState(false)
 
   return (
-    <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at top, #FAF8F4 0%, #F0EBE0 100%)' }}>
+    <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at top, #FAFAF7 0%, #EDE7F5 100%)' }}>
       <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <AtlasLogo height={28} />
             <div className="hidden md:block h-8 w-px bg-stone-300" />
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
                 {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div>

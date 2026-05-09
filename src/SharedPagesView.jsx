@@ -8,6 +8,7 @@ import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 // =============================================================================
 //  Constants — kept local to this file since they're only used here
@@ -74,10 +75,11 @@ export default function SharedPagesView({
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const canSeeLeadership = tier === 'executive'
+  const headerRef = useGlassInteraction()
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
@@ -154,7 +156,8 @@ function HeaderButton({ active, onClick, icon: Icon, label }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm ${active ? 'bg-stone-900 text-stone-50' : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'}`}
+      className={`flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm ${active ? 'text-white' : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100/60'}`}
+      style={active ? { background: 'rgba(102, 57, 166, 0.85)' } : undefined}
     >
       <Icon className="w-4 h-4" /> <span className="hidden sm:inline">{label}</span>
     </button>
@@ -297,7 +300,7 @@ function FeatureRequestsPage({ profile }) {
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white border border-stone-200 p-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center flex-1 min-w-[260px] max-w-md">
           <Search className="w-4 h-4 text-stone-400 mr-2 flex-shrink-0" />
           <input
@@ -328,7 +331,7 @@ function FeatureRequestsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (
@@ -456,7 +459,7 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
         <tr className="bg-stone-50/60">
           <td></td>
           <td colSpan={8} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
               <div>
                 <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Source / Link</label>
                 <input
@@ -635,7 +638,7 @@ function IntegrationsPage({ profile }) {
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white border border-stone-200 p-4 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center flex-1 min-w-[260px] max-w-md">
           <Search className="w-4 h-4 text-stone-400 mr-2 flex-shrink-0" />
           <input
@@ -674,7 +677,7 @@ function IntegrationsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (
@@ -817,7 +820,7 @@ function IntegrationRow({ item: r, expanded, onToggleExpand, onUpdate, onRemove,
         <tr className="bg-stone-50/60">
           <td></td>
           <td colSpan={9} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 p-5 ml-3 space-y-4">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Auth method</label>

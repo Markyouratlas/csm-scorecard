@@ -1,18 +1,20 @@
 import React from 'react'
 import { LogOut, LayoutDashboard, Sparkles, Clock, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
 import { getRoleLabel, getTeamLabel, getTeamColor } from './teams'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const teamLabel = getTeamLabel(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const color = getTeamColor(profile.team)
+  const headerRef = useGlassInteraction()
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
               {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
             </div>
             <div>

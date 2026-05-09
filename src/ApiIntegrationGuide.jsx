@@ -10,6 +10,7 @@ import {
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 // =============================================================================
 //  Atlas Brand
@@ -301,10 +302,11 @@ export default function ApiIntegrationGuide({
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const canSeeLeadership = tier === 'executive'
+  const headerRef = useGlassInteraction()
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
@@ -393,7 +395,7 @@ export function ApiIntegrationGuideContent() {
   return (
     <div className="space-y-8">
       {/* Hero */}
-      <section className="bg-white border border-stone-200 p-8 relative overflow-hidden">
+      <section className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 relative overflow-hidden">
         <div
           className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.12), transparent 70%)' }}
@@ -432,7 +434,7 @@ export function ApiIntegrationGuideContent() {
       </section>
 
       {/* Toolbar */}
-      <section className="bg-white border border-stone-200 p-4 flex items-center gap-3 flex-wrap">
+      <section className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center flex-1 min-w-[260px] max-w-md">
           <Search className="w-4 h-4 text-stone-400 mr-2 flex-shrink-0" />
           <input
@@ -481,7 +483,7 @@ export function ApiIntegrationGuideContent() {
       </section>
 
       {/* Legend / footer */}
-      <section className="bg-white border border-stone-200 p-5">
+      <section className="bg-white border border-stone-200 rounded-xl shadow-sm p-5">
         <div className="display-font text-base font-medium text-stone-900 mb-3">Legend</div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           {Object.entries(PRIORITY_LABELS).map(([key, meta]) => Number(key) <= 4 && (
@@ -517,7 +519,7 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
   const statusMeta = STATUS_META[status]
 
   return (
-    <div className="bg-white border border-stone-200 transition-shadow hover:shadow-sm fade-up" style={{ animationDelay }}>
+    <div className="bg-white border border-stone-200 rounded-xl shadow-sm transition-shadow hover:shadow-sm fade-up" style={{ animationDelay }}>
       <button onClick={onToggle} className="w-full text-left p-5 flex items-start justify-between gap-4 focus:outline-none focus:bg-stone-50 transition-colors">
         <div className="flex items-start gap-4 flex-1 min-w-0">
           <div className="h-11 w-11 rounded flex items-center justify-center flex-shrink-0" style={{ background: `${p.color}14`, border: `1px solid ${p.color}33` }}>

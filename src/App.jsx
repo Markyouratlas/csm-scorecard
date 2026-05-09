@@ -276,24 +276,423 @@ function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFe
 
 function Shell({ children }) {
   return (
-    <div className="min-h-screen bg-stone-50" style={{ fontFamily: "'Inter Tight', sans-serif" }}>
+    <div className="min-h-screen" style={{ fontFamily: "'Manrope', system-ui, sans-serif", background: 'var(--bg)' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link
-        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
         rel="stylesheet"
       />
+
+      {/* ============================================================
+          Liquid Glass — global SVG filter for refraction/lensing.
+          Defined once, referenced by `filter: url(#liquid-lens-*)`.
+          Display:none keeps it from rendering as content.
+          ============================================================ */}
+      <svg style={{ position: 'absolute', width: 0, height: 0 }} aria-hidden="true">
+        <defs>
+          {/* Light glass: subtle lensing for thin nav surfaces (toolbars, tabs) */}
+          <filter id="liquid-lens-thin" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.020" numOctaves="2" seed="4" />
+            <feDisplacementMap in="SourceGraphic" scale="3" />
+          </filter>
+          {/* Heavier glass: more pronounced lensing for larger surfaces (modal, sidebar) */}
+          <filter id="liquid-lens-thick" x="-10%" y="-10%" width="120%" height="120%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" />
+            <feDisplacementMap in="SourceGraphic" scale="6" />
+          </filter>
+        </defs>
+      </svg>
+
       <style>{`
-        body { background: #FAF8F4; }
-        .display-font { font-family: 'Fraunces', serif; font-optical-sizing: auto; }
-        .mono-font { font-family: 'JetBrains Mono', monospace; }
-        @keyframes fadeUp { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform: translateY(0);} }
-        .fade-up { animation: fadeUp 0.5s cubic-bezier(0.2,0.7,0.3,1) both; }
-        .num-tabular { font-variant-numeric: tabular-nums; }
+        /* ============================================================
+           Atlas Odyssey · Design System
+           Soft off-white canvas with brand purple accents.
+           Liquid Glass applied to navigation surfaces only.
+           ============================================================ */
+        :root {
+          /* Background system */
+          --bg:           #FAFAF7;
+          --bg-deep:      #F4F2EE;
+          --bg-tinted:    #F3EFF7;
+          --bg-tinted-2:  #E8E1F0;
+
+          /* Surface */
+          --surface:      #FFFFFF;
+          --surface-2:    #F8F7FB;
+          --surface-soft: rgba(255, 255, 255, 0.7);
+
+          /* Borders */
+          --border:        rgba(26, 15, 46, 0.14);
+          --border-soft:   rgba(26, 15, 46, 0.08);
+          --border-strong: rgba(26, 15, 46, 0.22);
+
+          /* Text */
+          --text:    #0F0825;
+          --text-2:  #3A3147;
+          --text-3:  #56506A;
+          --text-4:  #6F6884;
+          --text-5:  #8B8499;
+
+          /* Brand */
+          --brand:        #6639A6;
+          --brand-bright: #8B5CD0;
+          --brand-deep:   #4A2980;
+          --brand-soft:   rgba(102, 57, 166, 0.08);
+          --brand-soft-2: rgba(102, 57, 166, 0.14);
+          --brand-line:   rgba(102, 57, 166, 0.22);
+
+          /* Semantic */
+          --green:       #10B981;
+          --green-soft:  rgba(16, 185, 129, 0.10);
+          --green-deep:  #047857;
+          --amber:       #F59E0B;
+          --amber-soft:  rgba(245, 158, 11, 0.10);
+          --amber-deep:  #A16207;
+          --red:         #EF4444;
+          --red-soft:    rgba(239, 68, 68, 0.10);
+          --red-deep:    #B91C1C;
+          --blue:        #3B82F6;
+          --blue-soft:   rgba(59, 130, 246, 0.10);
+          --blue-deep:   #1E40AF;
+
+          /* Shadows — soft, brand-tinted, NOT material-design heavy */
+          --shadow-sm:    0 1px 2px rgba(26, 15, 46, 0.05), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+          --shadow-md:    0 2px 4px rgba(26, 15, 46, 0.05), 0 12px 32px -8px rgba(102, 57, 166, 0.10), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+          --shadow-card:  0 1px 2px rgba(26, 15, 46, 0.04);
+
+          /* Liquid Glass tokens */
+          --glass-radius-nav:    16px;       /* navigation chrome corner radius */
+          --glass-radius-tabs:   12px;       /* concentric: 16 - 4 inset */
+          --glass-radius-modal:  20px;       /* larger surface, larger radius */
+          --glass-radius-toast:  10px;
+          --glass-pointer-mx:    50%;        /* default illumination origin */
+          --glass-pointer-my:    50%;
+          --glass-press:         0;          /* 0 = idle, 1 = pressed */
+        }
+
+        body { background: var(--bg); color: var(--text); }
+        html, body { font-family: 'Manrope', system-ui, sans-serif; }
+
+        /* Subtle grain on the body — gives Liquid Glass something to refract.
+           Without this, lensing is nearly invisible on the flat off-white canvas. */
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          background-image:
+            linear-gradient(rgba(102, 57, 166, 0.022) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(102, 57, 166, 0.022) 1px, transparent 1px);
+          background-size: 56px 56px;
+        }
+
+        /* Typography */
+        .display-font {
+          font-family: 'Instrument Serif', Georgia, serif;
+          font-weight: 400;
+          letter-spacing: -0.005em;
+          font-feature-settings: 'tnum';
+        }
+        .display-font-i { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; }
+        .body-font     { font-family: 'Manrope', system-ui, sans-serif; }
+        .mono-font     { font-family: 'JetBrains Mono', ui-monospace, monospace; font-feature-settings: 'tnum'; }
+        .num-tabular   { font-variant-numeric: tabular-nums; }
+
+        /* Animations */
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-up { animation: fadeUp 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .pulse-dot { animation: pulse-soft 2s ease-in-out infinite; }
+
+        /* Glass materialization — replaces fade-in for glass surfaces.
+           Modulates lensing intensity instead of opacity. */
+        @keyframes glass-materialize {
+          from {
+            opacity: 0;
+            filter: blur(4px);
+            transform: translateY(-2px);
+          }
+          to {
+            opacity: 1;
+            filter: blur(0);
+            transform: translateY(0);
+          }
+        }
+        .glass-materialize { animation: glass-materialize 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+
+        /* Form polish */
         input, textarea, select { font-family: inherit; }
         input:focus, textarea:focus, select:focus { outline: none; }
-        .pulse-dot { animation: pulse-soft 2s ease-in-out infinite; }
-        @keyframes pulse-soft { 0%,100% { opacity:1;} 50% { opacity:0.4;} }
+
+        /* ============================================================
+           LIQUID GLASS — NAVIGATION CHROME
+           ============================================================
+           5-layer composition per the doctrine:
+             1. Refraction (backdrop-filter blur + saturate + SVG lens)
+             2. Adaptive tint (thin specular tint via gradient)
+             3. Highlights (inset rim light along top edge)
+             4. Adaptive shadow (low-opacity outer + inner fill)
+             5. Interactive illumination (pointer-tracked radial gradient)
+           ============================================================ */
+
+        /* Base glass — variant: Regular. Used on toolbars/headers (thin glass). */
+        .glass-nav {
+          position: relative;
+
+          /* Layer 1: Refraction — chained backdrop filters.
+             saturate() recovers the vibrancy that pure blur kills.
+             contrast() restores the punch lost to translucency.
+             The SVG displacement filter is applied via a pseudo-element below
+             so it doesn't interact with content. */
+          backdrop-filter: blur(20px) saturate(180%) contrast(105%);
+          -webkit-backdrop-filter: blur(20px) saturate(180%) contrast(105%);
+
+          /* Layer 2: Adaptive tint — gradient from slightly more opaque at the
+             top to less opaque below, simulating how real glass catches light
+             from above. NOT a solid background-color — the doctrine forbids it. */
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(255, 255, 255, calc(0.10 + var(--glass-press) * 0.18)),
+              rgba(255, 255, 255, 0) 50%
+            ),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+
+          /* Layer 3: Highlight rim. The inset white line at the top edge is the
+             specular catch you get on real glass under overhead lighting. */
+          border: 1px solid rgba(255, 255, 255, 0.55);
+          box-shadow:
+            /* Outer shadow — soft, brand-tinted, low opacity. Not Material Design heavy. */
+            0 4px 16px -6px rgba(102, 57, 166, 0.12),
+            0 1px 2px rgba(26, 15, 46, 0.04),
+            /* Layer 3 (cont.): top rim highlight via inset shadow */
+            inset 0 1px 0 rgba(255, 255, 255, 0.9),
+            /* Bottom shadow — adaptive, deepens over content (approximated) */
+            inset 0 -1px 0 rgba(26, 15, 46, 0.04);
+
+          border-radius: var(--glass-radius-nav);
+          transition:
+            box-shadow 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            background 180ms ease-out;
+        }
+
+        /* Layer 4: Adaptive shadow gets darker on hover — implies the glass
+           "rises" slightly off the canvas. */
+        .glass-nav:hover {
+          box-shadow:
+            0 8px 24px -8px rgba(102, 57, 166, 0.18),
+            0 2px 4px rgba(26, 15, 46, 0.06),
+            inset 0 1px 0 rgba(255, 255, 255, 0.95),
+            inset 0 -1px 0 rgba(26, 15, 46, 0.05);
+        }
+
+        /* Layer 5: Press illumination — handled via --glass-press CSS var
+           (set by JS pointerdown/up listeners). The radial gradient in the
+           background grows brighter under the fingertip on press. */
+
+        /* Sticky header variant — full-width strip, no rounded corners on
+           the long axis, lift via shadow only */
+        .glass-nav-strip {
+          /* Inherits Liquid Glass from glass-nav, but shaped as a strip */
+          border-radius: 0;
+          border-left: none;
+          border-right: none;
+          border-top: none;
+          /* Specifically: a sticky strip wants a hard bottom edge with hairline */
+          border-bottom: 1px solid rgba(102, 57, 166, 0.10);
+        }
+
+        /* Section tabs — concentric corner radius, child of nav surface */
+        .glass-tab {
+          position: relative;
+          backdrop-filter: blur(14px) saturate(170%);
+          -webkit-backdrop-filter: blur(14px) saturate(170%);
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(255, 255, 255, calc(0.12 + var(--glass-press) * 0.20)),
+              rgba(255, 255, 255, 0) 60%
+            ),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.40) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.5);
+          border-radius: var(--glass-radius-tabs);
+          box-shadow:
+            0 1px 2px rgba(26, 15, 46, 0.04),
+            inset 0 1px 0 rgba(255, 255, 255, 0.7);
+          transition: background 160ms ease-out, box-shadow 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .glass-tab:hover {
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(255, 255, 255, 0.30),
+              rgba(255, 255, 255, 0) 60%
+            ),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.55) 100%);
+          box-shadow:
+            0 4px 12px -4px rgba(102, 57, 166, 0.14),
+            0 1px 2px rgba(26, 15, 46, 0.05),
+            inset 0 1px 0 rgba(255, 255, 255, 0.85);
+        }
+
+        /* Active tab state — uses tinting model (color modulated by content
+           brightness), not solid fill. Keeps the glass character. */
+        .glass-tab-active {
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(102, 57, 166, calc(0.20 + var(--glass-press) * 0.20)),
+              rgba(102, 57, 166, 0.10) 60%
+            ),
+            linear-gradient(180deg, rgba(102, 57, 166, 0.18) 0%, rgba(102, 57, 166, 0.10) 100%);
+          border: 1px solid rgba(102, 57, 166, 0.32);
+          color: var(--brand-deep);
+          box-shadow:
+            0 4px 12px -4px rgba(102, 57, 166, 0.22),
+            0 1px 2px rgba(26, 15, 46, 0.04),
+            inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        }
+        .glass-tab-active:hover {
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(102, 57, 166, 0.30),
+              rgba(102, 57, 166, 0.14) 60%
+            ),
+            linear-gradient(180deg, rgba(102, 57, 166, 0.22) 0%, rgba(102, 57, 166, 0.13) 100%);
+        }
+
+        /* Modal — thicker glass for larger surface (per Section 3 of doctrine) */
+        .glass-modal {
+          position: relative;
+          backdrop-filter: blur(40px) saturate(180%) contrast(105%);
+          -webkit-backdrop-filter: blur(40px) saturate(180%) contrast(105%);
+          background:
+            radial-gradient(
+              circle at var(--glass-pointer-mx) var(--glass-pointer-my),
+              rgba(255, 255, 255, 0.30),
+              rgba(255, 255, 255, 0) 60%
+            ),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.78) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.7);
+          border-radius: var(--glass-radius-modal);
+          box-shadow:
+            /* Bigger surface = bigger but still soft outer shadow */
+            0 32px 64px -24px rgba(26, 15, 46, 0.32),
+            0 4px 12px -2px rgba(102, 57, 166, 0.16),
+            inset 0 1px 0 rgba(255, 255, 255, 0.95);
+        }
+
+        /* Save indicator toast — small pill that lives in the header.
+           NOTE: doctrine forbids glass-on-glass. So when this toast sits inside
+           the .glass-nav header, we don't render it as glass — it becomes a
+           tinted vibrancy fill. The .glass-toast class is used only when the
+           toast is on the content layer (not currently used in this app). */
+        .glass-vibrancy-pill {
+          background: rgba(16, 185, 129, 0.16);
+          color: #047857;
+          border: 1px solid rgba(16, 185, 129, 0.32);
+          border-radius: 9999px;
+          padding: 4px 10px;
+        }
+
+        /* ============================================================
+           Fallbacks for browsers without backdrop-filter.
+           Falls back to a high-opacity solid surface that respects the same
+           color logic, never a broken transparent panel.
+           ============================================================ */
+        @supports not (backdrop-filter: blur(1px)) {
+          .glass-nav, .glass-nav-strip, .glass-modal, .glass-tab {
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+          .glass-tab-active {
+            background: rgba(102, 57, 166, 0.12);
+          }
+        }
+
+        /* ============================================================
+           Accessibility — non-negotiable per the doctrine.
+           ============================================================ */
+
+        /* prefers-reduced-transparency:
+           Glass becomes solid (frosty obscures the backdrop). */
+        @media (prefers-reduced-transparency: reduce) {
+          .glass-nav, .glass-nav-strip {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+          .glass-modal {
+            background: #FFFFFF;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+          .glass-tab {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+          .glass-tab-active {
+            background: rgba(102, 57, 166, 0.16);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+        }
+
+        /* prefers-contrast: more —
+           predominantly black or white surfaces with contrasting borders.
+           Lensing yields to legibility. */
+        @media (prefers-contrast: more) {
+          .glass-nav, .glass-nav-strip, .glass-modal {
+            background: #FFFFFF;
+            border: 2px solid var(--text);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+          .glass-tab {
+            background: #FFFFFF;
+            border: 1px solid var(--text);
+            color: var(--text);
+          }
+          .glass-tab-active {
+            background: var(--text);
+            color: #FFFFFF;
+            border: 1px solid var(--text);
+          }
+        }
+
+        /* prefers-reduced-motion:
+           disable elastic/gel properties, simplify transitions, drop the
+           pointer-tracked illumination spread animation. */
+        @media (prefers-reduced-motion: reduce) {
+          .glass-nav, .glass-nav-strip, .glass-tab, .glass-tab-active, .glass-modal {
+            transition: none;
+          }
+          .glass-nav, .glass-nav-strip, .glass-tab, .glass-tab-active {
+            background:
+              linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+          }
+          .glass-tab-active {
+            background:
+              linear-gradient(180deg, rgba(102, 57, 166, 0.18) 0%, rgba(102, 57, 166, 0.10) 100%);
+          }
+          .fade-up, .glass-materialize { animation: none; }
+        }
+
+        /* Scrollbar polish */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(26, 15, 46, 0.15); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(26, 15, 46, 0.25); }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        /* Brand-soft + tinted utility classes */
+        .bg-brand-soft { background: var(--brand-soft); }
+        .bg-tinted     { background: var(--bg-tinted); }
+        .bg-tinted-2   { background: var(--bg-tinted-2); }
       `}</style>
       {children}
     </div>

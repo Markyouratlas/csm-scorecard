@@ -16,10 +16,12 @@ import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, D
 
 import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
+import { useGlassInteraction } from './hooks/useGlassInteraction'
 
 export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
+  const headerRef = useGlassInteraction()
 
   // For team leads, lock the visible team to their own
   const visibleTeams = useMemo(() => {
@@ -87,7 +89,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
@@ -367,7 +369,7 @@ function CsmTeamSection({ members, data, onViewMember }) {
                       title={onViewMember ? `View ${c.name}'s scorecard` : undefined}>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: c.color, fontFamily: 'Fraunces, serif' }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: c.color, fontFamily: "'Instrument Serif', serif" }}>
                           {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                         </div>
                         <div>
@@ -786,7 +788,7 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
               title={onViewMember ? `View ${m.name}'s scorecard` : undefined}>
             <td className="py-3 px-4">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: 'Fraunces, serif' }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: "'Instrument Serif', serif" }}>
                   {m.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                 </div>
                 <div>
@@ -976,7 +978,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
               <td className="py-3 px-4">
                 {csm ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-[10px]" style={{ background: csm.color, fontFamily: 'Fraunces, serif' }}>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-[10px]" style={{ background: csm.color, fontFamily: "'Instrument Serif', serif" }}>
                       {csm.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                     </div>
                     <span className="text-stone-800 font-medium">{csm.name}</span>
@@ -1214,7 +1216,7 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
       )}
       <div className="p-5">
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
             {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
           </div>
           <div className="min-w-0 flex-1">
