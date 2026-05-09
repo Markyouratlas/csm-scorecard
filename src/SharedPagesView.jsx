@@ -331,7 +331,7 @@ function FeatureRequestsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (
@@ -677,7 +677,7 @@ function IntegrationsPage({ profile }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-500" /></div>
         ) : items.length === 0 ? (

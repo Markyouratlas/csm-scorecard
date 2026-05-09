@@ -174,10 +174,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 }
 
 function TabButton({ active, onClick, icon: Icon, children, color }) {
+  const ref = useGlassInteraction()
   return (
-    <button onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
-      <Icon className="w-4 h-4" style={!active && color ? { color } : {}} /> {children}
+    <button
+      ref={ref}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'glass-tab glass-tab-active' : 'glass-tab text-stone-700'}`}
+    >
+      {Icon && <Icon className="w-4 h-4" style={!active && color ? { color } : {}} />} {children}
     </button>
   )
 }

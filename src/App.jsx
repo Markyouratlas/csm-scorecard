@@ -504,7 +504,9 @@ function Shell({ children }) {
           border-bottom: 1px solid rgba(102, 57, 166, 0.10);
         }
 
-        /* Section tabs — concentric corner radius, child of nav surface */
+        /* Section tabs — concentric corner radius, child of nav surface.
+           These need to "pop" off lavender / off-white backgrounds, so we
+           use higher opacity + a soft brand-tinted lift shadow. */
         .glass-tab {
           position: relative;
           backdrop-filter: blur(14px) saturate(170%);
@@ -512,56 +514,66 @@ function Shell({ children }) {
           background:
             radial-gradient(
               circle at var(--glass-pointer-mx) var(--glass-pointer-my),
-              rgba(255, 255, 255, calc(0.12 + var(--glass-press) * 0.20)),
+              rgba(255, 255, 255, calc(0.18 + var(--glass-press) * 0.22)),
               rgba(255, 255, 255, 0) 60%
             ),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.40) 100%);
-          border: 1px solid rgba(255, 255, 255, 0.5);
+            linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.7);
           border-radius: var(--glass-radius-tabs);
+          /* Lift shadow — gives the "floating off the page" feel */
           box-shadow:
-            0 1px 2px rgba(26, 15, 46, 0.04),
-            inset 0 1px 0 rgba(255, 255, 255, 0.7);
-          transition: background 160ms ease-out, box-shadow 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+            0 6px 16px -8px rgba(102, 57, 166, 0.18),
+            0 1px 2px rgba(26, 15, 46, 0.06),
+            inset 0 1px 0 rgba(255, 255, 255, 0.85);
+          transition: background 160ms ease-out, box-shadow 220ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         .glass-tab:hover {
           background:
             radial-gradient(
               circle at var(--glass-pointer-mx) var(--glass-pointer-my),
-              rgba(255, 255, 255, 0.30),
+              rgba(255, 255, 255, 0.40),
               rgba(255, 255, 255, 0) 60%
             ),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.55) 100%);
+            linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.78) 100%);
           box-shadow:
-            0 4px 12px -4px rgba(102, 57, 166, 0.14),
-            0 1px 2px rgba(26, 15, 46, 0.05),
-            inset 0 1px 0 rgba(255, 255, 255, 0.85);
+            0 10px 22px -8px rgba(102, 57, 166, 0.26),
+            0 2px 4px rgba(26, 15, 46, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.95);
+          transform: translateY(-1px);
         }
 
         /* Active tab state — uses tinting model (color modulated by content
-           brightness), not solid fill. Keeps the glass character. */
+           brightness), not solid fill. Keeps the glass character.
+           Stronger purple presence + more pronounced lift than default tabs. */
         .glass-tab-active {
           background:
             radial-gradient(
               circle at var(--glass-pointer-mx) var(--glass-pointer-my),
-              rgba(102, 57, 166, calc(0.20 + var(--glass-press) * 0.20)),
-              rgba(102, 57, 166, 0.10) 60%
+              rgba(102, 57, 166, calc(0.36 + var(--glass-press) * 0.20)),
+              rgba(102, 57, 166, 0.18) 60%
             ),
-            linear-gradient(180deg, rgba(102, 57, 166, 0.18) 0%, rgba(102, 57, 166, 0.10) 100%);
-          border: 1px solid rgba(102, 57, 166, 0.32);
+            linear-gradient(180deg, rgba(102, 57, 166, 0.30) 0%, rgba(102, 57, 166, 0.18) 100%);
+          border: 1px solid rgba(102, 57, 166, 0.45);
           color: var(--brand-deep);
+          font-weight: 600;
           box-shadow:
-            0 4px 12px -4px rgba(102, 57, 166, 0.22),
-            0 1px 2px rgba(26, 15, 46, 0.04),
-            inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            0 8px 20px -6px rgba(102, 57, 166, 0.36),
+            0 2px 4px rgba(26, 15, 46, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.5);
         }
         .glass-tab-active:hover {
           background:
             radial-gradient(
               circle at var(--glass-pointer-mx) var(--glass-pointer-my),
-              rgba(102, 57, 166, 0.30),
-              rgba(102, 57, 166, 0.14) 60%
+              rgba(102, 57, 166, 0.45),
+              rgba(102, 57, 166, 0.22) 60%
             ),
-            linear-gradient(180deg, rgba(102, 57, 166, 0.22) 0%, rgba(102, 57, 166, 0.13) 100%);
+            linear-gradient(180deg, rgba(102, 57, 166, 0.36) 0%, rgba(102, 57, 166, 0.22) 100%);
+          box-shadow:
+            0 12px 26px -8px rgba(102, 57, 166, 0.44),
+            0 3px 6px rgba(26, 15, 46, 0.10),
+            inset 0 1px 0 rgba(255, 255, 255, 0.55);
+          transform: translateY(-1px);
         }
 
         /* Modal — thicker glass for larger surface (per Section 3 of doctrine) */

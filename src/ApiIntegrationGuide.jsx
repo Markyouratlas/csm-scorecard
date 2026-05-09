@@ -519,7 +519,7 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
   const statusMeta = STATUS_META[status]
 
   return (
-    <div className="bg-white border border-stone-200 rounded-xl shadow-sm transition-shadow hover:shadow-sm fade-up" style={{ animationDelay }}>
+    <div className="bg-white border border-stone-200 rounded-xl shadow-sm transition-shadow hover:shadow-sm fade-up overflow-hidden" style={{ animationDelay }}>
       <button onClick={onToggle} className="w-full text-left p-5 flex items-start justify-between gap-4 focus:outline-none focus:bg-stone-50 transition-colors">
         <div className="flex items-start gap-4 flex-1 min-w-0">
           <div className="h-11 w-11 rounded flex items-center justify-center flex-shrink-0" style={{ background: `${p.color}14`, border: `1px solid ${p.color}33` }}>
@@ -568,7 +568,7 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
             </div>
             <div className="space-y-2">
               {p.keys_needed.map(k => (
-                <div key={k.name} className="border border-stone-200 bg-stone-50/40 px-3 py-2.5">
+                <div key={k.name} className="border border-stone-200 bg-stone-50/40 px-3 py-2.5 rounded-lg">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
