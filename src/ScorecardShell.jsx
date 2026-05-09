@@ -4,7 +4,7 @@ import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 // Brand purple — used for the Leadership entry point so it stands out
 const BRAND = '#6639A6'

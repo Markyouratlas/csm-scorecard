@@ -17,7 +17,7 @@ import AtlasLogo from './AtlasLogo'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')

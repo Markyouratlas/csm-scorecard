@@ -16,7 +16,7 @@ import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, D
 
 import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const tier = accessTier(profile)

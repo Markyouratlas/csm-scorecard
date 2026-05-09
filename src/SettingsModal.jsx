@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { X, Loader2, Check, Settings as SettingsIcon, User, Briefcase, Calendar } from 'lucide-react'
 import { supabase } from './supabase'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 export default function SettingsModal({ profile, onClose, onSaved }) {
   const [name, setName] = useState(profile.name || '')

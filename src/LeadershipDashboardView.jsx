@@ -8,7 +8,7 @@ import {
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 // Atlas brand
 const BRAND = '#6639A6'

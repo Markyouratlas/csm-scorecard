@@ -1,7 +1,7 @@
 import React from 'react'
 import { LogOut, LayoutDashboard, Sparkles, Clock, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
 import { getRoleLabel, getTeamLabel, getTeamColor } from './teams'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const teamLabel = getTeamLabel(profile.team)

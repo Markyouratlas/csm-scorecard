@@ -8,7 +8,7 @@ import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
-import { useGlassInteraction } from './hooks/useGlassInteraction'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 // =============================================================================
 //  Constants — kept local to this file since they're only used here
