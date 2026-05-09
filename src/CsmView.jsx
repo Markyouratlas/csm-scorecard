@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, DollarSign, ChevronDown, ChevronRight
+  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, DollarSign, ChevronDown, ChevronRight, Crown, Zap
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -17,14 +17,16 @@ import AtlasLogo from './AtlasLogo'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated, weekKey: propWeekKey }) {
+export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')
   const [weekData, setWeekData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
+  const headerRef = useGlassInteraction()
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
 
   // ----- Load this week's scorecard -----
@@ -113,13 +115,13 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={28} />
             <div className="hidden md:block h-8 w-px bg-stone-300" />
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
                 {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div>
@@ -130,6 +132,17 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <SaveIndicator saving={saving} savedAt={savedAt} />
+            {onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ background: 'rgba(102, 57, 166, 0.08)', color: '#6639A6' }} title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup Guide">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
+              </button>
+            )}
             {onSwitchToFeatureRequests && (
               <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
                 <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
@@ -160,8 +173,8 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
             Weekly Scorecard · Week of {formatWeekLabel(weekKey)}
           </div>
-          <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-            How was <em className="font-light">your week,</em><br />{profile.name.split(' ')[0]}?
+          <h1 className="display-font text-5xl md:text-7xl font-medium leading-[1] tracking-tight text-stone-900">
+            How was <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>your week,</em><br />{profile.name.split(' ')[0]}?
           </h1>
         </div>
 
@@ -185,10 +198,9 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
             const Icon = s.icon
             const active = section === s.id
             return (
-              <button key={s.id} onClick={() => setSection(s.id)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
+              <CsmTab key={s.id} active={active} onClick={() => setSection(s.id)}>
                 <Icon className="w-4 h-4" /> {s.label}
-              </button>
+              </CsmTab>
             )
           })}
         </div>
@@ -221,8 +233,22 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
 
 function SaveIndicator({ saving, savedAt }) {
   if (saving) return <div className="flex items-center gap-1.5 text-xs text-stone-500 px-2"><Loader2 className="w-3 h-3 animate-spin" /> Saving</div>
-  if (savedAt) return <div className="flex items-center gap-1.5 text-xs text-emerald-700 px-2"><Check className="w-3 h-3" /> Saved</div>
+  if (savedAt) return <div className="glass-vibrancy-pill flex items-center gap-1.5 text-xs"><Check className="w-3 h-3" /> Saved</div>
   return null
+}
+
+// Each tab is a glass surface — pointer-tracked illumination per the doctrine.
+function CsmTab({ active, onClick, children }) {
+  const ref = useGlassInteraction()
+  return (
+    <button
+      ref={ref}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'glass-tab glass-tab-active' : 'glass-tab text-stone-700'}`}
+    >
+      {children}
+    </button>
+  )
 }
 
 function NorthStarTile({ label, value, unit, sublabel, color, icon: Icon }) {

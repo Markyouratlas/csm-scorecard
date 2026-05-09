@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -16,10 +16,12 @@ import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, D
 
 import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations }) {
+export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
+  const headerRef = useGlassInteraction()
 
   // For team leads, lock the visible team to their own
   const visibleTeams = useMemo(() => {
@@ -87,7 +89,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={32} />
@@ -107,6 +109,17 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
               >
                 <Archive className="w-3.5 h-3.5" />
                 {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+              </button>
+            )}
+            {onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ background: 'rgba(102, 57, 166, 0.08)', color: '#6639A6' }} title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
               </button>
             )}
             {onSwitchToFeatureRequests && (
@@ -161,10 +174,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 }
 
 function TabButton({ active, onClick, icon: Icon, children, color }) {
+  const ref = useGlassInteraction()
   return (
-    <button onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
-      <Icon className="w-4 h-4" style={!active && color ? { color } : {}} /> {children}
+    <button
+      ref={ref}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'glass-tab glass-tab-active' : 'glass-tab text-stone-700'}`}
+    >
+      {Icon && <Icon className="w-4 h-4" style={!active && color ? { color } : {}} />} {children}
     </button>
   )
 }
@@ -356,7 +373,7 @@ function CsmTeamSection({ members, data, onViewMember }) {
                       title={onViewMember ? `View ${c.name}'s scorecard` : undefined}>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: c.color, fontFamily: 'Fraunces, serif' }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: c.color, fontFamily: "'Instrument Serif', serif" }}>
                           {c.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                         </div>
                         <div>
@@ -775,7 +792,7 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
               title={onViewMember ? `View ${m.name}'s scorecard` : undefined}>
             <td className="py-3 px-4">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: 'Fraunces, serif' }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ background: m.color, fontFamily: "'Instrument Serif', serif" }}>
                   {m.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                 </div>
                 <div>
@@ -965,7 +982,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
               <td className="py-3 px-4">
                 {csm ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-[10px]" style={{ background: csm.color, fontFamily: 'Fraunces, serif' }}>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-[10px]" style={{ background: csm.color, fontFamily: "'Instrument Serif', serif" }}>
                       {csm.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                     </div>
                     <span className="text-stone-800 font-medium">{csm.name}</span>
@@ -1203,7 +1220,7 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
       )}
       <div className="p-5">
         <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
             {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
           </div>
           <div className="min-w-0 flex-1">

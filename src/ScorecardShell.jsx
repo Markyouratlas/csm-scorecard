@@ -1,9 +1,14 @@
 import React, { useState } from 'react'
-import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug } from 'lucide-react'
+import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
 import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
+import { useGlassInteraction } from './hooks/useGlassInteraction.js'
+
+// Brand purple — used for the Leadership entry point so it stands out
+const BRAND = '#6639A6'
+const BRAND_SOFT = 'rgba(102, 57, 166, 0.08)'
 
 // Standard header used by every role's scorecard.
 // Children = the question/title and content of the page.
@@ -16,19 +21,22 @@ export default function ScorecardShell({
   onSwitchToManager,
   onSwitchToFeatureRequests,
   onSwitchToIntegrations,
+  onSwitchToApiGuide,
+  onSwitchToLeadership,
   onProfileUpdated,
   children,
 }) {
   const [showSettings, setShowSettings] = useState(false)
+  const headerRef = useGlassInteraction()
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur border-b border-stone-200">
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
             <AtlasLogo height={28} />
             <div className="hidden md:block h-8 w-px bg-stone-300" />
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: 'Fraunces, serif' }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
                 {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div>
@@ -41,6 +49,17 @@ export default function ScorecardShell({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <SaveIndicator saving={saving} savedAt={savedAt} />
+            {onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ background: BRAND_SOFT, color: BRAND }} title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup Guide">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
+              </button>
+            )}
             {onSwitchToFeatureRequests && (
               <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
                 <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
@@ -81,7 +100,7 @@ export default function ScorecardShell({
 
 function SaveIndicator({ saving, savedAt }) {
   if (saving) return <div className="flex items-center gap-1.5 text-xs text-stone-500 px-2"><Loader2 className="w-3 h-3 animate-spin" /> Saving</div>
-  if (savedAt) return <div className="flex items-center gap-1.5 text-xs text-emerald-700 px-2"><Check className="w-3 h-3" /> Saved</div>
+  if (savedAt) return <div className="glass-vibrancy-pill flex items-center gap-1.5 text-xs"><Check className="w-3 h-3" /> Saved</div>
   return null
 }
 
@@ -151,13 +170,26 @@ export function SectionTabs({ sections, active, onChange }) {
         const Icon = s.icon
         const isActive = active === s.id
         return (
-          <button key={s.id} onClick={() => onChange(s.id)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${isActive ? 'bg-stone-900 text-stone-50' : 'bg-white border border-stone-200 text-stone-700 hover:border-stone-900'}`}>
+          <GlassTab key={s.id} active={isActive} onClick={() => onChange(s.id)}>
             {Icon && <Icon className="w-4 h-4" />} {s.label}
-          </button>
+          </GlassTab>
         )
       })}
     </div>
+  )
+}
+
+// Each tab is a glass surface — needs its own pointer-tracking ref.
+function GlassTab({ active, onClick, children }) {
+  const ref = useGlassInteraction()
+  return (
+    <button
+      ref={ref}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${active ? 'glass-tab glass-tab-active' : 'glass-tab text-stone-700'}`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -165,8 +197,8 @@ export function PageHeader({ kicker, kickerColor, title, italicized }) {
   return (
     <div className="mb-10 fade-up">
       <div className="mono-font text-xs uppercase tracking-[0.2em] mb-3" style={{ color: kickerColor || '#78716C' }}>{kicker}</div>
-      <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
-        {title}{italicized && <> <em className="font-light">{italicized}</em></>}
+      <h1 className="display-font text-5xl md:text-7xl font-medium leading-[1] tracking-tight text-stone-900">
+        {title}{italicized && <> <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>{italicized}</em></>}
       </h1>
     </div>
   )
