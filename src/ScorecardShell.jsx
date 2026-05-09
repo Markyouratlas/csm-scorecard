@@ -1,9 +1,13 @@
 import React, { useState } from 'react'
-import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug } from 'lucide-react'
+import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
 import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
+
+// Brand purple — used for the Leadership entry point so it stands out
+const BRAND = '#6639A6'
+const BRAND_SOFT = 'rgba(102, 57, 166, 0.08)'
 
 // Standard header used by every role's scorecard.
 // Children = the question/title and content of the page.
@@ -16,6 +20,8 @@ export default function ScorecardShell({
   onSwitchToManager,
   onSwitchToFeatureRequests,
   onSwitchToIntegrations,
+  onSwitchToApiGuide,
+  onSwitchToLeadership,
   onProfileUpdated,
   children,
 }) {
@@ -41,6 +47,17 @@ export default function ScorecardShell({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <SaveIndicator saving={saving} savedAt={savedAt} />
+            {onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ background: BRAND_SOFT, color: BRAND }} title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup Guide">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
+              </button>
+            )}
             {onSwitchToFeatureRequests && (
               <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
                 <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>

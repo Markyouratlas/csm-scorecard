@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Lightbulb, Plug, Loader2, Plus, Trash2, Search, Download, ChevronDown, ChevronRight,
   ChevronUp, ArrowUpDown, LogOut, LayoutDashboard, Settings as SettingsIcon, ArrowLeft,
-  ExternalLink, UserCircle2, Star, AlertCircle
+  ExternalLink, UserCircle2, Star, AlertCircle, Crown, Zap
 } from 'lucide-react'
 import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
@@ -67,11 +67,13 @@ const REUSABLE_OPTIONS = [
 
 export default function SharedPagesView({
   profile, page, onSignOut, onSwitchToManager, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated,
+  onSwitchToFeatureRequests, onSwitchToIntegrations,
+  onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
+  const canSeeLeadership = tier === 'executive'
 
   return (
     <div className="min-h-screen">
@@ -102,6 +104,17 @@ export default function SharedPagesView({
               label="Integrations"
             />
             <div className="hidden md:block h-6 w-px bg-stone-200 mx-1" />
+            {canSeeLeadership && onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ background: 'rgba(102, 57, 166, 0.08)', color: '#6639A6' }} title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
+              </button>
+            )}
             {onSwitchToSelf && (
               <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
                 <UserCircle2 className="w-4 h-4" /> My scorecard

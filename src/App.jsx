@@ -13,13 +13,15 @@ import ManagerView from './ManagerView'
 import ComingSoonView from './ComingSoonView'
 import LeadershipPendingView from './LeadershipPendingView'
 import SharedPagesView from './SharedPagesView'
+import ApiIntegrationGuide from './ApiIntegrationGuide'
+import LeadershipDashboardView from './LeadershipDashboardView'
 import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  // 'self' | 'manager' | 'feature_requests' | 'integrations'
+  // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'api_guide' | 'leadership'
   const [viewMode, setViewMode] = useState('self')
 
   useEffect(() => {
@@ -84,6 +86,17 @@ export default function App() {
 
   const handleSignOut = async () => { await supabase.auth.signOut() }
 
+  // Safety: if a user's tier changes (e.g. demoted from exec) while they're on
+  // a privileged view, bounce them to a safe view. Done in effect to avoid
+  // setState during render.
+  useEffect(() => {
+    if (!profile) return
+    const currentTier = accessTier(profile)
+    if (viewMode === 'leadership' && currentTier !== 'executive') {
+      setViewMode('self')
+    }
+  }, [profile, viewMode])
+
   if (loading) return <Shell><div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div></Shell>
 
   if (!session) return <Shell><AuthScreen /></Shell>
@@ -123,6 +136,7 @@ export default function App() {
   // Shared pages (Feature Requests / Integrations) — visible to everyone with a profile
   if (viewMode === 'feature_requests' || viewMode === 'integrations') {
     const canGoToSelf = !isLeadershipRole(profile.role_type)
+    const canSeeLeadership = tier === 'executive'
     return (
       <Shell>
         <SharedPagesView
@@ -133,11 +147,56 @@ export default function App() {
           onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
           onProfileUpdated={setProfile}
         />
       </Shell>
     )
   }
+
+  // API Integration Guide — visible to everyone with a profile (informational only)
+  if (viewMode === 'api_guide') {
+    const canGoToSelf = !isLeadershipRole(profile.role_type)
+    const canSeeLeadership = tier === 'executive'
+    return (
+      <Shell>
+        <ApiIntegrationGuide
+          profile={profile}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
+          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
+          onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
+
+  // Leadership Dashboard — gated by executive access
+  if (viewMode === 'leadership' && tier === 'executive') {
+    const canGoToSelf = !isLeadershipRole(profile.role_type)
+    return (
+      <Shell>
+        <LeadershipDashboardView
+          profile={profile}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
+          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
+  // Note: if a non-exec ever has viewMode='leadership' (shouldn't be possible
+  // through normal nav since the button is gated, but could happen via stale
+  // state after a role demotion), we just fall through to the normal routing
+  // below — they'll land on their personal scorecard or manager view.
 
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
@@ -149,6 +208,8 @@ export default function App() {
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
       </Shell>
     )
@@ -165,6 +226,8 @@ export default function App() {
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
       </Shell>
     )
@@ -179,6 +242,8 @@ export default function App() {
         onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
         onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
         onSwitchToIntegrations={() => setViewMode('integrations')}
+        onSwitchToApiGuide={() => setViewMode('api_guide')}
+        onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         onProfileUpdated={setProfile}
       />
     </Shell>
@@ -186,9 +251,9 @@ export default function App() {
 }
 
 // Routes to the right scorecard component based on the user's role.
-function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated }) {
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }) {
   const role = profile.role_type
-  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onProfileUpdated }
+  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }
   switch (role) {
     case 'csm':
       return <CsmView {...props} />
