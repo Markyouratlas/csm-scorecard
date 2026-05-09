@@ -5,7 +5,7 @@ import {
   AlertCircle, Megaphone, Briefcase, HeartHandshake, Code, Headphones,
   TrendingUp, Activity, FileSpreadsheet, Sparkles, Calendar, Target,
   CreditCard, BarChart3, Globe, Database, Mail, Phone, GitPullRequest,
-  Zap
+  Zap, ShieldCheck, Lock, Server, ExternalLink, Copy
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
@@ -418,6 +418,9 @@ export function ApiIntegrationGuideContent() {
         </div>
       </section>
 
+      {/* How to add keys — the security explainer */}
+      <HowToAddKeysSection />
+
       {/* Priority order callout */}
       <section className="border-l-4 bg-violet-50/40 p-5" style={{ borderLeftColor: BRAND }}>
         <div className="display-font text-lg font-medium text-stone-900 mb-1">Recommended order</div>
@@ -506,6 +509,13 @@ function SummaryStat({ label, value }) {
 function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
   const Icon = p.icon
   const priorityMeta = PRIORITY_LABELS[p.priority]
+
+  // Phase A: every provider is "Awaiting key" since no integrations are wired yet.
+  // In Phase D, this becomes dynamic — read from a server-side check that pings
+  // the actual API to confirm the env var is set and valid.
+  const status = 'awaiting'
+  const statusMeta = STATUS_META[status]
+
   return (
     <div className="bg-white border border-stone-200 transition-shadow hover:shadow-sm fade-up" style={{ animationDelay }}>
       <button onClick={onToggle} className="w-full text-left p-5 flex items-start justify-between gap-4 focus:outline-none focus:bg-stone-50 transition-colors">
@@ -522,6 +532,12 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
               <span className="text-stone-300">·</span>
               <span className="mono-font text-[10px] text-stone-500 inline-flex items-center gap-1">
                 <Clock className="w-3 h-3" /> {p.estimated_setup}
+              </span>
+              <span className="text-stone-300">·</span>
+              <span className="inline-flex items-center gap-1 mono-font text-[10px] uppercase tracking-widest font-semibold"
+                style={{ color: statusMeta.color }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusMeta.color }} />
+                {statusMeta.label}
               </span>
             </div>
             <div className="display-font text-2xl font-medium text-stone-900 mt-0.5">{p.name}</div>
@@ -543,20 +559,34 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
 
       {expanded && (
         <div className="px-5 pb-5 border-t border-stone-200 pt-5 space-y-5 fade-up">
-          {/* Keys needed */}
+          {/* Keys needed — now with copyable variable names */}
           <div>
             <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2 flex items-center gap-1.5">
               <Database className="w-3 h-3" /> API keys to gather
             </div>
             <div className="space-y-2">
               {p.keys_needed.map(k => (
-                <div key={k.name} className="border border-stone-200 bg-stone-50/40 px-3 py-2.5 flex items-start justify-between gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <code className="font-mono text-xs font-semibold text-stone-900 break-all">{k.name}</code>
-                    <div className="text-xs text-stone-600 mt-0.5">{k.purpose}</div>
+                <div key={k.name} className="border border-stone-200 bg-stone-50/40 px-3 py-2.5">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code className="font-mono text-xs font-semibold text-stone-900 break-all">{k.name}</code>
+                        <CopyButton text={k.name} />
+                      </div>
+                      <div className="text-xs text-stone-600 mt-0.5">{k.purpose}</div>
+                    </div>
                   </div>
                 </div>
               ))}
+            </div>
+            {/* Where to paste the keys — provider-specific reminder */}
+            <div className="mt-3 p-3 rounded text-xs flex items-start gap-2" style={{ background: 'rgba(102,57,166,0.05)', border: `1px solid ${BRAND}33` }}>
+              <Server className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: BRAND }} />
+              <div className="text-stone-700">
+                <span className="font-semibold" style={{ color: BRAND }}>Add these to Vercel</span>, not here. See the
+                <span className="font-semibold"> "How to add your keys"</span> section above for the step-by-step.
+                Once added, this card flips to <span className="font-semibold" style={{ color: '#10B981' }}>Connected</span> on the next deploy.
+              </div>
             </div>
           </div>
 
@@ -609,15 +639,192 @@ function ProviderCard({ provider: p, expanded, onToggle, animationDelay }) {
             <a href={p.setup_url} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:opacity-90 rounded"
               style={{ background: BRAND }}>
-              <Sparkles className="w-3.5 h-3.5" /> Get keys
+              <Sparkles className="w-3.5 h-3.5" /> Get keys from {p.name}
+              <ExternalLink className="w-3 h-3" />
             </a>
             <a href={p.docs_url} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-stone-700 hover:text-stone-900 transition-colors border border-stone-200 hover:border-stone-900 rounded">
               <FileSpreadsheet className="w-3.5 h-3.5" /> API docs
+              <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+// =============================================================================
+//  Status metadata — Phase A shows "Awaiting key" for everything.
+//  In Phase D, we'll add a server-side check that flips this to "Connected"
+//  when the env var is set and the API responds healthily.
+// =============================================================================
+
+const STATUS_META = {
+  awaiting:  { label: 'Awaiting key', color: '#A8A29E' },
+  testing:   { label: 'Testing',      color: '#F59E0B' },
+  connected: { label: 'Connected',    color: '#10B981' },
+  error:     { label: 'Error',        color: '#EF4444' },
+}
+
+// =============================================================================
+//  How to add keys — the security explainer + Vercel walkthrough
+// =============================================================================
+
+function HowToAddKeysSection() {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <section className="bg-white border-2 p-6" style={{ borderColor: BRAND }}>
+      <div className="flex items-start gap-3 mb-1">
+        <div className="flex-shrink-0 w-10 h-10 rounded flex items-center justify-center" style={{ background: BRAND, color: 'white' }}>
+          <Lock className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <div className="mono-font text-[10px] uppercase tracking-[0.18em] font-semibold mb-1" style={{ color: BRAND }}>
+            How to add your keys
+          </div>
+          <div className="display-font text-2xl font-medium text-stone-900 leading-tight">
+            You won't paste keys here. <em className="font-light">Here's why — and where they go.</em>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4 mt-5">
+        {/* Why not here */}
+        <div className="border border-stone-200 p-4 bg-stone-50/40">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-700" />
+            <div className="font-semibold text-stone-900 text-sm">Why not in this app</div>
+          </div>
+          <p className="text-sm text-stone-700 leading-relaxed">
+            API keys (especially Stripe, ProfitWell, ad platforms) are <span className="font-semibold">production credentials</span> — anyone who has them
+            can charge cards, refund payments, see customer data, or run up your ad spend. That means they
+            can never live in the browser, even briefly. They have to live somewhere your <span className="font-semibold">server</span> can read them
+            but the browser can't see them.
+          </p>
+        </div>
+
+        {/* Where they go */}
+        <div className="border border-stone-200 p-4" style={{ background: 'rgba(102,57,166,0.04)' }}>
+          <div className="flex items-center gap-2 mb-2">
+            <Server className="w-4 h-4" style={{ color: BRAND }} />
+            <div className="font-semibold text-stone-900 text-sm">Where they actually go: Vercel</div>
+          </div>
+          <p className="text-sm text-stone-700 leading-relaxed">
+            Atlas Scorecard is hosted on Vercel. Vercel has a built-in <span className="font-semibold">Environment Variables</span> feature
+            for exactly this — a secure, encrypted vault that only your deployed code can read.
+            You add each key once in the Vercel dashboard, and the integrations pick them up automatically.
+          </p>
+        </div>
+      </div>
+
+      {/* Walkthrough — collapsible to reduce visual noise */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="mt-5 inline-flex items-center gap-2 text-sm font-semibold transition-colors hover:opacity-80"
+        style={{ color: BRAND }}>
+        {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        Step-by-step: how to add a key in Vercel
+      </button>
+
+      {expanded && (
+        <div className="mt-4 fade-up">
+          <ol className="space-y-3">
+            {VERCEL_STEPS.map((step, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white mono-font"
+                  style={{ background: BRAND }}>
+                  {i + 1}
+                </div>
+                <div className="flex-1 pt-0.5">
+                  <div className="text-sm text-stone-800 leading-relaxed">{step.text}</div>
+                  {step.detail && (
+                    <div className="text-xs text-stone-500 mt-1">{step.detail}</div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          <div className="mt-5 p-4 rounded text-sm" style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+              <div className="text-stone-800 leading-relaxed">
+                <span className="font-semibold">Use the EXACT variable names</span> shown on each provider card below.
+                If you name a Stripe key <code className="text-xs font-mono bg-white px-1 py-0.5 rounded">STRIPE_KEY</code> instead of <code className="text-xs font-mono bg-white px-1 py-0.5 rounded">STRIPE_SECRET_KEY</code>,
+                the integration won't find it and the dashboard will show "Awaiting key" forever. Click the
+                <Copy className="w-3 h-3 inline mx-0.5" /> icon next to each variable name on the cards below to copy it.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 p-4 rounded text-sm" style={{ background: 'rgba(102,57,166,0.06)', border: `1px solid ${BRAND}33` }}>
+            <div className="flex items-start gap-2">
+              <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: BRAND }} />
+              <div className="text-stone-800 leading-relaxed">
+                <span className="font-semibold">Heads up — not enough by itself yet.</span> Adding keys to Vercel is step 1.
+                Step 2 (Phase D) is server-side code that <em>reads</em> those keys and calls the actual APIs. We'll build
+                that in the next phase using Supabase Edge Functions. Adding keys early is fine — they'll just sit safely
+                until the integration code is wired up.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Vercel walkthrough — kept here as data so it's easy to update
+const VERCEL_STEPS = [
+  {
+    text: 'Go to vercel.com and sign in. Open the csm-scorecard project.',
+    detail: 'Direct link: https://vercel.com/dashboard',
+  },
+  {
+    text: 'Click Settings (top of project page) → Environment Variables (left sidebar).',
+    detail: 'You\'ll see a "Create new" form and a list of any existing variables.',
+  },
+  {
+    text: 'In the "Key" field, paste the EXACT variable name from the provider card below (e.g. STRIPE_SECRET_KEY).',
+    detail: 'Use the copy button next to each variable name to avoid typos.',
+  },
+  {
+    text: 'In the "Value" field, paste the actual key you got from the provider.',
+    detail: 'For Stripe, it\'s the live secret key starting with "sk_live_" or test key "sk_test_".',
+  },
+  {
+    text: 'Leave the environment checkboxes (Production, Preview, Development) all checked unless you have a reason not to.',
+    detail: 'For early development you typically want the same key everywhere. You can split later if needed.',
+  },
+  {
+    text: 'Click "Save".',
+    detail: 'The variable is now encrypted and stored. Vercel will redact the value when displaying it back to you.',
+  },
+  {
+    text: 'Trigger a redeploy: go to Deployments tab → click the "..." menu on the latest deploy → Redeploy.',
+    detail: 'Environment variables only take effect after a new deploy. The redeploy takes 1-2 minutes.',
+  },
+]
+
+// Lightweight copy-to-clipboard button
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  const onCopy = (e) => {
+    e.stopPropagation()
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }).catch(() => {})
+    }
+  }
+  return (
+    <button onClick={onCopy} title="Copy variable name"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] mono-font transition-colors hover:bg-stone-100"
+      style={{ color: copied ? '#10B981' : '#6B7280' }}>
+      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
