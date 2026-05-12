@@ -21,7 +21,7 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'api_guide' | 'leadership'
+  // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership'
   const [viewMode, setViewMode] = useState('self')
 
   useEffect(() => {
@@ -133,10 +133,17 @@ export default function App() {
     )
   }
 
-  // Shared pages (Feature Requests / Integrations) — visible to everyone with a profile
-  if (viewMode === 'feature_requests' || viewMode === 'integrations') {
+  // Shared pages (Feature Requests / Integrations / Cancellations) — first two visible to everyone with a profile;
+  // cancellations is gated to executives + customer_success team (server-side via RLS too)
+  if (viewMode === 'feature_requests' || viewMode === 'integrations' || viewMode === 'cancellations') {
     const canGoToSelf = !isLeadershipRole(profile.role_type)
     const canSeeLeadership = tier === 'executive'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+    // If a non-CS, non-executive user somehow lands on cancellations, redirect to self.
+    if (viewMode === 'cancellations' && !canSeeCancellations) {
+      setViewMode('self')
+      return null
+    }
     return (
       <Shell>
         <SharedPagesView
@@ -147,6 +154,7 @@ export default function App() {
           onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
           onProfileUpdated={setProfile}
@@ -159,6 +167,7 @@ export default function App() {
   if (viewMode === 'api_guide') {
     const canGoToSelf = !isLeadershipRole(profile.role_type)
     const canSeeLeadership = tier === 'executive'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
     return (
       <Shell>
         <ApiIntegrationGuide
@@ -168,6 +177,7 @@ export default function App() {
           onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
           onProfileUpdated={setProfile}
         />
@@ -178,6 +188,7 @@ export default function App() {
   // Leadership Dashboard — gated by executive access
   if (viewMode === 'leadership' && tier === 'executive') {
     const canGoToSelf = !isLeadershipRole(profile.role_type)
+    const canSeeCancellations = true // executives always have access
     return (
       <Shell>
         <LeadershipDashboardView
@@ -187,6 +198,7 @@ export default function App() {
           onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
           onProfileUpdated={setProfile}
         />
@@ -200,6 +212,7 @@ export default function App() {
 
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
     return (
       <Shell>
         <ManagerView
@@ -208,6 +221,7 @@ export default function App() {
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
@@ -218,6 +232,7 @@ export default function App() {
   // For executives whose personal role is also Leadership (no scorecard),
   // there's no useful "self view" — bounce them to manager view.
   if (canSeeManagerView && viewMode === 'self' && isLeadershipRole(profile.role_type)) {
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
     return (
       <Shell>
         <ManagerView
@@ -226,6 +241,7 @@ export default function App() {
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
@@ -234,6 +250,7 @@ export default function App() {
   }
 
   // Personal scorecard — route based on role
+  const canSeeCancellationsForSelf = tier === 'executive' || profile.team === 'customer_success'
   return (
     <Shell>
       <PersonalScorecard
@@ -242,6 +259,7 @@ export default function App() {
         onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
         onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
         onSwitchToIntegrations={() => setViewMode('integrations')}
+        onSwitchToCancellations={canSeeCancellationsForSelf ? () => setViewMode('cancellations') : null}
         onSwitchToApiGuide={() => setViewMode('api_guide')}
         onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         onProfileUpdated={setProfile}
@@ -251,9 +269,9 @@ export default function App() {
 }
 
 // Routes to the right scorecard component based on the user's role.
-function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }) {
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }) {
   const role = profile.role_type
-  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }
+  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }
   switch (role) {
     case 'csm':
       return <CsmView {...props} />

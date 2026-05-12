@@ -3,7 +3,7 @@ import {
   LogOut, LayoutDashboard, Settings as SettingsIcon, UserCircle2,
   Lightbulb, Plug, Crown, Sparkles, Clock, TrendingUp,
   DollarSign, Activity, Megaphone, Briefcase,
-  Code, Zap, ChevronRight, CheckCircle2, RefreshCw, AlertCircle,
+  Code, Zap, ChevronRight, CheckCircle2, RefreshCw, AlertCircle, UserMinus,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
@@ -27,7 +27,7 @@ const BRAND_SOFT = 'rgba(102, 57, 166, 0.08)'
 
 export default function LeadershipDashboardView({
   profile, onSignOut, onSwitchToManager, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide,
+  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
   onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
@@ -66,6 +66,11 @@ export default function LeadershipDashboardView({
             {onSwitchToIntegrations && (
               <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
                 <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
+            {onSwitchToCancellations && (
+              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
+                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
               </button>
             )}
             {onSwitchToSelf && (
@@ -474,6 +479,7 @@ const METRIC_GROUPS = [
     icon: Code,
     color: '#7C3AED',
     metrics: [
+      { label: 'PRs Merged (wk)',       path: 'product.prsMergedWeek',    unit: '' },
       { label: 'PRs Deployed (wk)',     path: 'product.prsDeployedWeek',  unit: '' },
       { label: 'New Bugs (wk)',         path: 'product.newBugsWeek',      unit: '' },
       { label: 'Velocity (bullets)',    path: 'product.velocityBullets',  unit: '' },
@@ -488,7 +494,7 @@ const METRIC_GROUPS = [
     icon: Activity,
     color: '#EC4899',
     metrics: [
-      { label: 'Trials Started (wk)',   path: 'growth.trialsStartedWeek', unit: '' },
+      { label: 'Closes (wk)',           path: 'growth.closesWeek', unit: '' },
       { label: 'Trial → Paid',          awaiting: 'Amplitude' },
       { label: 'User Activation',       awaiting: 'Amplitude' },
       { label: 'Partner Pipeline',      awaiting: 'HubSpot' },

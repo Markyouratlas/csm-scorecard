@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Lightbulb, Plug, Loader2, Plus, Trash2, Search, Download, ChevronDown, ChevronRight,
   ChevronUp, ArrowUpDown, LogOut, LayoutDashboard, Settings as SettingsIcon, ArrowLeft,
-  ExternalLink, UserCircle2, Star, AlertCircle, Crown, Zap
+  ExternalLink, UserCircle2, Star, AlertCircle, Crown, Zap, UserMinus, DollarSign
 } from 'lucide-react'
 import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
+import { CANCELLATION_CATEGORIES, cancellationCategoryLabel } from './constants'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 // =============================================================================
@@ -68,14 +69,22 @@ const REUSABLE_OPTIONS = [
 
 export default function SharedPagesView({
   profile, page, onSignOut, onSwitchToManager, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations,
+  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations,
   onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const canSeeLeadership = tier === 'executive'
+  const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
   const headerRef = useGlassInteraction()
+
+  const pageTitle = page === 'feature_requests' ? 'Feature Requests'
+    : page === 'integrations' ? 'Integrations'
+    : page === 'cancellations' ? 'Cancellations'
+    : 'Shared'
+
+  const pageSubtitle = page === 'cancellations' ? 'CS team + leadership' : 'Shared · all teams'
 
   return (
     <div className="min-h-screen">
@@ -85,10 +94,10 @@ export default function SharedPagesView({
             <AtlasLogo height={32} />
             <div className="border-l border-stone-300 pl-4">
               <div className="display-font text-lg font-medium text-stone-900 leading-tight">
-                {page === 'feature_requests' ? 'Feature Requests' : 'Integrations'}
+                {pageTitle}
               </div>
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
-                Shared · all teams
+                {pageSubtitle}
               </div>
             </div>
           </div>
@@ -105,6 +114,14 @@ export default function SharedPagesView({
               icon={Plug}
               label="Integrations"
             />
+            {canSeeCancellations && onSwitchToCancellations && (
+              <HeaderButton
+                active={page === 'cancellations'}
+                onClick={onSwitchToCancellations}
+                icon={UserMinus}
+                label="Cancellations"
+              />
+            )}
             <div className="hidden md:block h-6 w-px bg-stone-200 mx-1" />
             {canSeeLeadership && onSwitchToLeadership && (
               <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
@@ -138,11 +155,9 @@ export default function SharedPagesView({
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-10 fade-up">
-        {page === 'feature_requests' ? (
-          <FeatureRequestsPage profile={profile} />
-        ) : (
-          <IntegrationsPage profile={profile} />
-        )}
+        {page === 'feature_requests' && <FeatureRequestsPage profile={profile} />}
+        {page === 'integrations' && <IntegrationsPage profile={profile} />}
+        {page === 'cancellations' && <CancellationsPage profile={profile} />}
       </div>
 
       {showSettings && (
@@ -867,6 +882,435 @@ function IntegrationRow({ item: r, expanded, onToggleExpand, onUpdate, onRemove,
         </tr>
       )}
     </>
+  )
+}
+
+// =============================================================================
+//  Cancellations Page — global table for CS team + executives
+//
+//  Modeled after FeatureRequestsPage. Key differences:
+//    - csm_id is the "attributed CSM" (who owned the customer) — a dropdown.
+//    - logged_by_id is the person entering the row (auto-set to current user).
+//    - Adds: cancel reason category, MRR lost, plan type, cancelled date.
+//  Permissions enforced by RLS (see supabase-batch5-migration.sql):
+//    - Any customer_success team member can read/insert/update/delete.
+//    - Any executive can read/insert/update/delete.
+//    - Other teams have zero access.
+// =============================================================================
+
+function CancellationsPage({ profile }) {
+  const [items, setItems] = useState([])
+  const [csms, setCsms] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [search, setSearch] = useState('')
+  const [reasonFilter, setReasonFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('cancelled_date')
+  const [sortDir, setSortDir] = useState('desc')
+  const [expandedId, setExpandedId] = useState(null)
+
+  // Load both cancellations and the CSM roster (for the attribution dropdown).
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [cancRes, csmRes] = await Promise.all([
+      supabase.from('cancellations')
+        .select('*')
+        .order('cancelled_date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase.from('profiles')
+        .select('id, name, team, role_type')
+        .eq('team', 'customer_success')
+        .is('archived_at', null)
+        .order('name', { ascending: true }),
+    ])
+    if (cancRes.error) console.error('Load cancellations error', cancRes.error)
+    if (csmRes.error) console.error('Load CSMs error', csmRes.error)
+    setItems(cancRes.data || [])
+    setCsms(csmRes.data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Build a quick id→name lookup for the table display
+  const csmName = useCallback((id) => {
+    const found = csms.find(c => c.id === id)
+    return found ? found.name : '—'
+  }, [csms])
+
+  const addItem = async () => {
+    setAdding(true)
+    // Default attribution: the current user if they're a CSM; otherwise the
+    // first CSM in the roster. The user can change it in the row.
+    const defaultCsmId = csms.find(c => c.id === profile.id)?.id || csms[0]?.id || profile.id
+    const { data, error } = await supabase.from('cancellations').insert({
+      csm_id: defaultCsmId,
+      logged_by_id: profile.id,
+      customer_name: '',
+      customer_email: '',
+      plan_type: '',
+      monthly_amount: null,
+      reason_category: 'other',
+      reason_detail: '',
+      cancelled_date: new Date().toISOString().slice(0, 10),
+    }).select().single()
+    setAdding(false)
+    if (error) {
+      console.error(error)
+      alert('Could not add cancellation: ' + error.message)
+      return
+    }
+    setItems(prev => [data, ...prev])
+    setExpandedId(data.id)
+  }
+
+  const updateItem = async (id, patch) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i))
+    const { error } = await supabase.from('cancellations').update(patch).eq('id', id)
+    if (error) { console.error(error); alert('Save failed: ' + error.message); load() }
+  }
+
+  const removeItem = async (id) => {
+    if (!confirm('Delete this cancellation record?')) return
+    const prev = items
+    setItems(prev.filter(i => i.id !== id))
+    if (expandedId === id) setExpandedId(null)
+    const { error } = await supabase.from('cancellations').delete().eq('id', id)
+    if (error) { console.error(error); alert('Delete failed: ' + error.message); setItems(prev) }
+  }
+
+  // Filter + sort
+  const filtered = useMemo(() => {
+    let result = items
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(i =>
+        (i.customer_name || '').toLowerCase().includes(q)
+        || (i.customer_email || '').toLowerCase().includes(q)
+        || (i.reason_detail || '').toLowerCase().includes(q)
+        || (csmName(i.csm_id) || '').toLowerCase().includes(q)
+      )
+    }
+    if (reasonFilter !== 'all') {
+      result = result.filter(i => i.reason_category === reasonFilter)
+    }
+    const sorted = [...result].sort((a, b) => {
+      const av = sortBy === 'csm' ? csmName(a.csm_id) : (a[sortBy] ?? '')
+      const bv = sortBy === 'csm' ? csmName(b.csm_id) : (b[sortBy] ?? '')
+      // Numeric sort for monthly_amount
+      if (sortBy === 'monthly_amount') {
+        return ((Number(av) || 0) - (Number(bv) || 0)) * (sortDir === 'asc' ? 1 : -1)
+      }
+      const cmp = String(av).localeCompare(String(bv))
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [items, search, reasonFilter, sortBy, sortDir, csmName])
+
+  const onSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortBy(col); setSortDir(col === 'cancelled_date' || col === 'monthly_amount' ? 'desc' : 'asc') }
+  }
+
+  // Summary tiles — month-over-month rollup at the top of the page
+  const monthStart = useMemo(() => {
+    const d = new Date()
+    return new Date(d.getFullYear(), d.getMonth(), 1)
+  }, [])
+  const thisMonth = useMemo(
+    () => items.filter(c => c.cancelled_date && new Date(c.cancelled_date + 'T00:00:00') >= monthStart),
+    [items, monthStart],
+  )
+  const mrrLostThisMonth = thisMonth.reduce((s, c) => s + (Number(c.monthly_amount) || 0), 0)
+  const topReason = useMemo(() => {
+    if (!items.length) return null
+    const counts = items.reduce((acc, c) => {
+      acc[c.reason_category || 'other'] = (acc[c.reason_category || 'other'] || 0) + 1
+      return acc
+    }, {})
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+    return top ? { key: top[0], count: top[1] } : null
+  }, [items])
+
+  const exportCsv = () => {
+    const headers = ['cancelled_date', 'attributed_csm', 'customer_name', 'customer_email', 'plan_type', 'monthly_amount', 'reason_category', 'reason_detail']
+    const rows = filtered.map(i => [
+      i.cancelled_date || '',
+      csmName(i.csm_id),
+      i.customer_name || '',
+      i.customer_email || '',
+      i.plan_type || '',
+      i.monthly_amount ?? '',
+      cancellationCategoryLabel(i.reason_category),
+      i.reason_detail || '',
+    ])
+    downloadCsv('atlas-cancellations', headers, rows)
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Hero header */}
+      <div>
+        <div className="mono-font text-[10.5px] uppercase tracking-[0.18em] font-semibold text-stone-500">
+          Customer Success · cancellations log
+        </div>
+        <h1 className="display-font text-4xl md:text-5xl font-medium text-stone-900 mt-1">
+          Where customers are <em className="display-font-i font-normal" style={{ color: '#B91C1C' }}>leaving</em>
+        </h1>
+        <p className="text-stone-600 mt-3 max-w-2xl">
+          Every cancellation across the team — who, why, and how much MRR walked out the door.
+          Any CS team member or executive can add entries; everyone sees the same list.
+        </p>
+      </div>
+
+      {/* Summary tiles */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <SummaryTile
+          label="Cancellations (month)"
+          value={thisMonth.length}
+          sublabel={`${items.length} all-time`}
+          color="#B91C1C"
+          icon={UserMinus}
+        />
+        <SummaryTile
+          label="MRR Lost (month)"
+          value={`$${mrrLostThisMonth.toLocaleString()}`}
+          sublabel="Sum of monthly recurring"
+          color="#A16207"
+          icon={DollarSign}
+        />
+        <SummaryTile
+          label="Top reason"
+          value={topReason ? cancellationCategoryLabel(topReason.key) : '—'}
+          sublabel={topReason ? `${topReason.count} of ${items.length}` : 'No data yet'}
+          color="#7C3AED"
+          icon={Star}
+        />
+      </div>
+
+      {/* Filters bar */}
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+          <Search className="w-4 h-4 text-stone-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search customer, CSM, or reason…"
+            className="flex-1 text-sm py-1.5 px-2 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Reason</span>
+          <select
+            value={reasonFilter}
+            onChange={(e) => setReasonFilter(e.target.value)}
+            className="text-sm py-1.5 px-2 border border-stone-300 rounded bg-white"
+          >
+            <option value="all">All</option>
+            {CANCELLATION_CATEGORIES.map(c => (
+              <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={exportCsv}
+          disabled={!filtered.length}
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-stone-300 hover:border-stone-900 transition-colors rounded disabled:opacity-50"
+          title="Download as CSV"
+        >
+          <Download className="w-3.5 h-3.5" /> CSV
+        </button>
+        <button
+          onClick={addItem}
+          disabled={adding}
+          className="flex items-center gap-1.5 text-sm px-3 py-1.5 text-white transition-colors rounded hover:opacity-90"
+          style={{ background: '#B91C1C' }}
+        >
+          {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+          Log cancellation
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="p-10 flex items-center justify-center text-stone-500">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center">
+            <UserMinus className="w-8 h-8 text-stone-300 mx-auto mb-3" />
+            <div className="display-font text-lg font-medium text-stone-700">No cancellations to show</div>
+            <div className="text-sm text-stone-500 mt-1">
+              {items.length === 0
+                ? 'Click "Log cancellation" above to add the first one.'
+                : 'No matches for the current filters. Try clearing search.'}
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[1100px]">
+              <thead>
+                <tr className="border-b border-stone-200">
+                  <th className="w-8"></th>
+                  <SortableTh label="Date" col="cancelled_date" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[110px]" />
+                  <SortableTh label="Attributed CSM" col="csm" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[150px]" />
+                  <SortableTh label="Customer" col="customer_name" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+                  <SortableTh label="Plan" col="plan_type" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[120px]" />
+                  <SortableTh label="MRR" col="monthly_amount" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[100px]" />
+                  <SortableTh label="Reason" col="reason_category" sortBy={sortBy} sortDir={sortDir} onSort={onSort} width="w-[170px]" />
+                  <th className="w-12"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(c => (
+                  <CancellationRow
+                    key={c.id}
+                    item={c}
+                    csms={csms}
+                    csmName={csmName}
+                    expanded={expandedId === c.id}
+                    onToggleExpand={() => setExpandedId(prev => prev === c.id ? null : c.id)}
+                    onUpdate={(patch) => updateItem(c.id, patch)}
+                    onRemove={() => removeItem(c.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CancellationRow({ item: c, csms, csmName, expanded, onToggleExpand, onUpdate, onRemove }) {
+  const reasonMeta = CANCELLATION_CATEGORIES.find(r => r.key === c.reason_category) || CANCELLATION_CATEGORIES[5]
+  return (
+    <>
+      <tr className="border-b border-stone-100 hover:bg-stone-50/50 transition-colors">
+        <td className="py-2.5 px-2 align-top">
+          <button onClick={onToggleExpand} className="text-stone-500 hover:text-stone-900 transition-colors" title={expanded ? 'Collapse' : 'Expand'}>
+            {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <input
+            type="date"
+            value={c.cancelled_date || ''}
+            onChange={(e) => onUpdate({ cancelled_date: e.target.value })}
+            className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent w-[110px]"
+          />
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <select
+            value={c.csm_id || ''}
+            onChange={(e) => onUpdate({ csm_id: e.target.value })}
+            className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent max-w-[140px] truncate"
+          >
+            {csms.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <input
+            value={c.customer_name || ''}
+            onChange={(e) => onUpdate({ customer_name: e.target.value })}
+            placeholder="Customer name"
+            className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent w-full"
+          />
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <input
+            value={c.plan_type || ''}
+            onChange={(e) => onUpdate({ plan_type: e.target.value })}
+            placeholder="Plan"
+            className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent w-full"
+          />
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <div className="flex items-center gap-1">
+            <span className="text-stone-400 text-xs">$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={c.monthly_amount ?? ''}
+              onChange={(e) => onUpdate({ monthly_amount: e.target.value === '' ? null : Number(e.target.value) })}
+              placeholder="0"
+              className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent w-full num-tabular"
+            />
+          </div>
+        </td>
+        <td className="py-2.5 px-3 align-top">
+          <select
+            value={c.reason_category || 'other'}
+            onChange={(e) => onUpdate({ reason_category: e.target.value })}
+            className="text-sm py-1 px-1 border-b border-transparent focus:border-stone-300 transition-colors bg-transparent w-full"
+          >
+            {CANCELLATION_CATEGORIES.map(r => (
+              <option key={r.key} value={r.key}>{r.label}</option>
+            ))}
+          </select>
+        </td>
+        <td className="py-2.5 px-2 align-top text-right">
+          <button onClick={onRemove} className="text-stone-400 hover:text-red-700 transition-colors" title="Delete">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-stone-100 bg-stone-50/30">
+          <td></td>
+          <td colSpan={7} className="py-4 px-3">
+            <div className="space-y-3 max-w-3xl">
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">
+                  Customer email
+                </div>
+                <input
+                  value={c.customer_email || ''}
+                  onChange={(e) => onUpdate({ customer_email: e.target.value })}
+                  placeholder="customer@example.com"
+                  className="text-sm py-2 px-3 border border-stone-300 focus:border-stone-900 transition-colors w-full max-w-md rounded"
+                />
+              </div>
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">
+                  What happened?
+                </div>
+                <ExpandingTextarea
+                  value={c.reason_detail || ''}
+                  onChange={(v) => onUpdate({ reason_detail: v })}
+                  placeholder="Context that didn't fit in the category — pricing pressure, missing feature requested, who they switched to, etc."
+                  minRows={3}
+                  maxRows={20}
+                />
+              </div>
+              <div className="text-[11px] text-stone-500 mono-font">
+                Attributed to {csmName(c.csm_id)} · reason: {reasonMeta.label}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// Small tile used in the cancellation page header
+function SummaryTile({ label, value, sublabel, color, icon: Icon }) {
+  return (
+    <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: color }} />
+      <div className="flex items-start justify-between gap-2">
+        <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 leading-tight">{label}</div>
+        <Icon className="w-4 h-4 flex-shrink-0" style={{ color }} />
+      </div>
+      <div className="display-font text-3xl font-medium text-stone-900 leading-none mt-3 num-tabular">{value}</div>
+      <div className="text-[11px] text-stone-500 mt-2">{sublabel}</div>
+    </div>
   )
 }
 

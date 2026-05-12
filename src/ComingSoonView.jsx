@@ -1,9 +1,9 @@
 import React from 'react'
-import { LogOut, LayoutDashboard, Sparkles, Clock, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
+import { LogOut, LayoutDashboard, Sparkles, Clock, Lightbulb, Plug, Crown, Zap, UserMinus } from 'lucide-react'
 import { getRoleLabel, getTeamLabel, getTeamColor } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
+export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const teamLabel = getTeamLabel(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const color = getTeamColor(profile.team)
@@ -42,6 +42,11 @@ export default function ComingSoonView({ profile, onSignOut, onSwitchToManager, 
             {onSwitchToIntegrations && (
               <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
                 <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
+            {onSwitchToCancellations && (
+              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
+                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
               </button>
             )}
             {onSwitchToManager && (

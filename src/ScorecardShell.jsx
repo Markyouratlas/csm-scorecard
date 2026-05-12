@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap } from 'lucide-react'
+import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap, UserMinus } from 'lucide-react'
 import { getRoleLabel } from './teams'
 import { formatWeekLabel } from './dateUtils'
 import SettingsModal from './SettingsModal'
@@ -21,6 +21,7 @@ export default function ScorecardShell({
   onSwitchToManager,
   onSwitchToFeatureRequests,
   onSwitchToIntegrations,
+  onSwitchToCancellations,
   onSwitchToApiGuide,
   onSwitchToLeadership,
   onProfileUpdated,
@@ -68,6 +69,11 @@ export default function ScorecardShell({
             {onSwitchToIntegrations && (
               <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
                 <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
+            {onSwitchToCancellations && (
+              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
+                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
               </button>
             )}
             {onSwitchToManager && (

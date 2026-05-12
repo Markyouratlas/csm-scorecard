@@ -33,7 +33,7 @@ const STATUS_COLORS = {
   'Carry-over':  '#78716C',
 }
 
-export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_ENGINEER_WEEK)
@@ -60,7 +60,7 @@ export default function EngineerView({ profile, onSignOut, onSwitchToManager, on
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
+    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Engineer · Week of ${formatWeekLabel(weekKey)}`}
@@ -108,8 +108,9 @@ function WeeklySection({ weekData, update, categoryBreakdown }) {
       <div className="bg-white border border-stone-200 p-6">
         <div className="display-font text-2xl font-medium text-stone-900 mb-1">Quick numbers</div>
         <p className="text-sm text-stone-600 mb-4">End-of-week estimates. All optional — fill in what you track.</p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <SimpleField label="PRs Merged" value={weekData.prsMerged} onChange={(v) => update(d => ({ ...d, prsMerged: v }))} icon={GitPullRequest} />
+          <SimpleField label="PRs Deployed" value={weekData.prsDeployed} onChange={(v) => update(d => ({ ...d, prsDeployed: v }))} icon={GitPullRequest} help="Shipped to production" />
           <SimpleField label="Bugs Introduced" value={weekData.bugsIntroduced} onChange={(v) => update(d => ({ ...d, bugsIntroduced: v }))} icon={Bug} help="Lower is better (target ≤3/mo)" />
           <SimpleField label="Code Review (avg hrs)" value={weekData.codeReviewHours} onChange={(v) => update(d => ({ ...d, codeReviewHours: v }))} icon={Clock} step="0.1" />
           <SimpleField label="User Adoption Rate" value={weekData.userAdoptionRate} onChange={(v) => update(d => ({ ...d, userAdoptionRate: v }))} suffix="%" step="0.1" />
