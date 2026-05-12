@@ -265,8 +265,9 @@ function aggregateMarketing({ thisWeekCards, cardsByRole }) {
 // ----- Product (Engineering) -------------------------------------------------
 function aggregateProduct({ thisWeekCards, cardsByRole }) {
   const engWeek = cardsByRole(thisWeekCards, 'engineer')
-  // Engineer scorecards have prsMerged + bugsIntroduced as week-level fields.
-  const prsDeployedWeek = engWeek.reduce((s, c) => s + (Number(c.data?.prsMerged) || 0), 0)
+  // Engineer scorecards have prsMerged + prsDeployed + bugsIntroduced as week-level fields.
+  const prsMergedWeek = engWeek.reduce((s, c) => s + (Number(c.data?.prsMerged) || 0), 0)
+  const prsDeployedWeek = engWeek.reduce((s, c) => s + (Number(c.data?.prsDeployed) || 0), 0)
   const newBugsWeek = engWeek.reduce((s, c) => s + (Number(c.data?.bugsIntroduced) || 0), 0)
 
   // Engineering velocity: total bullets across all themes (a rough throughput proxy).
@@ -276,24 +277,27 @@ function aggregateProduct({ thisWeekCards, cardsByRole }) {
   }, 0)
 
   return {
+    prsMergedWeek,
     prsDeployedWeek,
     newBugsWeek,
     velocityBullets,
   }
 }
 
-// ----- Growth (Trials + Pipeline) --------------------------------------------
+// ----- Growth (Closes + Pipeline) --------------------------------------------
 function aggregateGrowth({ thisWeekCards, cardsByRole }) {
   const aeWeek = cardsByRole(thisWeekCards, 'account_executive')
   const growthWeek = cardsByRole(thisWeekCards, 'growth_manager')
 
-  const trialsStartedWeek =
+  // Field name `trialSignups` is kept internally — column was renamed to "Closes"
+  // in the UI. Same field, new meaning. We expose it as `closesWeek` here.
+  const closesWeek =
     sumOverDailies(aeWeek, 'trialSignups') +
     sumOverDailies(growthWeek, 'trialSignups')
 
   return {
-    trialsStartedWeek,
-    // Trial → Paid conversion + activation rate need Amplitude — left as null.
+    closesWeek,
+    // Trial \u2192 Paid conversion + activation rate need Amplitude \u2014 left as null.
     trialToPaidPct: null,
     userActivationRatePct: null,
     partnerPipeline: null,
