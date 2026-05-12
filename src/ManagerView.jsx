@@ -18,7 +18,7 @@ import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToApiGuide, onSwitchToLeadership }) {
+export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
@@ -130,6 +130,11 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
             {onSwitchToIntegrations && (
               <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
                 <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
+            {onSwitchToCancellations && (
+              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
+                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
               </button>
             )}
             {!isLeadershipRole(profile.role_type) && (
@@ -723,7 +728,7 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
     columns = [
       { key: 'completed', label: 'Demos Completed', compute: (m) => sumWorkDays(m, data, 'demosCompleted') },
       { key: 'booked', label: 'Demos Booked', compute: (m) => sumWorkDays(m, data, 'demosBooked') },
-      { key: 'signups', label: 'Trial Signups', compute: (m) => sumWorkDays(m, data, 'trialSignups') },
+      { key: 'signups', label: 'Closes', compute: (m) => sumWorkDays(m, data, 'trialSignups') },
       { key: 'pipeline', label: 'Pipeline ($)', compute: (m) => {
         const v = (data[m.id]?.deals || []).reduce((s, d) => s + (Number(d.value) || 0), 0)
         return v > 0 ? `$${v.toLocaleString()}` : '—'

@@ -127,6 +127,7 @@ export const CREATIVE_STATUSES = ['Testing', 'Winner', 'Killed']
 export const BLANK_ENGINEER_WEEK = () => ({
   // End-of-week self-reports (all optional)
   prsMerged: '',
+  prsDeployed: '',
   bugsIntroduced: '',
   codeReviewHours: '',
   userAdoptionRate: '',
