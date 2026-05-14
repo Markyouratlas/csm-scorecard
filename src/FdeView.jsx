@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, Crown, Zap, Info
+  Settings as SettingsIcon, Calendar, Lightbulb, Plug, UserMinus, Crown, Zap, Info
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -19,8 +19,8 @@ import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
-  const [section, setSection] = useState('meetings')
+export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+  const [section, setSection] = useState('activity')
   const [weekData, setWeekData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -103,13 +103,11 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   const avgTtfvDays = avgTtfv(weekData.ttfvCustomers)
 
   const sections = [
-    { id: 'meetings',         label: 'Daily Meetings',    icon: CalendarCheck },
-    { id: 'pipeline',         label: 'Pipeline',          icon: Users },
-    { id: 'launches',         label: 'Launches & TTFV',   icon: TrendingUp },
-    { id: 'testimonials',     label: 'Testimonials',      icon: Quote },
-    { id: 'retention',        label: 'Retention',         icon: Activity },
-    { id: 'health',           label: 'Health Scores',     icon: Heart },
-    { id: 'monthly',          label: 'Monthly View',      icon: Calendar },
+    { id: 'activity',         label: 'Daily Activity & Launches', icon: CalendarCheck },
+    { id: 'pipeline_health',  label: 'Pipeline & Health',         icon: Users },
+    { id: 'testimonials',     label: 'Testimonials',              icon: Quote },
+    { id: 'retention',        label: 'Retention',                 icon: Activity },
+    { id: 'monthly',          label: 'Monthly View',              icon: Calendar },
   ]
 
   return (
@@ -202,21 +200,33 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
             const Icon = s.icon
             const active = section === s.id
             return (
-              <CsmTab key={s.id} active={active} onClick={() => setSection(s.id)}>
+              <FdeTab key={s.id} active={active} onClick={() => setSection(s.id)}>
                 <Icon className="w-4 h-4" /> {s.label}
-              </CsmTab>
+              </FdeTab>
             )
           })}
         </div>
 
         <div className="fade-up" style={{ animationDelay: '160ms' }}>
-          {section === 'meetings' && <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />}
-          {section === 'pipeline' && <PipelineSection weekData={weekData} setPipeline={setPipeline} update={update} />}
-          {section === 'launches' && <LaunchesSection weekData={weekData} setField={setField} update={update} />}
+          {section === 'activity' && (
+            <div className="space-y-12">
+              <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />
+              <div className="border-t border-stone-200 pt-12">
+                <LaunchesSection weekData={weekData} setField={setField} update={update} />
+              </div>
+            </div>
+          )}
+          {section === 'pipeline_health' && (
+            <div className="space-y-12">
+              <PipelineSection weekData={weekData} setPipeline={setPipeline} update={update} />
+              <div className="border-t border-stone-200 pt-12">
+                <HealthSection weekData={weekData} update={update} />
+              </div>
+            </div>
+          )}
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
-          {section === 'health' && <HealthSection weekData={weekData} update={update} />}
-          {section === 'monthly' && <CsmMonthlyView profile={profile} />}
+          {section === 'monthly' && <FdeMonthlyView profile={profile} />}
         </div>
       </div>
       {showSettings && (
@@ -241,7 +251,7 @@ function SaveIndicator({ saving, savedAt }) {
 }
 
 // Each tab is a glass surface — pointer-tracked illumination per the doctrine.
-function CsmTab({ active, onClick, children }) {
+function FdeTab({ active, onClick, children }) {
   const ref = useGlassInteraction()
   return (
     <button
@@ -254,11 +264,9 @@ function CsmTab({ active, onClick, children }) {
   )
 }
 
-// Column header for the TTFV table with a two-line layout (e.g. "STAGE 1"
-// over "Signed → OB Scheduled") and a hover tooltip explaining the stage.
-// CSS-only — uses `group-hover` to reveal an absolutely-positioned panel
-// below the header. The Info icon next to the top label signals the
-// affordance.
+// Column header for the TTFV table with a two-line layout and a hover tooltip.
+// Mirrors the same component in CsmView (duplicated rather than shared to
+// keep the two scorecard views isolated — see notes in batch 6).
 function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
@@ -268,30 +276,19 @@ function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = 
   return (
     <th className={`${alignClass} py-2 px-3 relative group`}>
       <div className={`cursor-help ${alignClass}`}>
-        {/* Top line: STAGE 1 (etc.) + the Info icon */}
         <div className={`flex items-center gap-1.5 ${flexAlign}`}>
           <span className={labelClass}>{label}</span>
           <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
         </div>
-        {/* Bottom line: descriptive subtext, smaller + lighter. Increased from
-            the original 8px to 10px for legibility while staying subordinate. */}
         {subtext && (
           <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
             {subtext}
           </div>
         )}
       </div>
-      {/* Tooltip panel — positioned ABOVE the header so it doesn't extend
-          past the table's bottom edge (which would force scrollbars on the
-          overflow-x-auto wrapper). The area above the header row has plenty
-          of clearance (section padding + table top spacing).
-          z-30 keeps it above the table body; pointer-events-none stops it
-          from blocking clicks on what's underneath when not hovered. */}
       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
         <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
-          {/* Top brand-purple accent strip */}
           <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ background: '#8B5CF6' }} />
-          {/* Tooltip arrow — points DOWN toward the header */}
           <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
           <div className="relative">{tooltip}</div>
         </div>
@@ -391,8 +388,21 @@ function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay })
 // Atlas brand purple — used to flag Channel Partner customers everywhere
 const CHANNEL_PARTNER_COLOR = '#6639a6'
 
+// Forward Deployment uses a simplified 3-stage pipeline. The data still
+// carries all 10 stage fields from PIPELINE_STAGES (preOnboarding, kickoffScheduled,
+// inContact, obInProgress, implementationBacklog, implementation, implementationReview,
+// launch, paused, cancelled) — we just don't render the unused ones. If we want
+// to re-enable additional stages for FDE later, add their keys to this list.
+const FDE_PIPELINE_STAGE_KEYS = ['preOnboarding', 'obInProgress', 'launch']
+const FDE_PIPELINE_STAGES = PIPELINE_STAGES.filter(s => FDE_PIPELINE_STAGE_KEYS.includes(s.key)).map(s => {
+  // Re-label "launch" → "Launched" for the FDE view to make the simplified flow read clearly.
+  if (s.key === 'launch') return { ...s, label: 'Launched' }
+  return s
+})
+
 function PipelineSection({ weekData, setPipeline, update }) {
-  const totalClients = PIPELINE_STAGES.reduce((s, p) => s + (weekData.pipeline[p.key] || 0), 0)
+  // Total counts visible stages only — matches what the user sees.
+  const totalClients = FDE_PIPELINE_STAGES.reduce((s, p) => s + (weekData.pipeline[p.key] || 0), 0)
   const customers = weekData.ttfvCustomers || []
   const channelPartners = customers.filter(c => c.channelPartner && c.name && c.name.trim())
 
@@ -406,8 +416,8 @@ function PipelineSection({ weekData, setPipeline, update }) {
       <div className="bg-white border border-stone-200 p-6">
         <div className="display-font text-2xl font-medium text-stone-900 mb-1">Customer pipeline</div>
         <p className="text-sm text-stone-600 mb-6">Where do your customers currently sit? Total: <span className="font-semibold text-stone-900 num-tabular">{totalClients}</span></p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {PIPELINE_STAGES.map(stage => (
+        <div className="grid sm:grid-cols-3 gap-3">
+          {FDE_PIPELINE_STAGES.map(stage => (
             <div key={stage.key} className="border border-stone-200 p-4">
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">{stage.label}</div>
               <input type="number" min="0" value={weekData.pipeline[stage.key] || ''} onChange={(e) => setPipeline(stage.key, e.target.value)}
@@ -558,8 +568,6 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
   // double-fire feels gratuitous.
   useEffect(() => {
     if (!initializedRef.current) {
-      // Just initialize per-stage snapshots on first render so we have a
-      // baseline to diff against next time.
       customers.forEach(c => {
         lastStagesRef.current[c.id] = {
           s1: Number(c.stage1) || 0,
@@ -688,7 +696,6 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
                 const hasName = c.name && c.name.trim()
                 const s1 = Number(c.stage1) || 0
                 const s2 = Number(c.stage2) || 0
-                // "On target" = all three gates met (matches the confetti criteria above)
                 const isHit = hasName && total > 0 && total <= 14 && s1 <= 2 && s2 <= 3
                 const isCp = !!c.channelPartner
                 return (
@@ -1234,7 +1241,7 @@ function HealthTile({ label, count, color }) {
 //  Monthly View (with NRR + NPS inputs)
 // ============================================================================
 
-function CsmMonthlyView({ profile }) {
+function FdeMonthlyView({ profile }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const { weeks, monthly, loading, saveMonthly } = useMtdData(profile.id, monthKey)
   const { targets } = useTargets(profile.id, profile.role_type)
