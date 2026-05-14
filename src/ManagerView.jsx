@@ -36,8 +36,17 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
   const [loading, setLoading] = useState(true)
   const weekKey = useMemo(() => getWeekKey(), [])
 
-  // When set, we're viewing one specific member's scorecard (not the dashboard)
-  const [viewingMember, setViewingMember] = useState(null)
+  // When set, we're viewing one specific member's scorecard (not the dashboard).
+  // Persisted to sessionStorage so executives drilling into a specific member's
+  // scorecard don't lose their place when switching browser tabs.
+  const [viewingMember, setViewingMemberRaw] = useState(null)
+  const setViewingMember = useCallback((member) => {
+    setViewingMemberRaw(member)
+    try {
+      if (member?.id) sessionStorage.setItem('atlas:viewingMemberId', member.id)
+      else sessionStorage.removeItem('atlas:viewingMemberId')
+    } catch {}
+  }, [])
 
   // Whether to include archived users in the visible roster + dashboards.
   const [showArchived, setShowArchived] = useState(false)
@@ -51,6 +60,17 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
     const map = {}; (scorecards || []).forEach(s => { map[s.user_id] = s.data })
     setAllProfiles(profiles || [])
     setScorecardData(map)
+    // Rehydrate viewingMember from sessionStorage if we're not already viewing
+    // someone. This makes executives "stick" on a specific member's scorecard
+    // across tab switches.
+    try {
+      const savedId = sessionStorage.getItem('atlas:viewingMemberId')
+      if (savedId && (profiles || []).length) {
+        // Use a functional setter to avoid stomping if user clicked into someone
+        // during the load window.
+        setViewingMemberRaw(prev => prev || (profiles.find(p => p.id === savedId) || null))
+      }
+    } catch {}
     setLoading(false)
   }, [weekKey])
 
@@ -79,6 +99,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
       <ScorecardViewer
         targetProfile={viewingMember}
         viewer={profile}
+        onSignOut={onSignOut}
         onBack={() => {
           setViewingMember(null)
           loadAll()  // refresh data when returning, in case edits were made
@@ -160,8 +181,8 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
               {team.label}
             </TabButton>
           ))}
-          {/* Testimonials tab — visible to executives, or to team leads of CS team */}
-          {(isExec || (profile.is_team_lead && profile.team === 'customer_success')) && (
+          {/* Testimonials tab — visible to executives, or to team leads of CS or FDE teams */}
+          {(isExec || (profile.is_team_lead && (profile.team === 'customer_success' || profile.team === 'forward_deployed'))) && (
             <TabButton active={tab === 'testimonials'} onClick={() => setTab('testimonials')} icon={Quote}>Testimonials</TabButton>
           )}
           <TabButton active={tab === 'roster'} onClick={() => setTab('roster')} icon={UserCircle2}>Roster</TabButton>

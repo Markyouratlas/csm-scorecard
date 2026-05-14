@@ -2,8 +2,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Lightbulb, Plug, Loader2, Plus, Trash2, Search, Download, ChevronDown, ChevronRight,
   ChevronUp, ArrowUpDown, LogOut, LayoutDashboard, Settings as SettingsIcon, ArrowLeft,
-  ExternalLink, UserCircle2, Star, AlertCircle, Crown, Zap, UserMinus, DollarSign
+  ExternalLink, UserCircle2, Star, AlertCircle, Crown, Zap, UserMinus, DollarSign,
+  Send, Check
 } from 'lucide-react'
+import confetti from 'canvas-confetti'
 import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
@@ -76,7 +78,7 @@ export default function SharedPagesView({
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const canSeeLeadership = tier === 'executive'
-  const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+  const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
   const headerRef = useGlassInteraction()
 
   const pageTitle = page === 'feature_requests' ? 'Feature Requests'
@@ -193,8 +195,20 @@ function FeatureRequestsPage({ profile }) {
   const [sortDir, setSortDir] = useState('desc')
   const [expandedId, setExpandedId] = useState(null)
 
+  // Draft/Submit state. Edits accumulate locally per row in `drafts` and only
+  // get persisted to the database when the user clicks Submit.
+  //   drafts[rowId]       = { field: value, ... }   patches not yet saved
+  //   submitting          = Set<rowId>              currently being saved
+  //   recentlySubmitted   = Set<rowId>              just saved (for green-flash UI)
+  //   freshlyAdded        = Set<rowId>              brand-new row, Submit lights up immediately
+  const [drafts, setDrafts] = useState({})
+  const [submitting, setSubmitting] = useState(() => new Set())
+  const [recentlySubmitted, setRecentlySubmitted] = useState(() => new Set())
+  const [freshlyAdded, setFreshlyAdded] = useState(() => new Set())
+
   const tier = accessTier(profile)
   const isManager = tier === 'executive' || tier === 'team_lead'
+  const isExec = tier === 'executive'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -210,6 +224,9 @@ function FeatureRequestsPage({ profile }) {
 
   useEffect(() => { load() }, [load])
 
+  // Add a new row. Inserts an empty placeholder into the database (so we have
+  // an id), then marks the row as freshly-added so the Submit button is hot
+  // immediately. The user fills fields locally and clicks Submit to persist.
   const addItem = async () => {
     setAdding(true)
     const { data, error } = await supabase.from('feature_requests').insert({
@@ -227,12 +244,55 @@ function FeatureRequestsPage({ profile }) {
     if (error) { console.error(error); alert('Could not add request: ' + error.message); return }
     setItems(prev => [data, ...prev])
     setExpandedId(data.id)
+    // Mark as freshly added so the Submit button glows even without edits.
+    setFreshlyAdded(prev => { const n = new Set(prev); n.add(data.id); return n })
   }
 
-  const updateItem = async (id, patch) => {
+  // Stage an edit — updates the local view only, does NOT persist.
+  // Tracks the cumulative pending patch in `drafts[id]` so Submit knows what to send.
+  const stageEdit = (id, patch) => {
     setItems(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
-    const { error } = await supabase.from('feature_requests').update(patch).eq('id', id)
-    if (error) { console.error(error); load() }
+    setDrafts(prev => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }))
+  }
+
+  // Submit pending changes for a row. Fires confetti on success.
+  const submitItem = async (id) => {
+    const patch = drafts[id]
+    const isFresh = freshlyAdded.has(id)
+    // Nothing to do if there are no pending changes and the row isn't fresh.
+    if (!patch && !isFresh) return
+    setSubmitting(prev => { const n = new Set(prev); n.add(id); return n })
+    // For a freshly-added row with no actual edits yet, "submitting" still
+    // serves as the user committing to the empty placeholder. We don't need
+    // to send any patch — just clear the fresh flag.
+    if (patch) {
+      const { error } = await supabase.from('feature_requests').update(patch).eq('id', id)
+      if (error) {
+        console.error(error)
+        alert('Could not save: ' + error.message)
+        setSubmitting(prev => { const n = new Set(prev); n.delete(id); return n })
+        return
+      }
+    }
+    // Clear all the local "needs saving" state for this row.
+    setDrafts(prev => { const n = { ...prev }; delete n[id]; return n })
+    setFreshlyAdded(prev => { const n = new Set(prev); n.delete(id); return n })
+    setSubmitting(prev => { const n = new Set(prev); n.delete(id); return n })
+    setRecentlySubmitted(prev => { const n = new Set(prev); n.add(id); return n })
+    // Auto-clear the "just-saved" flash after a moment.
+    setTimeout(() => {
+      setRecentlySubmitted(prev => { const n = new Set(prev); n.delete(id); return n })
+    }, 1200)
+    // Celebrate.
+    fireConfetti()
+  }
+
+  // Status changes (executive-only field) save instantly — they're the exec's
+  // workflow tool, not "user-published content edits", so they bypass Submit.
+  const updateStatusInline = async (id, newStatus) => {
+    setItems(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r))
+    const { error } = await supabase.from('feature_requests').update({ status: newStatus }).eq('id', id)
+    if (error) { console.error(error); alert('Status save failed: ' + error.message); load() }
   }
 
   const removeItem = async (id) => {
@@ -241,6 +301,9 @@ function FeatureRequestsPage({ profile }) {
     if (error) { console.error(error); alert('Could not delete: ' + error.message); return }
     setItems(prev => prev.filter(r => r.id !== id))
     if (expandedId === id) setExpandedId(null)
+    // Clean up all the per-row state if the row is gone.
+    setDrafts(prev => { const n = { ...prev }; delete n[id]; return n })
+    setFreshlyAdded(prev => { const n = new Set(prev); n.delete(id); return n })
   }
 
   const counts = FR_STATUSES.reduce((acc, s) => ({
@@ -295,6 +358,24 @@ function FeatureRequestsPage({ profile }) {
 
   return (
     <div className="space-y-6">
+      {/* Inject the Submit button glow keyframe once. Idempotent — duplicate
+          style tags with identical content are harmless. */}
+      <style>{`
+        @keyframes atlasSubmitGlow {
+          0%, 100% {
+            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.5), 0 6px 16px -4px rgba(102, 57, 166, 0.35);
+          }
+          50% {
+            box-shadow: 0 0 0 5px rgba(139, 92, 246, 0), 0 10px 22px -4px rgba(102, 57, 166, 0.5);
+          }
+        }
+        .atlas-submit-glow {
+          animation: atlasSubmitGlow 1.8s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .atlas-submit-glow { animation: none; }
+        }
+      `}</style>
       <div>
         <div className="display-font text-3xl font-medium text-stone-900 mb-1">Feature requests</div>
         <p className="text-stone-600">A shared log of what customers are asking for. Anyone in the company can add or edit. Only the original logger or a leader can delete.</p>
@@ -383,17 +464,28 @@ function FeatureRequestsPage({ profile }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(r => (
-                  <FeatureRequestRow
-                    key={r.id}
-                    item={r}
-                    expanded={expandedId === r.id}
-                    onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
-                    onUpdate={(patch) => updateItem(r.id, patch)}
-                    onRemove={() => removeItem(r.id)}
-                    canDelete={r.logged_by_id === profile.id || isManager}
-                  />
-                ))}
+                {filtered.map(r => {
+                  const isFresh = freshlyAdded.has(r.id)
+                  const isDirty = !!drafts[r.id] || isFresh
+                  return (
+                    <FeatureRequestRow
+                      key={r.id}
+                      item={r}
+                      expanded={expandedId === r.id}
+                      onToggleExpand={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                      onStageEdit={(patch) => stageEdit(r.id, patch)}
+                      onSubmit={() => submitItem(r.id)}
+                      onStatusChange={(s) => updateStatusInline(r.id, s)}
+                      onRemove={() => removeItem(r.id)}
+                      canDelete={r.logged_by_id === profile.id || isManager}
+                      isDirty={isDirty}
+                      isFresh={isFresh}
+                      isSubmitting={submitting.has(r.id)}
+                      justSubmitted={recentlySubmitted.has(r.id)}
+                      canEditStatus={isExec}
+                    />
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -409,9 +501,54 @@ function FeatureRequestsPage({ profile }) {
   )
 }
 
-function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemove, canDelete }) {
+function FeatureRequestRow({
+  item: r, expanded, onToggleExpand, onStageEdit, onSubmit,
+  onStatusChange, onRemove, canDelete,
+  isDirty, isFresh, isSubmitting, justSubmitted, canEditStatus,
+}) {
   const stop = (e) => e.stopPropagation()
   const meta = frStatusMeta(r.status)
+
+  // Submit button visual state — drives both the button itself + the helper text.
+  const submitState = isSubmitting ? 'loading' : justSubmitted ? 'success' : isDirty ? 'dirty' : 'clean'
+
+  // Status display:
+  //   - Fresh (just-added) rows show "Draft" — they haven't been submitted yet
+  //     even though the DB row exists with status='submitted' as a placeholder.
+  //   - Executives see an editable dropdown (their workflow tool).
+  //   - Everyone else sees the actual database status as a colored badge.
+  const renderStatus = () => {
+    if (isFresh) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full border border-dashed"
+          style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
+          title="Press Submit to send this feature request"
+        >
+          Draft
+        </span>
+      )
+    }
+    if (canEditStatus) {
+      return (
+        <select value={r.status} onChange={(e) => onStatusChange(e.target.value)}
+          className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
+          style={{ color: meta.textColor, fontWeight: 500 }}>
+          {FR_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+      )
+    }
+    return (
+      <span
+        className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full"
+        style={{ background: meta.bg, color: meta.textColor }}
+        title="Status is updated by leadership as the request is reviewed"
+      >
+        {meta.label}
+      </span>
+    )
+  }
+
   return (
     <>
       <tr className={`border-b border-stone-100 cursor-pointer transition-colors ${expanded ? 'bg-stone-50' : 'hover:bg-stone-50/50'}`}
@@ -420,26 +557,27 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <input type="date" value={r.request_date || ''} onChange={(e) => onUpdate({ request_date: e.target.value })}
+          <input type="date" value={r.request_date || ''} onChange={(e) => onStageEdit({ request_date: e.target.value })}
             className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <input value={r.logged_by_name || ''} onChange={(e) => onUpdate({ logged_by_name: e.target.value })}
-            placeholder="Name"
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
+          {/* Logged By is read-only — auto-set on creation, can't be reassigned. */}
+          <div className="w-full py-1.5 px-2 text-sm text-stone-700 truncate" title={r.logged_by_name || ''}>
+            {r.logged_by_name || <span className="text-stone-400 italic">unknown</span>}
+          </div>
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <input value={r.customer_name || ''} onChange={(e) => onUpdate({ customer_name: e.target.value })}
+          <input value={r.customer_name || ''} onChange={(e) => onStageEdit({ customer_name: e.target.value })}
             placeholder="Customer"
             className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <input type="email" value={r.customer_email || ''} onChange={(e) => onUpdate({ customer_email: e.target.value })}
+          <input type="email" value={r.customer_email || ''} onChange={(e) => onStageEdit({ customer_email: e.target.value })}
             placeholder="email@example.com"
             className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <input value={r.feature_request || ''} onChange={(e) => onUpdate({ feature_request: e.target.value })}
+          <input value={r.feature_request || ''} onChange={(e) => onStageEdit({ feature_request: e.target.value })}
             placeholder="Short feature title"
             className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm" />
         </td>
@@ -454,11 +592,7 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
           )}
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          <select value={r.status} onChange={(e) => onUpdate({ status: e.target.value })}
-            className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
-            style={{ color: meta.textColor, fontWeight: 500 }}>
-            {FR_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
+          {renderStatus()}
         </td>
         <td className="py-2 px-3 text-right" onClick={stop}>
           {canDelete ? (
@@ -473,23 +607,59 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
       {expanded && (
         <tr className="bg-stone-50/60">
           <td></td>
-          <td colSpan={8} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
+          <td colSpan={8} className="py-5 pr-8 pl-1">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 pr-7 ml-3 mr-2 space-y-4 overflow-visible">
               <div>
                 <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Source / Link</label>
                 <input
                   value={r.source_link || ''}
-                  onChange={(e) => onUpdate({ source_link: e.target.value })}
+                  onChange={(e) => onStageEdit({ source_link: e.target.value })}
                   placeholder="https://... (link to ticket, email thread, Slack message, etc.)"
                   className="w-full py-2 px-3 border border-stone-300 focus:border-stone-900 transition-colors text-sm"
                 />
               </div>
               <div>
                 <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Description / use case</label>
-                <ExpandingTextarea value={r.description || ''} onChange={(v) => onUpdate({ description: v })}
+                <ExpandingTextarea value={r.description || ''} onChange={(v) => onStageEdit({ description: v })}
                   placeholder="What's the customer trying to do? Why does this matter to them? Any context the product team should have."
                   minRows={3} />
               </div>
+
+              {/* Action row — Delete (left) + Submit (right). Delete is
+                  prominently placed inside the expanded view so execs and
+                  the original logger always have an obvious affordance to
+                  remove the entry. The small trash icon in the table row
+                  stays as a quick-action shortcut. */}
+              <div className="flex items-center justify-between pt-2 gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  {canDelete && (
+                    <button
+                      onClick={onRemove}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete
+                    </button>
+                  )}
+                  <div className="text-xs">
+                    {submitState === 'dirty' && (
+                      <span className="inline-flex items-center gap-1.5 text-amber-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        You have unsaved changes
+                      </span>
+                    )}
+                    {submitState === 'success' && (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                        <Check className="w-3.5 h-3.5" /> Submitted
+                      </span>
+                    )}
+                    {submitState === 'clean' && (
+                      <span className="text-stone-400 italic">All changes saved</span>
+                    )}
+                  </div>
+                </div>
+                <SubmitButton state={submitState} onClick={onSubmit} />
+              </div>
+
               {!canDelete && (
                 <div className="text-xs text-stone-500 flex items-center gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5" />
@@ -502,6 +672,84 @@ function FeatureRequestRow({ item: r, expanded, onToggleExpand, onUpdate, onRemo
       )}
     </>
   )
+}
+
+// Submit button with four visual states. Clean = greyed/disabled, dirty =
+// glowing purple call-to-action, loading = spinner, success = green flash.
+function SubmitButton({ state, onClick }) {
+  const baseClass = 'inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 select-none'
+  if (state === 'loading') {
+    return (
+      <button disabled className={`${baseClass} bg-stone-300 text-white cursor-not-allowed`}>
+        <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
+      </button>
+    )
+  }
+  if (state === 'success') {
+    return (
+      <button disabled className={`${baseClass} text-white cursor-default`} style={{ background: '#10B981' }}>
+        <Check className="w-4 h-4" /> Saved
+      </button>
+    )
+  }
+  if (state === 'dirty') {
+    // The illuminated state — purple gradient + a soft glowing ring that
+    // gently breathes in/out. The keyframe is injected once via the
+    // SubmitGlowStyles component below; no external CSS file needed.
+    return (
+      <button
+        onClick={onClick}
+        className={`${baseClass} text-white shadow-lg hover:scale-[1.02] active:scale-[0.98] atlas-submit-glow`}
+        style={{ background: 'linear-gradient(135deg, #6639A6 0%, #8B5CF6 100%)' }}
+      >
+        <Send className="w-4 h-4" /> Submit
+      </button>
+    )
+  }
+  // Clean / nothing to save
+  return (
+    <button disabled className={`${baseClass} bg-stone-100 text-stone-400 cursor-not-allowed`}>
+      <Send className="w-4 h-4" /> Submit
+    </button>
+  )
+}
+
+// Celebration: simultaneous bursts from the bottom corners of the viewport,
+// then a center burst slightly delayed. Atlas purple + complementary palette.
+function fireConfetti() {
+  if (typeof window === 'undefined') return
+  try {
+    const colors = ['#6639A6', '#8B5CF6', '#F59E0B', '#10B981', '#FFFFFF']
+    confetti({
+      particleCount: 50,
+      angle: 60,
+      spread: 70,
+      origin: { x: 0.15, y: 0.85 },
+      colors,
+      scalar: 0.9,
+    })
+    confetti({
+      particleCount: 50,
+      angle: 120,
+      spread: 70,
+      origin: { x: 0.85, y: 0.85 },
+      colors,
+      scalar: 0.9,
+    })
+    setTimeout(() => {
+      confetti({
+        particleCount: 30,
+        spread: 100,
+        origin: { x: 0.5, y: 0.7 },
+        colors,
+        scalar: 0.8,
+        startVelocity: 25,
+      })
+    }, 150)
+  } catch (e) {
+    // canvas-confetti needs a real DOM; silently skip in unusual environments.
+    console.warn('Confetti unavailable', e)
+  }
 }
 
 // =============================================================================
@@ -919,8 +1167,9 @@ function CancellationsPage({ profile }) {
         .order('created_at', { ascending: false }),
       supabase.from('profiles')
         .select('id, name, team, role_type')
-        .eq('team', 'customer_success')
+        .in('team', ['customer_success', 'forward_deployed'])
         .is('archived_at', null)
+        .order('team', { ascending: true })
         .order('name', { ascending: true }),
     ])
     if (cancRes.error) console.error('Load cancellations error', cancRes.error)

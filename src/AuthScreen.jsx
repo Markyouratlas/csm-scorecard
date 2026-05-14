@@ -71,7 +71,11 @@ export default function AuthScreen() {
             role: isFirstUser ? 'executive' : 'member',
             team,
             role_type: roleType,
-            is_team_lead: isFirstUser ? true : false,
+            // Auto-promote on signup: first-user (executive seed) OR any role
+            // whose role_type ends in '_lead' (e.g. forward_deployed_engineer_lead).
+            // Other team leads (CSM team lead, etc.) are still toggled manually
+            // by an exec via Manager view; for those, no lead-specific role exists.
+            is_team_lead: isFirstUser || roleType.endsWith('_lead'),
             work_days: DEFAULT_WORK_DAYS,
           })
           if (profileError) throw profileError
@@ -101,7 +105,7 @@ export default function AuthScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-12" style={{ background: 'radial-gradient(ellipse at top, #FAF8F4 0%, #F0EBE0 100%)' }}>
+    <div className="min-h-screen flex items-center justify-center px-6 py-12" style={{ background: 'radial-gradient(ellipse at top, #FAFAF7 0%, #EDE7F5 100%)' }}>
       <div className="w-full max-w-md fade-up">
         <div className="mb-8 flex items-center gap-3">
           <AtlasLogo height={48} />
@@ -111,7 +115,7 @@ export default function AuthScreen() {
           </div>
         </div>
         <h1 className="display-font text-5xl md:text-6xl font-medium leading-[0.95] tracking-tight text-stone-900 mb-3">
-          {mode === 'signin' ? <>Welcome <em className="font-light">back.</em></> : <>Get <em className="font-light">started.</em></>}
+          {mode === 'signin' ? <>Welcome <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>back.</em></> : <>Get <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>started.</em></>}
         </h1>
         <p className="text-stone-600 text-base max-w-xl mb-10 leading-relaxed">
           {mode === 'signin' ? 'Sign in to log your week.' : 'Create your account to get started.'}
