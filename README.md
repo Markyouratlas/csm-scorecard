@@ -74,3 +74,4 @@ npm run dev
 - `src/CsmView.jsx` — Personal weekly scorecard (per-CSM view)
 - `src/ManagerView.jsx` — Consolidated dashboard + roster management
 - `src/supabase.js` — Database client
+-  
