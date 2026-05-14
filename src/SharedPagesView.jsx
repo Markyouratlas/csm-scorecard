@@ -76,7 +76,7 @@ export default function SharedPagesView({
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const canSeeLeadership = tier === 'executive'
-  const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+  const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
   const headerRef = useGlassInteraction()
 
   const pageTitle = page === 'feature_requests' ? 'Feature Requests'
@@ -919,8 +919,9 @@ function CancellationsPage({ profile }) {
         .order('created_at', { ascending: false }),
       supabase.from('profiles')
         .select('id, name, team, role_type')
-        .eq('team', 'customer_success')
+        .in('team', ['customer_success', 'forward_deployed'])
         .is('archived_at', null)
+        .order('team', { ascending: true })
         .order('name', { ascending: true }),
     ])
     if (cancRes.error) console.error('Load cancellations error', cancRes.error)

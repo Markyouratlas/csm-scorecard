@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Loader2 } from 'lucide-react'
 import { supabase } from './supabase'
 import AuthScreen from './AuthScreen'
@@ -9,6 +9,7 @@ import AeView from './AeView'
 import GrowthView from './GrowthView'
 import AdStrategistView from './AdStrategistView'
 import EngineerView from './EngineerView'
+import FdeView from './FdeView'
 import ManagerView from './ManagerView'
 import ComingSoonView from './ComingSoonView'
 import LeadershipPendingView from './LeadershipPendingView'
@@ -22,7 +23,22 @@ export default function App() {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership'
-  const [viewMode, setViewMode] = useState('self')
+  // Hydrate from sessionStorage so the user's current view survives across
+  // tab switches and page reloads within the same browser session.
+  const [viewMode, setViewModeRaw] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('atlas:viewMode')
+      return stored || 'self'
+    } catch { return 'self' }
+  })
+  // Wrap setViewMode so every state change writes through to sessionStorage.
+  const setViewMode = useCallback((next) => {
+    setViewModeRaw(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      try { sessionStorage.setItem('atlas:viewMode', resolved) } catch {}
+      return resolved
+    })
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -63,7 +79,17 @@ export default function App() {
       if (data) {
         setProfile(data)
         const tier = accessTier(data)
-        setViewMode(tier === 'member' ? 'self' : 'manager')
+        // Only auto-set viewMode if there's no saved preference — i.e. first
+        // load this browser session. Subsequent profile reloads (e.g. tab
+        // regains focus and Supabase refreshes the session) must NOT clobber
+        // the user's current view choice.
+        try {
+          if (!sessionStorage.getItem('atlas:viewMode')) {
+            setViewMode(tier === 'member' ? 'self' : 'manager')
+          }
+        } catch {
+          setViewMode(tier === 'member' ? 'self' : 'manager')
+        }
         setLoading(false)
         return
       }
@@ -84,7 +110,13 @@ export default function App() {
     loadProfile()
   }, [session])
 
-  const handleSignOut = async () => { await supabase.auth.signOut() }
+  const handleSignOut = async () => {
+    try {
+      sessionStorage.removeItem('atlas:viewMode')
+      sessionStorage.removeItem('atlas:viewingMemberId')
+    } catch {}
+    await supabase.auth.signOut()
+  }
 
   // Safety: if a user's tier changes (e.g. demoted from exec) while they're on
   // a privileged view, bounce them to a safe view. Done in effect to avoid
@@ -287,6 +319,9 @@ function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFe
       return <AdStrategistView {...props} />
     case 'engineer':
       return <EngineerView {...props} />
+    case 'forward_deployed_engineer':
+    case 'forward_deployed_engineer_lead':
+      return <FdeView {...props} />
     default:
       return <ComingSoonView {...props} />
   }

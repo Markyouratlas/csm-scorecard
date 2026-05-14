@@ -52,6 +52,15 @@ export const TEAMS = [
       { key: 'engineer',             label: 'Engineer',                     status: 'live' },
     ],
   },
+  {
+    key: 'forward_deployed',
+    label: 'Forward Deployment',
+    color: '#4338CA',
+    roles: [
+      { key: 'forward_deployed_engineer',       label: 'Forward Deployed Engineer',        status: 'live' },
+      { key: 'forward_deployed_engineer_lead',  label: 'Forward Deployed Engineer Lead',   status: 'live' },
+    ],
+  },
 ]
 
 // Quick check: is this team a leadership team (no scorecard)?
