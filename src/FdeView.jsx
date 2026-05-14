@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Lightbulb, Plug, UserMinus, Crown, Zap
+  Settings as SettingsIcon, Calendar, Lightbulb, Plug, UserMinus, Crown, Zap, Info
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -264,6 +264,32 @@ function FdeTab({ active, onClick, children }) {
   )
 }
 
+// Column header for the TTFV table with a hover tooltip explaining the stage.
+// Mirrors the same component in CsmView (kept duplicated rather than shared
+// to keep these two scorecard views isolated — see notes in batch 6).
+function TtfvStageHeader({ label, tooltip, align = 'center', isTotal = false }) {
+  const alignClass = align === 'right' ? 'text-right' : 'text-center'
+  const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
+  const labelClass = isTotal
+    ? 'mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold'
+    : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
+  return (
+    <th className={`${alignClass} py-2 px-3 relative group`}>
+      <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
+        <span className={labelClass}>{label}</span>
+        <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+      </div>
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
+        <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
+          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ background: '#8B5CF6' }} />
+          <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
+          <div className="relative">{tooltip}</div>
+        </div>
+      </div>
+    </th>
+  )
+}
+
 function NorthStarTile({ label, value, unit, sublabel, color, icon: Icon }) {
   return (
     <div className="bg-white border border-stone-200 p-6 relative overflow-hidden">
@@ -511,9 +537,11 @@ function LaunchesSection({ weekData, setField, update }) {
 
 function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCustomer }) {
   const avg = avgTtfv(customers)
-  // Track which customer rows have already had confetti this session (to fire on every change to ≤14, but not on initial load)
+  // Per-stage previous values let us detect WHICH stage changed and apply
+  // the right gate. Without this we can only see total changes, which can't
+  // tell us if stage 1 was edited vs. stage 3.
   const initializedRef = useRef(false)
-  const lastTotalsRef = useRef({})
+  const lastStagesRef = useRef({})
   const [showOnlyChannelPartners, setShowOnlyChannelPartners] = useState(false)
 
   useEffect(() => {
@@ -522,25 +550,49 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
     return () => clearTimeout(timer)
   }, [])
 
-  // Watch for totals dropping to ≤14 and fire confetti each time
+  // Per-stage confetti rules — each stage celebrates differently. The total
+  // must always be ≤14 (the overall TTFV goal); individual stages have their
+  // own additional targets:
+  //   • Stage 1 changed AND stage 1 ≤ 2 days  → 🎆
+  //   • Stage 2 changed AND stage 2 ≤ 3 days  → 🎆
+  //   • Stage 3 changed (no extra gate beyond total) → 🎆
+  //
+  // We fire at most ONE burst per render, even if multiple stages qualify —
+  // double-fire feels gratuitous.
   useEffect(() => {
     if (!initializedRef.current) {
-      // Just initialize the totals on first render
-      customers.forEach(c => { lastTotalsRef.current[c.id] = customerTtfv(c) })
+      customers.forEach(c => {
+        lastStagesRef.current[c.id] = {
+          s1: Number(c.stage1) || 0,
+          s2: Number(c.stage2) || 0,
+          s3: Number(c.stage3) || 0,
+        }
+      })
       return
     }
     customers.forEach(c => {
       const total = customerTtfv(c)
-      const prev = lastTotalsRef.current[c.id]
-      // Fire when: customer has a name, total > 0 and ≤14, AND something actually changed about them
-      if (c.name && c.name.trim() && total > 0 && total <= 14 && total !== prev) {
-        fireConfetti({ count: 60 })
+      const s1 = Number(c.stage1) || 0
+      const s2 = Number(c.stage2) || 0
+      const s3 = Number(c.stage3) || 0
+      const prev = lastStagesRef.current[c.id] || { s1, s2, s3 }
+
+      const hasName = c.name && c.name.trim()
+      const totalOnTarget = total > 0 && total <= 14
+
+      let shouldFire = false
+      if (hasName && totalOnTarget) {
+        if (s1 !== prev.s1 && s1 <= 2) shouldFire = true
+        if (s2 !== prev.s2 && s2 <= 3) shouldFire = true
+        if (s3 !== prev.s3) shouldFire = true
       }
-      lastTotalsRef.current[c.id] = total
+
+      if (shouldFire) fireConfetti({ count: 60 })
+      lastStagesRef.current[c.id] = { s1, s2, s3 }
     })
-    // Clean up totals for removed customers
+    // Clean up snapshots for removed customers
     const ids = new Set(customers.map(c => c.id))
-    Object.keys(lastTotalsRef.current).forEach(id => { if (!ids.has(id)) delete lastTotalsRef.current[id] })
+    Object.keys(lastStagesRef.current).forEach(id => { if (!ids.has(id)) delete lastStagesRef.current[id] })
   }, [customers])
 
   const channelPartnerCount = customers.filter(c => c.channelPartner).length
@@ -606,10 +658,24 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
                   <Star className="w-3.5 h-3.5 inline" style={{ color: CHANNEL_PARTNER_COLOR }} />
                 </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
-                <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage 1<br/><span className="text-[8px] normal-case tracking-normal text-stone-400">Signed → Kickoff</span></th>
-                <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage 2<br/><span className="text-[8px] normal-case tracking-normal text-stone-400">Kickoff → Onboarded</span></th>
-                <th className="text-center py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Stage 3<br/><span className="text-[8px] normal-case tracking-normal text-stone-400">Onboarded → Live</span></th>
-                <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold">Total</th>
+                <TtfvStageHeader
+                  label="Signed → OB Scheduled"
+                  tooltip="Time from a customer paying to clicking the link that schedules their first onboarding meeting. Target: same day or next day. More than 2 days is too long."
+                />
+                <TtfvStageHeader
+                  label="OB Scheduled → OB Kickoff"
+                  tooltip="Time from scheduling onboarding to the actual onboarding meeting. Could be backlog on our side or a delay from the customer — either way, keep this under 3 days. North star: 1 day."
+                />
+                <TtfvStageHeader
+                  label="OB Kickoff → Launched"
+                  tooltip="Time from the first onboarding meeting to when the customer is launched and getting real value from Atlas."
+                />
+                <TtfvStageHeader
+                  label="Time-to-First-Value"
+                  tooltip="Total days from signing to launch — the sum of all three stages. North star: 14 days or less."
+                  align="right"
+                  isTotal
+                />
                 <th className="w-10"></th>
               </tr>
             </thead>
@@ -617,7 +683,9 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
               {visibleCustomers.map(c => {
                 const total = customerTtfv(c)
                 const hasName = c.name && c.name.trim()
-                const isHit = hasName && total > 0 && total <= 14
+                const s1 = Number(c.stage1) || 0
+                const s2 = Number(c.stage2) || 0
+                const isHit = hasName && total > 0 && total <= 14 && s1 <= 2 && s2 <= 3
                 const isCp = !!c.channelPartner
                 return (
                   <tr key={c.id} className={`border-b border-stone-100 transition-colors ${isHit ? 'bg-emerald-50/40' : ''}`}>
