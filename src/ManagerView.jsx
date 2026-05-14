@@ -99,6 +99,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
       <ScorecardViewer
         targetProfile={viewingMember}
         viewer={profile}
+        onSignOut={onSignOut}
         onBack={() => {
           setViewingMember(null)
           loadAll()  // refresh data when returning, in case edits were made

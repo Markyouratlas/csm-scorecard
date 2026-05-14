@@ -18,8 +18,9 @@ import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 // Props:
 //   targetProfile  — the profile whose scorecard we want to view
 //   viewer         — the currently-authenticated user (executive)
+//   onSignOut      — sign out the viewer's session
 //   onBack         — called when the back button is clicked
-export default function ScorecardViewer({ targetProfile, viewer, onBack }) {
+export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBack }) {
   const [weekKey, setWeekKey] = useState(getWeekKey())
 
   const isViewingSelf = targetProfile.id === viewer.id
@@ -82,14 +83,16 @@ export default function ScorecardViewer({ targetProfile, viewer, onBack }) {
       </div>
 
       {/* The actual scorecard. Note we pass the TARGET profile, not the viewer.
-          Key=weekKey ensures the component re-mounts when week changes. */}
+          Key=weekKey ensures the component re-mounts when week changes.
+          onSignOut signs out the VIEWER's session (the executive who's drilling in),
+          not the target user — that's a session-level action on the auth session. */}
       <ScorecardComponent
         key={`${targetProfile.id}-${weekKey}`}
         profile={targetProfile}
         weekKey={weekKey}
-        onSignOut={() => {}}             // disabled — we're viewing, not the active session
-        onSwitchToManager={onBack}       // the back button doubles as switch-to-manager
-        onProfileUpdated={() => {}}      // edits to the viewed user's profile not supported here
+        onSignOut={onSignOut || (() => {})}
+        onSwitchToManager={onBack}      // "Manager view" doubles as back-to-dashboard
+        onProfileUpdated={() => {}}     // edits to the viewed user's profile not supported here
       />
     </div>
   )
