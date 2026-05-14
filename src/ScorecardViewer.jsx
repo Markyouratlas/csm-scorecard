@@ -7,6 +7,7 @@ import AeView from './AeView'
 import GrowthView from './GrowthView'
 import AdStrategistView from './AdStrategistView'
 import EngineerView from './EngineerView'
+import FdeView from './FdeView'
 import ComingSoonView from './ComingSoonView'
 import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 
@@ -105,6 +106,8 @@ function pickComponent(roleType) {
     case 'growth_manager':     return GrowthView
     case 'ad_strategist':      return AdStrategistView
     case 'engineer':           return EngineerView
+    case 'forward_deployed_engineer':       return FdeView
+    case 'forward_deployed_engineer_lead':  return FdeView
     default:                   return ComingSoonView
   }
 }
