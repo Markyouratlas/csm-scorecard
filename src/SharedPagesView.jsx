@@ -625,23 +625,37 @@ function FeatureRequestRow({
                   minRows={3} />
               </div>
 
-              {/* Submit button — the heart of the draft/save flow. */}
+              {/* Action row — Delete (left) + Submit (right). Delete is
+                  prominently placed inside the expanded view so execs and
+                  the original logger always have an obvious affordance to
+                  remove the entry. The small trash icon in the table row
+                  stays as a quick-action shortcut. */}
               <div className="flex items-center justify-between pt-2 gap-3 flex-wrap">
-                <div className="text-xs">
-                  {submitState === 'dirty' && (
-                    <span className="inline-flex items-center gap-1.5 text-amber-700">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                      You have unsaved changes
-                    </span>
+                <div className="flex items-center gap-3">
+                  {canDelete && (
+                    <button
+                      onClick={onRemove}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete
+                    </button>
                   )}
-                  {submitState === 'success' && (
-                    <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
-                      <Check className="w-3.5 h-3.5" /> Submitted
-                    </span>
-                  )}
-                  {submitState === 'clean' && (
-                    <span className="text-stone-400 italic">All changes saved</span>
-                  )}
+                  <div className="text-xs">
+                    {submitState === 'dirty' && (
+                      <span className="inline-flex items-center gap-1.5 text-amber-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        You have unsaved changes
+                      </span>
+                    )}
+                    {submitState === 'success' && (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                        <Check className="w-3.5 h-3.5" /> Submitted
+                      </span>
+                    )}
+                    {submitState === 'clean' && (
+                      <span className="text-stone-400 italic">All changes saved</span>
+                    )}
+                  </div>
                 </div>
                 <SubmitButton state={submitState} onClick={onSubmit} />
               </div>
