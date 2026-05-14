@@ -268,34 +268,41 @@ function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = 
     ? 'mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold'
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
   return (
-    <th className={`${alignClass} py-2 px-3 relative group`}>
-      <div className={`cursor-help ${alignClass}`}>
-        {/* Top line: STAGE 1 (etc.) + the Info icon */}
-        <div className={`flex items-center gap-1.5 ${flexAlign}`}>
-          <span className={labelClass}>{label}</span>
-          <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
-        </div>
-        {/* Bottom line: descriptive subtext, smaller + lighter. Increased from
-            the original 8px to 10px for legibility while staying subordinate. */}
-        {subtext && (
-          <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
-            {subtext}
+    <th className={`${alignClass} py-2 px-3`}>
+      {/* The `relative group` lives on this inner wrapper, NOT the <th>,
+          because <th>/<td> have inconsistent behaviour as positioning
+          contexts across browsers. With it on a plain <div> the absolute
+          tooltip positions reliably relative to the header content. */}
+      <div className={`relative group inline-block ${alignClass}`}>
+        <div className="cursor-help">
+          {/* Top line: STAGE 1 (etc.) + the Info icon */}
+          <div className={`flex items-center gap-1.5 ${flexAlign}`}>
+            <span className={labelClass}>{label}</span>
+            <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
           </div>
-        )}
-      </div>
-      {/* Tooltip panel — positioned ABOVE the header so it doesn't extend
-          past the table's bottom edge (which would force scrollbars on the
-          overflow-x-auto wrapper). The area above the header row has plenty
-          of clearance (section padding + table top spacing).
-          z-30 keeps it above the table body; pointer-events-none stops it
-          from blocking clicks on what's underneath when not hovered. */}
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
-        <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
-          {/* Top brand-purple accent strip */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ background: '#8B5CF6' }} />
-          {/* Tooltip arrow — points DOWN toward the header */}
-          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
-          <div className="relative">{tooltip}</div>
+          {/* Bottom line: descriptive subtext, smaller + lighter. Increased
+              from the original 8px to 10px for legibility while staying
+              subordinate. */}
+          {subtext && (
+            <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
+              {subtext}
+            </div>
+          )}
+        </div>
+        {/* Tooltip panel — positioned ABOVE the header so it doesn't extend
+            past the table's bottom edge (which would force scrollbars on the
+            overflow-x-auto wrapper). The area above the header row has plenty
+            of clearance (section padding + table top spacing).
+            z-30 keeps it above the table body; pointer-events-none stops it
+            from blocking clicks on what's underneath when not hovered. */}
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
+          <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
+            {/* Top brand-purple accent strip */}
+            <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ background: '#8B5CF6' }} />
+            {/* Tooltip arrow — points DOWN toward the header */}
+            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
+            <div className="relative">{tooltip}</div>
+          </div>
         </div>
       </div>
     </th>
