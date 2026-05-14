@@ -264,10 +264,10 @@ function FdeTab({ active, onClick, children }) {
   )
 }
 
-// Column header for the TTFV table with a hover tooltip explaining the stage.
-// Mirrors the same component in CsmView (kept duplicated rather than shared
-// to keep these two scorecard views isolated — see notes in batch 6).
-function TtfvStageHeader({ label, tooltip, align = 'center', isTotal = false }) {
+// Column header for the TTFV table with a two-line layout and a hover tooltip.
+// Mirrors the same component in CsmView (duplicated rather than shared to
+// keep the two scorecard views isolated — see notes in batch 6).
+function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
   const labelClass = isTotal
@@ -275,9 +275,16 @@ function TtfvStageHeader({ label, tooltip, align = 'center', isTotal = false }) 
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
   return (
     <th className={`${alignClass} py-2 px-3 relative group`}>
-      <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
-        <span className={labelClass}>{label}</span>
-        <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+      <div className={`cursor-help ${alignClass}`}>
+        <div className={`flex items-center gap-1.5 ${flexAlign}`}>
+          <span className={labelClass}>{label}</span>
+          <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+        </div>
+        {subtext && (
+          <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
+            {subtext}
+          </div>
+        )}
       </div>
       <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
         <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
@@ -659,19 +666,23 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
                 </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
                 <TtfvStageHeader
-                  label="Signed → OB Scheduled"
+                  label="Stage 1"
+                  subtext="Signed → OB Scheduled"
                   tooltip="Time from a customer paying to clicking the link that schedules their first onboarding meeting. Target: same day or next day. More than 2 days is too long."
                 />
                 <TtfvStageHeader
-                  label="OB Scheduled → OB Kickoff"
+                  label="Stage 2"
+                  subtext="OB Scheduled → OB Kickoff"
                   tooltip="Time from scheduling onboarding to the actual onboarding meeting. Could be backlog on our side or a delay from the customer — either way, keep this under 3 days. North star: 1 day."
                 />
                 <TtfvStageHeader
-                  label="OB Kickoff → Launched"
+                  label="Stage 3"
+                  subtext="OB Kickoff → Launched"
                   tooltip="Time from the first onboarding meeting to when the customer is launched and getting real value from Atlas."
                 />
                 <TtfvStageHeader
-                  label="Time-to-First-Value"
+                  label="Total"
+                  subtext="Time-to-First-Value"
                   tooltip="Total days from signing to launch — the sum of all three stages. North star: 14 days or less."
                   align="right"
                   isTotal

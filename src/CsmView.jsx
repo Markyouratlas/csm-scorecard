@@ -254,10 +254,12 @@ function CsmTab({ active, onClick, children }) {
   )
 }
 
-// Column header for the TTFV table with a hover tooltip explaining the stage.
-// CSS-only — uses `group-hover` to reveal an absolutely-positioned panel below
-// the header. The Info icon next to the label signals the affordance.
-function TtfvStageHeader({ label, tooltip, align = 'center', isTotal = false }) {
+// Column header for the TTFV table with a two-line layout (e.g. "STAGE 1"
+// over "Signed → OB Scheduled") and a hover tooltip explaining the stage.
+// CSS-only — uses `group-hover` to reveal an absolutely-positioned panel
+// below the header. The Info icon next to the top label signals the
+// affordance.
+function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
   const labelClass = isTotal
@@ -265,9 +267,19 @@ function TtfvStageHeader({ label, tooltip, align = 'center', isTotal = false }) 
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
   return (
     <th className={`${alignClass} py-2 px-3 relative group`}>
-      <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
-        <span className={labelClass}>{label}</span>
-        <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+      <div className={`cursor-help ${alignClass}`}>
+        {/* Top line: STAGE 1 (etc.) + the Info icon */}
+        <div className={`flex items-center gap-1.5 ${flexAlign}`}>
+          <span className={labelClass}>{label}</span>
+          <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+        </div>
+        {/* Bottom line: descriptive subtext, smaller + lighter. Increased from
+            the original 8px to 10px for legibility while staying subordinate. */}
+        {subtext && (
+          <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
+            {subtext}
+          </div>
+        )}
       </div>
       {/* Tooltip panel — appears on hover, positioned below the header.
           z-30 keeps it above the table body; pointer-events-none stops it
@@ -643,19 +655,23 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
                 </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Customer</th>
                 <TtfvStageHeader
-                  label="Signed → OB Scheduled"
+                  label="Stage 1"
+                  subtext="Signed → OB Scheduled"
                   tooltip="Time from a customer paying to clicking the link that schedules their first onboarding meeting. Target: same day or next day. More than 2 days is too long."
                 />
                 <TtfvStageHeader
-                  label="OB Scheduled → OB Kickoff"
+                  label="Stage 2"
+                  subtext="OB Scheduled → OB Kickoff"
                   tooltip="Time from scheduling onboarding to the actual onboarding meeting. Could be backlog on our side or a delay from the customer — either way, keep this under 3 days. North star: 1 day."
                 />
                 <TtfvStageHeader
-                  label="OB Kickoff → Launched"
+                  label="Stage 3"
+                  subtext="OB Kickoff → Launched"
                   tooltip="Time from the first onboarding meeting to when the customer is launched and getting real value from Atlas."
                 />
                 <TtfvStageHeader
-                  label="Time-to-First-Value"
+                  label="Total"
+                  subtext="Time-to-First-Value"
                   tooltip="Total days from signing to launch — the sum of all three stages. North star: 14 days or less."
                   align="right"
                   isTotal
