@@ -281,15 +281,18 @@ function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = 
           </div>
         )}
       </div>
-      {/* Tooltip panel — appears on hover, positioned below the header.
+      {/* Tooltip panel — positioned ABOVE the header so it doesn't extend
+          past the table's bottom edge (which would force scrollbars on the
+          overflow-x-auto wrapper). The area above the header row has plenty
+          of clearance (section padding + table top spacing).
           z-30 keeps it above the table body; pointer-events-none stops it
           from blocking clicks on what's underneath when not hovered. */}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
         <div className="relative bg-stone-900 text-stone-100 text-xs leading-relaxed rounded-lg shadow-xl p-3.5 normal-case tracking-normal font-normal text-left">
           {/* Top brand-purple accent strip */}
           <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-lg" style={{ background: '#8B5CF6' }} />
-          {/* Tooltip arrow */}
-          <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
+          {/* Tooltip arrow — points DOWN toward the header */}
+          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-stone-900 rotate-45" />
           <div className="relative">{tooltip}</div>
         </div>
       </div>
@@ -646,7 +649,7 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
           <p className="text-sm text-stone-500">Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on any customer below to flag them.</p>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto">
+        <div className="mt-6 overflow-x-auto overflow-y-visible">
           <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
