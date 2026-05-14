@@ -170,8 +170,8 @@ export default function App() {
   if (viewMode === 'feature_requests' || viewMode === 'integrations' || viewMode === 'cancellations') {
     const canGoToSelf = !isLeadershipRole(profile.role_type)
     const canSeeLeadership = tier === 'executive'
-    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
-    // If a non-CS, non-executive user somehow lands on cancellations, redirect to self.
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
+    // If a non-CS, non-FDE, non-executive user somehow lands on cancellations, redirect to self.
     if (viewMode === 'cancellations' && !canSeeCancellations) {
       setViewMode('self')
       return null
@@ -187,7 +187,7 @@ export default function App() {
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
-          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
           onProfileUpdated={setProfile}
         />
@@ -195,11 +195,16 @@ export default function App() {
     )
   }
 
-  // API Integration Guide — visible to everyone with a profile (informational only)
+  // API Integration Guide — executives only (technical infrastructure planning).
+  // Block access if a non-executive somehow lands on this route via stale state.
   if (viewMode === 'api_guide') {
+    if (tier !== 'executive') {
+      setViewMode('self')
+      return null
+    }
     const canGoToSelf = !isLeadershipRole(profile.role_type)
     const canSeeLeadership = tier === 'executive'
-    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
     return (
       <Shell>
         <ApiIntegrationGuide
@@ -244,7 +249,7 @@ export default function App() {
 
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
-    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
     return (
       <Shell>
         <ManagerView
@@ -254,7 +259,7 @@ export default function App() {
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
-          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
       </Shell>
@@ -264,7 +269,7 @@ export default function App() {
   // For executives whose personal role is also Leadership (no scorecard),
   // there's no useful "self view" — bounce them to manager view.
   if (canSeeManagerView && viewMode === 'self' && isLeadershipRole(profile.role_type)) {
-    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
     return (
       <Shell>
         <ManagerView
@@ -274,7 +279,7 @@ export default function App() {
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
-          onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         />
       </Shell>
@@ -282,7 +287,11 @@ export default function App() {
   }
 
   // Personal scorecard — route based on role
-  const canSeeCancellationsForSelf = tier === 'executive' || profile.team === 'customer_success'
+  // Permissions for the side-buttons in the scorecard header:
+  //  - API Setup is technical infrastructure for executives only.
+  //  - Cancellations is for executives + CS team + FDE team.
+  const canSeeCancellationsForSelf = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
+  const canSeeApiGuideForSelf = tier === 'executive'
   return (
     <Shell>
       <PersonalScorecard
@@ -292,7 +301,7 @@ export default function App() {
         onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
         onSwitchToIntegrations={() => setViewMode('integrations')}
         onSwitchToCancellations={canSeeCancellationsForSelf ? () => setViewMode('cancellations') : null}
-        onSwitchToApiGuide={() => setViewMode('api_guide')}
+        onSwitchToApiGuide={canSeeApiGuideForSelf ? () => setViewMode('api_guide') : null}
         onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
         onProfileUpdated={setProfile}
       />
