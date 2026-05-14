@@ -363,10 +363,10 @@ function FeatureRequestsPage({ profile }) {
       <style>{`
         @keyframes atlasSubmitGlow {
           0%, 100% {
-            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.55), 0 8px 20px -4px rgba(102, 57, 166, 0.4);
+            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.5), 0 6px 16px -4px rgba(102, 57, 166, 0.35);
           }
           50% {
-            box-shadow: 0 0 0 8px rgba(139, 92, 246, 0), 0 12px 28px -4px rgba(102, 57, 166, 0.55);
+            box-shadow: 0 0 0 5px rgba(139, 92, 246, 0), 0 10px 22px -4px rgba(102, 57, 166, 0.5);
           }
         }
         .atlas-submit-glow {
@@ -465,7 +465,8 @@ function FeatureRequestsPage({ profile }) {
               </thead>
               <tbody>
                 {filtered.map(r => {
-                  const isDirty = !!drafts[r.id] || freshlyAdded.has(r.id)
+                  const isFresh = freshlyAdded.has(r.id)
+                  const isDirty = !!drafts[r.id] || isFresh
                   return (
                     <FeatureRequestRow
                       key={r.id}
@@ -478,6 +479,7 @@ function FeatureRequestsPage({ profile }) {
                       onRemove={() => removeItem(r.id)}
                       canDelete={r.logged_by_id === profile.id || isManager}
                       isDirty={isDirty}
+                      isFresh={isFresh}
                       isSubmitting={submitting.has(r.id)}
                       justSubmitted={recentlySubmitted.has(r.id)}
                       canEditStatus={isExec}
@@ -502,13 +504,50 @@ function FeatureRequestsPage({ profile }) {
 function FeatureRequestRow({
   item: r, expanded, onToggleExpand, onStageEdit, onSubmit,
   onStatusChange, onRemove, canDelete,
-  isDirty, isSubmitting, justSubmitted, canEditStatus,
+  isDirty, isFresh, isSubmitting, justSubmitted, canEditStatus,
 }) {
   const stop = (e) => e.stopPropagation()
   const meta = frStatusMeta(r.status)
 
   // Submit button visual state — drives both the button itself + the helper text.
   const submitState = isSubmitting ? 'loading' : justSubmitted ? 'success' : isDirty ? 'dirty' : 'clean'
+
+  // Status display:
+  //   - Fresh (just-added) rows show "Draft" — they haven't been submitted yet
+  //     even though the DB row exists with status='submitted' as a placeholder.
+  //   - Executives see an editable dropdown (their workflow tool).
+  //   - Everyone else sees the actual database status as a colored badge.
+  const renderStatus = () => {
+    if (isFresh) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full border border-dashed"
+          style={{ background: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' }}
+          title="Press Submit to send this feature request"
+        >
+          Draft
+        </span>
+      )
+    }
+    if (canEditStatus) {
+      return (
+        <select value={r.status} onChange={(e) => onStatusChange(e.target.value)}
+          className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
+          style={{ color: meta.textColor, fontWeight: 500 }}>
+          {FR_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+      )
+    }
+    return (
+      <span
+        className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full"
+        style={{ background: meta.bg, color: meta.textColor }}
+        title="Status is updated by leadership as the request is reviewed"
+      >
+        {meta.label}
+      </span>
+    )
+  }
 
   return (
     <>
@@ -553,23 +592,7 @@ function FeatureRequestRow({
           )}
         </td>
         <td className="py-2 px-3" onClick={stop}>
-          {canEditStatus ? (
-            // Executives: editable dropdown. Saves instantly — status is the exec's workflow tool.
-            <select value={r.status} onChange={(e) => onStatusChange(e.target.value)}
-              className="w-full py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white"
-              style={{ color: meta.textColor, fontWeight: 500 }}>
-              {FR_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-            </select>
-          ) : (
-            // Non-executives: read-only badge showing current status.
-            <span
-              className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full"
-              style={{ background: meta.bg, color: meta.textColor }}
-              title="Status is updated by leadership as the request is reviewed"
-            >
-              {meta.label}
-            </span>
-          )}
+          {renderStatus()}
         </td>
         <td className="py-2 px-3 text-right" onClick={stop}>
           {canDelete ? (
@@ -584,8 +607,8 @@ function FeatureRequestRow({
       {expanded && (
         <tr className="bg-stone-50/60">
           <td></td>
-          <td colSpan={8} className="py-5 pr-6">
-            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-5 ml-3 space-y-4">
+          <td colSpan={8} className="py-5 pr-8 pl-1">
+            <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 pr-7 ml-3 mr-2 space-y-4 overflow-visible">
               <div>
                 <label className="mono-font text-[10px] uppercase tracking-widest text-stone-500 block mb-1.5">Source / Link</label>
                 <input
