@@ -259,6 +259,8 @@ function CsmTab({ active, onClick, children }) {
 // CSS-only — uses `group-hover` to reveal an absolutely-positioned panel
 // below the header. The Info icon next to the top label signals the
 // affordance.
+// VERSION-MARKER-TOOLTIP-2026-05-14: this comment is a marker so we can grep
+// the deployed bundle to verify the right CsmView.jsx made it to production.
 function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'

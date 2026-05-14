@@ -267,6 +267,8 @@ function FdeTab({ active, onClick, children }) {
 // Column header for the TTFV table with a two-line layout and a hover tooltip.
 // Mirrors the same component in CsmView (duplicated rather than shared to
 // keep the two scorecard views isolated — see notes in batch 6).
+// VERSION-MARKER-TOOLTIP-2026-05-14: this comment is a marker so we can grep
+// the deployed bundle to verify the right FdeView.jsx made it to production.
 function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
