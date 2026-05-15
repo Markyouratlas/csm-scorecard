@@ -161,6 +161,18 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
     ...d,
     meetings: { ...d.meetings, [cat]: d.meetings[cat].map((v, i) => i === dayIdx ? Number(value) || 0 : v) }
   }))
+  // Phone calls live in their own slot (attempts vs contacted). Defensive
+  // fallback for old scorecards that pre-date the phoneCalls field.
+  const setPhoneCalls = (field, dayIdx, value) => update(d => {
+    const existing = (d.phoneCalls && d.phoneCalls[field]) || [0, 0, 0, 0, 0]
+    return {
+      ...d,
+      phoneCalls: {
+        ...(d.phoneCalls || { attempts: [0, 0, 0, 0, 0], contacted: [0, 0, 0, 0, 0] }),
+        [field]: existing.map((v, i) => i === dayIdx ? Number(value) || 0 : v),
+      },
+    }
+  })
   const setPipeline = (key, value) => update(d => ({ ...d, pipeline: { ...d.pipeline, [key]: Number(value) || 0 } }))
   const setField = (key, value) => update(d => ({ ...d, [key]: value }))
   const setRetention = (k, v) => update(d => ({ ...d, retention: { ...d.retention, [k]: v } }))
@@ -168,6 +180,11 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   // ----- Computed numbers -----
   const meetingsByDay = DAYS.map((_, dayIdx) => sum(MEETING_CATEGORIES.map(c => weekData.meetings[c.key][dayIdx])))
   const totalMeetings = sum(meetingsByDay)
+  // Phone-call totals (defensive about old data shapes)
+  const phoneAttempts  = (weekData.phoneCalls?.attempts)  || [0, 0, 0, 0, 0]
+  const phoneContacted = (weekData.phoneCalls?.contacted) || [0, 0, 0, 0, 0]
+  const totalPhoneAttempts  = sum(phoneAttempts)
+  const totalPhoneContacted = sum(phoneContacted)
   const avgTtfvDays = avgTtfv(weekData.ttfvCustomers)
 
   const sections = [
@@ -336,7 +353,17 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
             ...(isLocked ? { pointerEvents: 'none', opacity: 0.75, filter: 'saturate(0.85)' } : null),
           }}
         >
-          {section === 'meetings' && <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />}
+          {section === 'meetings' && (
+            <div className="space-y-8">
+              <PhoneCallsSection
+                phoneCalls={weekData.phoneCalls}
+                setPhoneCalls={setPhoneCalls}
+                totalAttempts={totalPhoneAttempts}
+                totalContacted={totalPhoneContacted}
+              />
+              <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />
+            </div>
+          )}
           {section === 'pipeline' && <PipelineSection weekData={weekData} setPipeline={setPipeline} update={update} />}
           {section === 'launches' && <LaunchesSection weekData={weekData} setField={setField} update={update} />}
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
@@ -631,6 +658,78 @@ function TestimonialsNorthStar({ profile, weekKey }) {
 // ============================================================================
 //  Meetings section
 // ============================================================================
+
+// ============================================================================
+//  Phone Calls section — outbound activity (attempts vs contacted).
+//  Separate from MeetingsSection because phone calls are touchpoints, not
+//  appointments. Same daily-grid pattern + a contact-rate derived stat.
+// ============================================================================
+
+function PhoneCallsSection({ phoneCalls, setPhoneCalls, totalAttempts, totalContacted }) {
+  // Defensive default — older scorecards may not have a phoneCalls slot yet
+  const attempts  = (phoneCalls && phoneCalls.attempts)  || [0, 0, 0, 0, 0]
+  const contacted = (phoneCalls && phoneCalls.contacted) || [0, 0, 0, 0, 0]
+  const dailyTotal = DAYS.map((_, di) => (Number(attempts[di]) || 0) + (Number(contacted[di]) || 0))
+  // Contact rate (only meaningful if attempts > 0). Round to whole number for
+  // a clean at-a-glance metric.
+  const contactRate = totalAttempts > 0 ? Math.round((totalContacted / totalAttempts) * 100) : null
+  const rows = [
+    { key: 'attempts',  label: 'Phone calls — attempts',  values: attempts },
+    { key: 'contacted', label: 'Phone calls — contacted', values: contacted },
+  ]
+  return (
+    <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+      <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
+        <div>
+          <div className="display-font text-2xl font-medium text-stone-900">Phone calls by day</div>
+          <p className="text-sm text-stone-600">Track outbound call activity — both attempts made and customers actually reached.</p>
+        </div>
+        {/* Contact-rate badge — appears once any attempts have been logged */}
+        {contactRate !== null && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(102,57,166,0.06)', border: '1px solid rgba(102,57,166,0.18)' }}>
+            <div className="mono-font text-[9px] uppercase tracking-widest text-stone-600">Contact rate</div>
+            <div className="display-font text-xl font-medium num-tabular" style={{ color: '#6639A6' }}>{contactRate}%</div>
+          </div>
+        )}
+      </div>
+      <table className="w-full text-sm min-w-[640px] mt-5">
+        <thead>
+          <tr className="border-b border-stone-200">
+            <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Type</th>
+            {DAYS.map(d => <th key={d} className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">{d}</th>)}
+            <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => {
+            const rowTotal = sum(row.values)
+            return (
+              <tr key={row.key} className="border-b border-stone-100">
+                <td className="py-2 px-3 font-medium text-stone-800 whitespace-nowrap">{row.label}</td>
+                {DAYS.map((_, di) => (
+                  <td key={di} className="py-2 px-2 text-center">
+                    <input
+                      type="number" min="0"
+                      value={row.values[di] || ''}
+                      onChange={(e) => setPhoneCalls(row.key, di, e.target.value)}
+                      className="w-12 text-center py-1 border border-stone-200 focus:border-stone-900 transition-colors num-tabular"
+                    />
+                  </td>
+                ))}
+                <td className="py-2 px-3 text-right num-tabular font-semibold text-stone-900">{rowTotal}</td>
+              </tr>
+            )
+          })}
+          <tr className="bg-stone-900 text-stone-50">
+            <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Daily Total</td>
+            {dailyTotal.map((c, i) => <td key={i} className="py-3 px-2 text-center num-tabular font-bold">{c}</td>)}
+            <td className="py-3 px-3 text-right num-tabular font-bold text-lg" style={{ color: '#6639A6' }}>{totalAttempts + totalContacted}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay }) {
   return (

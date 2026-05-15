@@ -4,7 +4,7 @@ import {
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
   Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Phone
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -548,17 +548,30 @@ function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
     if (!m) return s
     return s + Object.values(m).reduce((sub, arr) => sub + sum(arr), 0)
   }, 0)
+  // Phone-call rollups (defensive against old shapes without phoneCalls)
+  const totalCallAttempts  = members.reduce((s, c) => s + sum((data[c.id]?.phoneCalls?.attempts)  || []), 0)
+  const totalCallContacted = members.reduce((s, c) => s + sum((data[c.id]?.phoneCalls?.contacted) || []), 0)
+  const teamContactRate = totalCallAttempts > 0
+    ? Math.round((totalCallContacted / totalCallAttempts) * 100)
+    : null
   const totals = PIPELINE_STAGES.reduce(
     (acc, p) => ({ ...acc, [p.key]: members.reduce((s, c) => s + (data[c.id]?.pipeline?.[p.key] || 0), 0) }), {})
   const grandTotal = PIPELINE_STAGES.reduce((s, p) => s + totals[p.key], 0)
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPIs — 5-up on wide screens so phone calls fit alongside the rest */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiTile label="Launched" value={totalLaunched} sublabel="This week" color="#0F766E" icon={Award} />
         <KpiTile label="Avg TTFV" value={teamAvgTtfv || '—'} unit={teamAvgTtfv ? 'days' : ''} sublabel={teamAvgTtfv && teamAvgTtfv <= 14 ? '✓ On target' : teamAvgTtfv ? '↑ Above goal' : 'No data'} color="#1C1917" icon={Clock} />
         <KpiTile label="Meetings" value={totalMeetings} sublabel="All categories" color="#C2410C" icon={CalendarCheck} />
+        <KpiTile
+          label="Phone calls"
+          value={totalCallAttempts}
+          sublabel={teamContactRate !== null ? `${totalCallContacted} contacted · ${teamContactRate}%` : 'No attempts logged'}
+          color="#6639A6"
+          icon={Phone}
+        />
         <KpiTile label="Customers in pipeline" value={grandTotal} sublabel="Across all CSMs" color="#7C3AED" icon={Users} />
       </div>
 
@@ -566,7 +579,7 @@ function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
       <div>
         <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By CSM</div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[720px]">
+          <table className="w-full text-sm min-w-[800px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">CSM</th>
@@ -574,16 +587,19 @@ function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Launched</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Avg TTFV</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium"># Customers</th>
-                <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Meetings</th>
+                <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Meetings</th>
+                <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Calls</th>
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
+              {members.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
               {members.map(c => {
                 const d = data[c.id]
                 const customers = d?.ttfvCustomers || []
                 const ttfv = avgTtfv(customers)
                 const meetings = d?.meetings ? Object.values(d.meetings).reduce((s, arr) => s + sum(arr), 0) : 0
+                const attempts  = sum((d?.phoneCalls?.attempts)  || [])
+                const contacted = sum((d?.phoneCalls?.contacted) || [])
                 const submittedAt = submittedMap?.[c.id]
                 return (
                   <tr key={c.id}
@@ -608,7 +624,15 @@ function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
                     <td className="py-3 px-3 text-right num-tabular font-semibold text-stone-900">{d?.launchedThisWeek || 0}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{ttfv ? `${ttfv}d` : '—'}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{customers.length}</td>
-                    <td className="py-3 px-4 text-right num-tabular text-stone-700">{meetings}</td>
+                    <td className="py-3 px-3 text-right num-tabular text-stone-700">{meetings}</td>
+                    <td className="py-3 px-4 text-right num-tabular text-stone-700">
+                      {attempts > 0 ? (
+                        <span title={`${attempts} attempts · ${contacted} contacted`}>
+                          {attempts}
+                          <span className="text-stone-400 text-xs ml-1">/ {contacted}</span>
+                        </span>
+                      ) : '—'}
+                    </td>
                   </tr>
                 )
               })}
