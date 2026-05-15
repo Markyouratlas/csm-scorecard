@@ -13,9 +13,12 @@ import ScorecardShell, {
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
 export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
-  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
-  const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_AE_WEEK)
+  const {
+    weekData, loading, saving, savedAt, update,
+    weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
+    submittedAt, isLocked, submit, unsubmit, submitting,
+  } = useScorecard(profile.id, propWeekKey, BLANK_AE_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
 
@@ -39,7 +42,12 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
+    <ScorecardShell
+      profile={profile} weekKey={weekKey} setWeekKey={setWeekKey}
+      isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
+      submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
+      saving={saving} savedAt={savedAt}
+      onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Account Executive · Week of ${formatWeekLabel(weekKey)}`}

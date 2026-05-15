@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
+  ChevronLeft, ChevronRight, Phone
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -11,7 +12,7 @@ import {
   cancellationCategoryLabel
 } from './constants'
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
-import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
 
 import ScorecardViewer from './ScorecardViewer'
@@ -33,9 +34,10 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
   const [tab, setTab] = useState(() => isExec ? 'overview' : profile.team)
   const [allProfiles, setAllProfiles] = useState([])
   const [scorecardData, setScorecardData] = useState({})
+  // Map of user_id → submitted_at ISO string (or null). Used to render the
+  // "Submitted ✓" badge on team rows so leads/execs can see who's wrapped up.
+  const [submittedMap, setSubmittedMap] = useState({})
   const [loading, setLoading] = useState(true)
-  const weekKey = useMemo(() => getWeekKey(), [])
-
   // When set, we're viewing one specific member's scorecard (not the dashboard).
   // Persisted to sessionStorage so executives drilling into a specific member's
   // scorecard don't lose their place when switching browser tabs.
@@ -50,6 +52,13 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 
   // Whether to include archived users in the visible roster + dashboards.
   const [showArchived, setShowArchived] = useState(false)
+  // Time range selector — week is the only fully built mode for now.
+  // Other modes render a "coming soon" callout so the team knows it's planned.
+  const [timeRange, setTimeRange] = useState('week') // 'week' | 'month' | 'quarter' | 'year'
+  // weekKey is now state (not a memo) so the selector below can change it.
+  const [weekKey, setWeekKey] = useState(() => getWeekKey())
+  const currentWeekKey = getWeekKey()
+  const isViewingCurrentWeek = weekKey === currentWeekKey
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -57,9 +66,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
     if (pErr) console.error(pErr)
     const { data: scorecards, error: sErr } = await supabase.from('weekly_scorecards').select('*').eq('week_key', weekKey)
     if (sErr) console.error(sErr)
-    const map = {}; (scorecards || []).forEach(s => { map[s.user_id] = s.data })
+    const map = {}; const subMap = {}
+    ;(scorecards || []).forEach(s => {
+      map[s.user_id] = s.data
+      subMap[s.user_id] = s.submitted_at || null
+    })
     setAllProfiles(profiles || [])
     setScorecardData(map)
+    setSubmittedMap(subMap)
     // Rehydrate viewingMember from sessionStorage if we're not already viewing
     // someone. This makes executives "stick" on a specific member's scorecard
     // across tab switches.
@@ -188,9 +202,28 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
           <TabButton active={tab === 'roster'} onClick={() => setTab('roster')} icon={UserCircle2}>Roster</TabButton>
         </div>
 
-        {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} />}
-        {visibleTeams.find(t => t.key === tab) && (
-          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} onViewMember={setViewingMember} />
+        {/* Time range selector — only on time-sensitive tabs (overview + team tabs).
+            Roster and Testimonials don't aggregate by time so we hide it there. */}
+        {(tab === 'overview' || visibleTeams.find(t => t.key === tab)) && (
+          <TimeRangeSelector
+            timeRange={timeRange}
+            setTimeRange={setTimeRange}
+            weekKey={weekKey}
+            setWeekKey={setWeekKey}
+            currentWeekKey={currentWeekKey}
+            isViewingCurrentWeek={isViewingCurrentWeek}
+          />
+        )}
+
+        {tab === 'overview' && isExec && timeRange === 'week' && (
+          <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} isViewingCurrentWeek={isViewingCurrentWeek} weekKey={weekKey} />
+        )}
+        {visibleTeams.find(t => t.key === tab) && timeRange === 'week' && (
+          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} onViewMember={setViewingMember} isViewingCurrentWeek={isViewingCurrentWeek} weekKey={weekKey} />
+        )}
+        {/* Coming-soon placeholder when a longer time range is selected */}
+        {(tab === 'overview' || visibleTeams.find(t => t.key === tab)) && timeRange !== 'week' && (
+          <ComingSoonRange range={timeRange} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
         {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
@@ -216,7 +249,7 @@ function TabButton({ active, onClick, icon: Icon, children, color }) {
 //  Executive Overview — one row per team
 // ============================================================================
 
-function ExecOverviewTab({ profiles, data }) {
+function ExecOverviewTab({ profiles, data, submittedMap, isViewingCurrentWeek, weekKey }) {
   const teamStats = useMemo(() => {
     return TEAMS.map(team => {
       const members = profiles.filter(p => p.team === team.key)
@@ -224,6 +257,9 @@ function ExecOverviewTab({ profiles, data }) {
       const launched = members.reduce((s, m) => s + (data[m.id]?.launchedThisWeek || 0), 0)
       const allCustomers = members.flatMap(m => data[m.id]?.ttfvCustomers || [])
       const ttfv = avgTtfv(allCustomers)
+      // Submission count for this team — how many members have submitted
+      // their scorecard this week. Useful at-a-glance signal for leadership.
+      const submittedCount = members.filter(m => submittedMap?.[m.id]).length
       return {
         team,
         memberCount: members.length,
@@ -232,21 +268,26 @@ function ExecOverviewTab({ profiles, data }) {
         totalRoles: team.roles.length,
         launched,
         ttfv,
+        submittedCount,
       }
     })
-  }, [profiles, data])
+  }, [profiles, data, submittedMap])
 
   return (
     <div className="space-y-8">
       <div className="fade-up">
-        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Executive view · this week</div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
+          Executive view · {isViewingCurrentWeek ? 'this week' : `week of ${formatWeekLabel(weekKey)}`}
+        </div>
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
           Every team's <em className="font-light">scorecard.</em>
         </h1>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 fade-up" style={{ animationDelay: '60ms' }}>
-        {teamStats.map(({ team, memberCount, leadCount, liveRoles, totalRoles, launched, ttfv }) => (
+        {teamStats.map(({ team, memberCount, leadCount, liveRoles, totalRoles, launched, ttfv, submittedCount }) => {
+          const allSubmitted = submittedCount > 0 && submittedCount === memberCount
+          return (
           <div key={team.key} className="bg-white border border-stone-200 p-6 relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-1.5" style={{ background: team.color }} />
             <div className="flex items-start justify-between mb-4">
@@ -256,6 +297,21 @@ function ExecOverviewTab({ profiles, data }) {
               </div>
               <Briefcase className="w-5 h-5" style={{ color: team.color }} />
             </div>
+            {/* Weekly submission status — visible regardless of team type so
+                leadership can see at a glance who's wrapped up the week. */}
+            {memberCount > 0 && (
+              <div
+                className="flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded text-xs"
+                style={{
+                  background: allSubmitted ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.06)',
+                  color: allSubmitted ? '#065F46' : '#92400E',
+                  border: `1px solid ${allSubmitted ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                }}
+              >
+                {allSubmitted ? <Check className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                <span className="font-medium">{submittedCount} of {memberCount} submitted {isViewingCurrentWeek ? 'this week' : 'that week'}</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 mt-4">
               {team.key === 'customer_success' ? (
                 <>
@@ -278,7 +334,8 @@ function ExecOverviewTab({ profiles, data }) {
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -294,11 +351,145 @@ function MiniStat({ label, value, sublabel }) {
   )
 }
 
+// Time-range selector for the Manager view.
+//
+// • Tab strip on the left: Week (live) + Month/Quarter/Year (coming soon)
+// • Week navigator on the right: appears only when in week mode — prev/next
+//   arrows + the week label + a "Jump to current" shortcut when off-current
+//
+// The longer ranges intentionally render disabled buttons so the team can
+// see what's planned without being able to break things by clicking through.
+function TimeRangeSelector({ timeRange, setTimeRange, weekKey, setWeekKey, currentWeekKey, isViewingCurrentWeek }) {
+  const ranges = [
+    { key: 'week',    label: 'Week',    available: true },
+    { key: 'month',   label: 'Month',   available: false },
+    { key: 'quarter', label: 'Quarter', available: false },
+    { key: 'year',    label: 'Year',    available: false },
+  ]
+  return (
+    <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
+      {/* Range tabs */}
+      <div className="inline-flex bg-stone-100 rounded-lg p-1 gap-1">
+        {ranges.map(r => {
+          const active = r.key === timeRange
+          return (
+            <button
+              key={r.key}
+              onClick={() => r.available && setTimeRange(r.key)}
+              disabled={!r.available}
+              className={`relative px-4 py-1.5 text-sm rounded-md transition-all ${
+                active
+                  ? 'bg-white text-stone-900 shadow-sm font-medium'
+                  : r.available
+                    ? 'text-stone-600 hover:text-stone-900'
+                    : 'text-stone-400 cursor-not-allowed'
+              }`}
+              title={!r.available ? 'Coming soon' : undefined}
+            >
+              {r.label}
+              {!r.available && (
+                <span className="ml-1.5 mono-font text-[8px] uppercase tracking-widest text-amber-700 align-top">soon</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Week navigator — only visible in week mode */}
+      {timeRange === 'week' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setWeekKey(stepWeek(weekKey, -1))}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-100 transition-colors rounded"
+            title="Previous week"
+          >
+            <ChevronLeft className="w-4 h-4" /> Previous
+          </button>
+          <div className="flex flex-col items-center px-3 py-1 min-w-[180px]">
+            <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
+            <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
+          </div>
+          <button
+            onClick={() => setWeekKey(stepWeek(weekKey, 1))}
+            disabled={weekKey >= currentWeekKey}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-100 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Next week"
+          >
+            Next <ChevronRight className="w-4 h-4" />
+          </button>
+          {!isViewingCurrentWeek && (
+            <button
+              onClick={() => setWeekKey(currentWeekKey)}
+              className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
+            >
+              Jump to current
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Placeholder shown when a non-week time range is selected. Real rollups
+// (sum vs avg vs snapshot, per-metric per-team) require a design pass that
+// hasn't happened yet — see the chat with Mark for the open questions.
+function ComingSoonRange({ range }) {
+  const labels = { month: 'Monthly', quarter: 'Quarterly', year: 'Yearly' }
+  const label = labels[range] || 'This view'
+  return (
+    <div
+      className="rounded-lg p-10 text-center border border-dashed"
+      style={{ borderColor: 'rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.04)' }}
+    >
+      <div className="mono-font text-[10px] uppercase tracking-widest text-amber-700 mb-2">Coming soon</div>
+      <div className="display-font text-2xl font-medium text-stone-900 mb-2">{label} rollups</div>
+      <p className="text-sm text-stone-600 max-w-md mx-auto leading-relaxed">
+        We're working on aggregating these metrics across longer time ranges.
+        Each KPI needs its own rule (sum, average, or snapshot) — we'll roll this
+        out per team. For now, switch back to <span className="font-medium">Week</span> to
+        navigate through past weeks individually.
+      </p>
+    </div>
+  )
+}
+
+// Compact submission status indicator for member rows. Green pill when
+// submitted (with a hover-revealed timestamp), grey "Not yet" when not.
+function SubmissionPill({ submittedAt }) {
+  const stamp = useMemo(() => {
+    if (!submittedAt) return ''
+    try {
+      const d = new Date(submittedAt)
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    } catch { return '' }
+  }, [submittedAt])
+  if (submittedAt) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 mono-font text-[9px] uppercase tracking-widest px-2 py-1 rounded"
+        style={{ background: 'rgba(16,185,129,0.1)', color: '#065F46', border: '1px solid rgba(16,185,129,0.25)' }}
+        title={`Submitted ${stamp}`}
+      >
+        <Check className="w-3 h-3" /> Submitted
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 mono-font text-[9px] uppercase tracking-widest px-2 py-1 rounded text-stone-500"
+      style={{ background: '#FAFAF9', border: '1px solid #E7E5E4' }}
+    >
+      <Clock className="w-3 h-3" /> Not yet
+    </span>
+  )
+}
+
 // ============================================================================
 //  Team Tab — one component, switches by team key
 // ============================================================================
 
-function TeamTab({ teamKey, profiles, data, onViewMember }) {
+function TeamTab({ teamKey, profiles, data, submittedMap, onViewMember, isViewingCurrentWeek, weekKey }) {
   const team = getTeam(teamKey)
   const members = profiles.filter(p => p.team === teamKey)
   const [roleSubTab, setRoleSubTab] = useState(team.roles[0].key)
@@ -309,7 +500,7 @@ function TeamTab({ teamKey, profiles, data, onViewMember }) {
     <div className="space-y-8">
       <div className="fade-up">
         <div className="mono-font text-xs uppercase tracking-[0.2em] mb-3" style={{ color: team.color }}>
-          {team.label} · this week
+          {team.label} · {isViewingCurrentWeek ? 'this week' : `week of ${formatWeekLabel(weekKey)}`}
         </div>
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
           {team.label} <em className="font-light">team.</em>
@@ -336,9 +527,9 @@ function TeamTab({ teamKey, profiles, data, onViewMember }) {
 
       {/* Role section */}
       {teamKey === 'customer_success' && activeRole.key === 'csm' ? (
-        <CsmTeamSection members={roleMembers} data={data} onViewMember={onViewMember} />
+        <CsmTeamSection members={roleMembers} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
       ) : (
-        <RoleTeamSection role={activeRole} members={roleMembers} data={data} onViewMember={onViewMember} />
+        <RoleTeamSection role={activeRole} members={roleMembers} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
       )}
     </div>
   )
@@ -348,7 +539,7 @@ function TeamTab({ teamKey, profiles, data, onViewMember }) {
 //  CSM team section (existing functionality, ported in)
 // ============================================================================
 
-function CsmTeamSection({ members, data, onViewMember }) {
+function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
   const totalLaunched = members.reduce((s, c) => s + (data[c.id]?.launchedThisWeek || 0), 0)
   const allCustomers = members.flatMap(c => data[c.id]?.ttfvCustomers || [])
   const teamAvgTtfv = avgTtfv(allCustomers)
@@ -357,17 +548,30 @@ function CsmTeamSection({ members, data, onViewMember }) {
     if (!m) return s
     return s + Object.values(m).reduce((sub, arr) => sub + sum(arr), 0)
   }, 0)
+  // Phone-call rollups (defensive against old shapes without phoneCalls)
+  const totalCallAttempts  = members.reduce((s, c) => s + sum((data[c.id]?.phoneCalls?.attempts)  || []), 0)
+  const totalCallContacted = members.reduce((s, c) => s + sum((data[c.id]?.phoneCalls?.contacted) || []), 0)
+  const teamContactRate = totalCallAttempts > 0
+    ? Math.round((totalCallContacted / totalCallAttempts) * 100)
+    : null
   const totals = PIPELINE_STAGES.reduce(
     (acc, p) => ({ ...acc, [p.key]: members.reduce((s, c) => s + (data[c.id]?.pipeline?.[p.key] || 0), 0) }), {})
   const grandTotal = PIPELINE_STAGES.reduce((s, p) => s + totals[p.key], 0)
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPIs — 5-up on wide screens so phone calls fit alongside the rest */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiTile label="Launched" value={totalLaunched} sublabel="This week" color="#0F766E" icon={Award} />
         <KpiTile label="Avg TTFV" value={teamAvgTtfv || '—'} unit={teamAvgTtfv ? 'days' : ''} sublabel={teamAvgTtfv && teamAvgTtfv <= 14 ? '✓ On target' : teamAvgTtfv ? '↑ Above goal' : 'No data'} color="#1C1917" icon={Clock} />
         <KpiTile label="Meetings" value={totalMeetings} sublabel="All categories" color="#C2410C" icon={CalendarCheck} />
+        <KpiTile
+          label="Phone calls"
+          value={totalCallAttempts}
+          sublabel={teamContactRate !== null ? `${totalCallContacted} contacted · ${teamContactRate}%` : 'No attempts logged'}
+          color="#6639A6"
+          icon={Phone}
+        />
         <KpiTile label="Customers in pipeline" value={grandTotal} sublabel="Across all CSMs" color="#7C3AED" icon={Users} />
       </div>
 
@@ -375,23 +579,28 @@ function CsmTeamSection({ members, data, onViewMember }) {
       <div>
         <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By CSM</div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+          <table className="w-full text-sm min-w-[800px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">CSM</th>
+                <th className="text-left py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Launched</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Avg TTFV</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium"># Customers</th>
-                <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Meetings</th>
+                <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Meetings</th>
+                <th className="text-right py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Calls</th>
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
+              {members.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
               {members.map(c => {
                 const d = data[c.id]
                 const customers = d?.ttfvCustomers || []
                 const ttfv = avgTtfv(customers)
                 const meetings = d?.meetings ? Object.values(d.meetings).reduce((s, arr) => s + sum(arr), 0) : 0
+                const attempts  = sum((d?.phoneCalls?.attempts)  || [])
+                const contacted = sum((d?.phoneCalls?.contacted) || [])
+                const submittedAt = submittedMap?.[c.id]
                 return (
                   <tr key={c.id}
                       onClick={() => onViewMember && onViewMember(c)}
@@ -411,10 +620,19 @@ function CsmTeamSection({ members, data, onViewMember }) {
                         </div>
                       </div>
                     </td>
+                    <td className="py-3 px-3"><SubmissionPill submittedAt={submittedAt} /></td>
                     <td className="py-3 px-3 text-right num-tabular font-semibold text-stone-900">{d?.launchedThisWeek || 0}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{ttfv ? `${ttfv}d` : '—'}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{customers.length}</td>
-                    <td className="py-3 px-4 text-right num-tabular text-stone-700">{meetings}</td>
+                    <td className="py-3 px-3 text-right num-tabular text-stone-700">{meetings}</td>
+                    <td className="py-3 px-4 text-right num-tabular text-stone-700">
+                      {attempts > 0 ? (
+                        <span title={`${attempts} attempts · ${contacted} contacted`}>
+                          {attempts}
+                          <span className="text-stone-400 text-xs ml-1">/ {contacted}</span>
+                        </span>
+                      ) : '—'}
+                    </td>
                   </tr>
                 )
               })}
@@ -559,7 +777,7 @@ function CsmCancellationsFeatureRequestsRollup({ members }) {
   )
 }
 
-function RoleTeamSection({ role, members, data, onViewMember }) {
+function RoleTeamSection({ role, members, data, submittedMap, onViewMember }) {
   if (members.length === 0) {
     return (
       <div className="bg-white border border-stone-200 p-8">
@@ -583,7 +801,7 @@ function RoleTeamSection({ role, members, data, onViewMember }) {
           )}
         </div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <RoleMemberTable role={role} members={members} data={data} onViewMember={onViewMember} />
+          <RoleMemberTable role={role} members={members} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
         </div>
       </div>
     </div>
@@ -728,7 +946,7 @@ function RoleKpis({ role, members, data }) {
   )
 }
 
-function RoleMemberTable({ role, members, data, onViewMember }) {
+function RoleMemberTable({ role, members, data, submittedMap, onViewMember }) {
   // Each role gets its own column set
   let columns = []
   if (role.key === 'implementation') {
@@ -801,10 +1019,11 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
   }
 
   return (
-    <table className="w-full text-sm min-w-[700px]">
+    <table className="w-full text-sm min-w-[760px]">
       <thead>
         <tr className="border-b border-stone-200 bg-stone-50">
           <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Member</th>
+          <th className="text-left py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
           {columns.map(c => (
             <th key={c.key} className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">{c.label}</th>
           ))}
@@ -830,6 +1049,7 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
                 </div>
               </div>
             </td>
+            <td className="py-3 px-3"><SubmissionPill submittedAt={submittedMap?.[m.id]} /></td>
             {columns.map(c => (
               <td key={c.key} className="py-3 px-3 text-right num-tabular text-stone-700">{c.compute(m)}</td>
             ))}

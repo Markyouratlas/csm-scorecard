@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, Crown, Zap, Info
+  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, Crown, Zap, Info,
+  ChevronLeft, ChevronRight, Lock, Send
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -10,7 +11,7 @@ import {
   customerTtfv, avgTtfv, newCustomer,
   CANCELLATION_CATEGORIES, cancellationCategoryLabel
 } from './constants'
-import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { fireConfetti } from './confetti'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
@@ -22,20 +23,38 @@ import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')
   const [weekData, setWeekData] = useState(null)
+  const [submittedAt, setSubmittedAt] = useState(null) // ISO string when this week is finalized
+  const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const headerRef = useGlassInteraction()
-  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
+
+  // If propWeekKey is supplied (exec drilling in via ScorecardViewer), the
+  // parent owns week navigation and we mirror it. Otherwise the user is on
+  // their OWN scorecard and we manage the weekKey here so they can navigate
+  // their own past weeks.
+  const isExecDrillIn = propWeekKey !== undefined
+  const [ownWeekKey, setOwnWeekKey] = useState(getWeekKey())
+  const weekKey = isExecDrillIn ? propWeekKey : ownWeekKey
+
+  const currentWeekKey = getWeekKey()
+  const isViewingCurrentWeek = weekKey === currentWeekKey
+  // Lock rule: a week is locked when it's submitted AND we're viewing it from
+  // a week that's not the current one (after the week rolls over the lock
+  // becomes hard). During the current week the user can still unsubmit/edit.
+  const isLocked = !!submittedAt && !isViewingCurrentWeek
 
   // ----- Load this week's scorecard -----
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setSubmittedAt(null)
+    setSavedAt(null)
     supabase
       .from('weekly_scorecards')
-      .select('data')
+      .select('data, submitted_at')
       .eq('user_id', profile.id)
       .eq('week_key', weekKey)
       .maybeSingle()
@@ -53,12 +72,16 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           retention: { ...blank.retention, ...(loaded.retention || {}) },
           ttfvCustomers: Array.isArray(loaded.ttfvCustomers) ? loaded.ttfvCustomers : [],
         })
+        setSubmittedAt(data?.submitted_at || null)
         setLoading(false)
       })
     return () => { cancelled = true }
   }, [profile.id, weekKey])
 
   // ----- Auto-save (debounced) -----
+  // Skipped entirely when locked. The DB-level RLS would also reject these
+  // writes, but suppressing them here avoids needless network traffic and
+  // confusing error logs.
   const save = useCallback(async (newData) => {
     setSaving(true)
     const { error } = await supabase
@@ -79,9 +102,54 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
 
   useEffect(() => {
     if (!weekData || loading) return
+    if (isLocked) return // Locked weeks don't auto-save
     const t = setTimeout(() => save(weekData), 800)
     return () => clearTimeout(t)
-  }, [weekData, loading, save])
+  }, [weekData, loading, save, isLocked])
+
+  // ----- Submit / Unsubmit -----
+  // Submit: writes submitted_at = now() on this week's row. Unsubmit: clears
+  // it back to NULL. Both go through the same upsert path so the row's other
+  // fields are preserved. Execs drilling in can also call these.
+  const handleSubmit = useCallback(async () => {
+    if (!weekData || submittedAt) return
+    setSubmitting(true)
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('weekly_scorecards')
+      .upsert({
+        user_id: profile.id,
+        week_key: weekKey,
+        data: weekData,
+        submitted_at: now,
+        updated_at: now,
+      }, { onConflict: 'user_id,week_key' })
+    setSubmitting(false)
+    if (error) {
+      console.error('Submit error', error)
+      alert('Could not submit: ' + error.message)
+      return
+    }
+    setSubmittedAt(now)
+    fireConfetti({ count: 150 })
+  }, [profile.id, weekKey, weekData, submittedAt])
+
+  const handleUnsubmit = useCallback(async () => {
+    if (!submittedAt) return
+    setSubmitting(true)
+    const { error } = await supabase
+      .from('weekly_scorecards')
+      .update({ submitted_at: null, updated_at: new Date().toISOString() })
+      .eq('user_id', profile.id)
+      .eq('week_key', weekKey)
+    setSubmitting(false)
+    if (error) {
+      console.error('Unsubmit error', error)
+      alert('Could not unsubmit: ' + error.message)
+      return
+    }
+    setSubmittedAt(null)
+  }, [profile.id, weekKey, submittedAt])
 
   if (loading || !weekData) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
@@ -93,6 +161,18 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
     ...d,
     meetings: { ...d.meetings, [cat]: d.meetings[cat].map((v, i) => i === dayIdx ? Number(value) || 0 : v) }
   }))
+  // Phone calls live in their own slot (attempts vs contacted). Defensive
+  // fallback for old scorecards that pre-date the phoneCalls field.
+  const setPhoneCalls = (field, dayIdx, value) => update(d => {
+    const existing = (d.phoneCalls && d.phoneCalls[field]) || [0, 0, 0, 0, 0]
+    return {
+      ...d,
+      phoneCalls: {
+        ...(d.phoneCalls || { attempts: [0, 0, 0, 0, 0], contacted: [0, 0, 0, 0, 0] }),
+        [field]: existing.map((v, i) => i === dayIdx ? Number(value) || 0 : v),
+      },
+    }
+  })
   const setPipeline = (key, value) => update(d => ({ ...d, pipeline: { ...d.pipeline, [key]: Number(value) || 0 } }))
   const setField = (key, value) => update(d => ({ ...d, [key]: value }))
   const setRetention = (k, v) => update(d => ({ ...d, retention: { ...d.retention, [k]: v } }))
@@ -100,6 +180,11 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   // ----- Computed numbers -----
   const meetingsByDay = DAYS.map((_, dayIdx) => sum(MEETING_CATEGORIES.map(c => weekData.meetings[c.key][dayIdx])))
   const totalMeetings = sum(meetingsByDay)
+  // Phone-call totals (defensive about old data shapes)
+  const phoneAttempts  = (weekData.phoneCalls?.attempts)  || [0, 0, 0, 0, 0]
+  const phoneContacted = (weekData.phoneCalls?.contacted) || [0, 0, 0, 0, 0]
+  const totalPhoneAttempts  = sum(phoneAttempts)
+  const totalPhoneContacted = sum(phoneContacted)
   const avgTtfvDays = avgTtfv(weekData.ttfvCustomers)
 
   const sections = [
@@ -172,6 +257,42 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
         </div>
       </header>
 
+      {/* Week navigator — shown only when user is viewing their OWN scorecard.
+          Exec drill-in path already has its own week navigator in ScorecardViewer. */}
+      {!isExecDrillIn && (
+        <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={() => setOwnWeekKey(stepWeek(weekKey, -1))}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded"
+              title="Previous week"
+            >
+              <ChevronLeft className="w-4 h-4" /> Previous week
+            </button>
+            <div className="flex flex-col items-center px-4 py-1 min-w-[200px]">
+              <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
+              <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
+            </div>
+            <button
+              onClick={() => setOwnWeekKey(stepWeek(weekKey, 1))}
+              disabled={weekKey >= currentWeekKey}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next week"
+            >
+              Next week <ChevronRight className="w-4 h-4" />
+            </button>
+            {!isViewingCurrentWeek && (
+              <button
+                onClick={() => setOwnWeekKey(currentWeekKey)}
+                className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
+              >
+                Jump to current
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-6 py-10">
         <div className="mb-10 fade-up">
           <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
@@ -181,6 +302,19 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
             How was <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>your week,</em><br />{profile.name.split(' ')[0]}?
           </h1>
         </div>
+
+        {/* Submitted banner — appears whenever the week has been submitted.
+            During the current week it shows an Unsubmit button so the user
+            can reverse if needed. After the week rolls over the banner stays
+            but only an exec can unlock. */}
+        {submittedAt && (
+          <SubmittedBanner
+            submittedAt={submittedAt}
+            canUnsubmit={isViewingCurrentWeek}
+            onUnsubmit={handleUnsubmit}
+            submitting={submitting}
+          />
+        )}
 
         {/* North Star tiles */}
         <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
@@ -209,8 +343,27 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           })}
         </div>
 
-        <div className="fade-up" style={{ animationDelay: '160ms' }}>
-          {section === 'meetings' && <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />}
+        {/* Section content. When locked, wrap with a pointer-events-none
+            overlay and reduce opacity so the user sees the data but can't
+            edit. Auto-save is also suppressed at the parent level. */}
+        <div
+          className="fade-up"
+          style={{
+            animationDelay: '160ms',
+            ...(isLocked ? { pointerEvents: 'none', opacity: 0.75, filter: 'saturate(0.85)' } : null),
+          }}
+        >
+          {section === 'meetings' && (
+            <div className="space-y-8">
+              <PhoneCallsSection
+                phoneCalls={weekData.phoneCalls}
+                setPhoneCalls={setPhoneCalls}
+                totalAttempts={totalPhoneAttempts}
+                totalContacted={totalPhoneContacted}
+              />
+              <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />
+            </div>
+          )}
           {section === 'pipeline' && <PipelineSection weekData={weekData} setPipeline={setPipeline} update={update} />}
           {section === 'launches' && <LaunchesSection weekData={weekData} setField={setField} update={update} />}
           {section === 'testimonials' && <TestimonialsSection profile={profile} />}
@@ -218,6 +371,18 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           {section === 'health' && <HealthSection weekData={weekData} update={update} />}
           {section === 'monthly' && <CsmMonthlyView profile={profile} />}
         </div>
+
+        {/* Submit footer — visible at the bottom of every section. Hides
+            when locked (replaced by the banner up top) or on the Monthly View
+            tab which is a read-only summary. Exec drill-in also hides this:
+            users submit their own weeks, execs only view. */}
+        {!isExecDrillIn && !submittedAt && section !== 'monthly' && (
+          <SubmitFooter
+            onSubmit={handleSubmit}
+            submitting={submitting}
+            isCurrentWeek={isViewingCurrentWeek}
+          />
+        )}
       </div>
       {showSettings && (
         <SettingsModal
@@ -238,6 +403,97 @@ function SaveIndicator({ saving, savedAt }) {
   if (saving) return <div className="flex items-center gap-1.5 text-xs text-stone-500 px-2"><Loader2 className="w-3 h-3 animate-spin" /> Saving</div>
   if (savedAt) return <div className="glass-vibrancy-pill flex items-center gap-1.5 text-xs"><Check className="w-3 h-3" /> Saved</div>
   return null
+}
+
+// Top-of-page banner shown when this week has been submitted. Doubles as the
+// "you're locked" status indicator. During the current week, surfaces an
+// Unsubmit button so the user can reverse if needed. After the week rolls
+// over the banner becomes informational only (the user can no longer
+// unsubmit themselves — only an exec via direct DB edit).
+function SubmittedBanner({ submittedAt, canUnsubmit, onUnsubmit, submitting }) {
+  const stamp = useMemo(() => {
+    try {
+      const d = new Date(submittedAt)
+      return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    } catch { return '' }
+  }, [submittedAt])
+  return (
+    <div
+      className="mb-8 flex items-center justify-between gap-4 px-5 py-4 rounded-lg flex-wrap"
+      style={{
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.02) 100%)',
+        border: '1px solid rgba(16,185,129,0.25)',
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: '#10B981' }}>
+          <Check className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <div className="font-medium text-emerald-900 text-sm">Week submitted</div>
+          <div className="text-xs text-emerald-800/70">Submitted on {stamp} — this week is now locked.</div>
+        </div>
+      </div>
+      {canUnsubmit && (
+        <button
+          onClick={onUnsubmit}
+          disabled={submitting}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:text-emerald-950 bg-white/60 hover:bg-white border border-emerald-300 hover:border-emerald-400 rounded transition-colors disabled:opacity-50"
+        >
+          {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+          Unsubmit & edit
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Bottom-of-page CTA shown until the user clicks Submit. The button is
+// intentionally prominent — this is the most important action of the week.
+// Disabled when viewing a past week that's never been submitted: backfilling
+// past weeks isn't supported today (would require auditing whether late
+// submissions count toward team metrics; defer until asked for).
+function SubmitFooter({ onSubmit, submitting, isCurrentWeek }) {
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <div className="mt-10 mb-2 fade-up" style={{ animationDelay: '200ms' }}>
+      <div className="bg-white border border-stone-200 p-6 flex items-center justify-between gap-6 flex-wrap">
+        <div>
+          <div className="display-font text-xl font-medium text-stone-900 mb-1">Ready to wrap up the week?</div>
+          <p className="text-sm text-stone-600 max-w-md">
+            Submit your scorecard to lock in this week's results.
+            {isCurrentWeek ? ' You can still unsubmit and edit until Monday.' : ' Once submitted, only an admin can unlock it.'}
+          </p>
+        </div>
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            className="inline-flex items-center gap-2 px-5 py-3 bg-stone-900 hover:bg-stone-800 text-white font-medium transition-colors rounded"
+          >
+            <Send className="w-4 h-4" /> Submit this week
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={submitting}
+              className="px-3 py-2 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={submitting}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors rounded disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Confirm submit
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Each tab is a glass surface — pointer-tracked illumination per the doctrine.
@@ -402,6 +658,78 @@ function TestimonialsNorthStar({ profile, weekKey }) {
 // ============================================================================
 //  Meetings section
 // ============================================================================
+
+// ============================================================================
+//  Phone Calls section — outbound activity (attempts vs contacted).
+//  Separate from MeetingsSection because phone calls are touchpoints, not
+//  appointments. Same daily-grid pattern + a contact-rate derived stat.
+// ============================================================================
+
+function PhoneCallsSection({ phoneCalls, setPhoneCalls, totalAttempts, totalContacted }) {
+  // Defensive default — older scorecards may not have a phoneCalls slot yet
+  const attempts  = (phoneCalls && phoneCalls.attempts)  || [0, 0, 0, 0, 0]
+  const contacted = (phoneCalls && phoneCalls.contacted) || [0, 0, 0, 0, 0]
+  const dailyTotal = DAYS.map((_, di) => (Number(attempts[di]) || 0) + (Number(contacted[di]) || 0))
+  // Contact rate (only meaningful if attempts > 0). Round to whole number for
+  // a clean at-a-glance metric.
+  const contactRate = totalAttempts > 0 ? Math.round((totalContacted / totalAttempts) * 100) : null
+  const rows = [
+    { key: 'attempts',  label: 'Phone calls — attempts',  values: attempts },
+    { key: 'contacted', label: 'Phone calls — contacted', values: contacted },
+  ]
+  return (
+    <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+      <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
+        <div>
+          <div className="display-font text-2xl font-medium text-stone-900">Phone calls by day</div>
+          <p className="text-sm text-stone-600">Track outbound call activity — both attempts made and customers actually reached.</p>
+        </div>
+        {/* Contact-rate badge — appears once any attempts have been logged */}
+        {contactRate !== null && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(102,57,166,0.06)', border: '1px solid rgba(102,57,166,0.18)' }}>
+            <div className="mono-font text-[9px] uppercase tracking-widest text-stone-600">Contact rate</div>
+            <div className="display-font text-xl font-medium num-tabular" style={{ color: '#6639A6' }}>{contactRate}%</div>
+          </div>
+        )}
+      </div>
+      <table className="w-full text-sm min-w-[640px] mt-5">
+        <thead>
+          <tr className="border-b border-stone-200">
+            <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Type</th>
+            {DAYS.map(d => <th key={d} className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">{d}</th>)}
+            <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => {
+            const rowTotal = sum(row.values)
+            return (
+              <tr key={row.key} className="border-b border-stone-100">
+                <td className="py-2 px-3 font-medium text-stone-800 whitespace-nowrap">{row.label}</td>
+                {DAYS.map((_, di) => (
+                  <td key={di} className="py-2 px-2 text-center">
+                    <input
+                      type="number" min="0"
+                      value={row.values[di] || ''}
+                      onChange={(e) => setPhoneCalls(row.key, di, e.target.value)}
+                      className="w-12 text-center py-1 border border-stone-200 focus:border-stone-900 transition-colors num-tabular"
+                    />
+                  </td>
+                ))}
+                <td className="py-2 px-3 text-right num-tabular font-semibold text-stone-900">{rowTotal}</td>
+              </tr>
+            )
+          })}
+          <tr className="bg-stone-900 text-stone-50">
+            <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Daily Total</td>
+            {dailyTotal.map((c, i) => <td key={i} className="py-3 px-2 text-center num-tabular font-bold">{c}</td>)}
+            <td className="py-3 px-3 text-right num-tabular font-bold text-lg" style={{ color: '#6639A6' }}>{totalAttempts + totalContacted}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 function MeetingsSection({ weekData, setMeeting, totalMeetings, meetingsByDay }) {
   return (

@@ -7,6 +7,15 @@ export const BLANK_WEEK = () => ({
     followup:        [0, 0, 0, 0, 0],
     support:         [0, 0, 0, 0, 0],
   },
+  // Phone calls tracked separately from meetings — these are outreach
+  // touchpoints, not appointments. Two parallel arrays for the week:
+  //   attempts  = total dials made (whether or not they connected)
+  //   contacted = calls where a real human picked up
+  // Contact rate (contacted / attempts) is a useful efficacy signal.
+  phoneCalls: {
+    attempts:  [0, 0, 0, 0, 0],
+    contacted: [0, 0, 0, 0, 0],
+  },
   pipeline: {
     preOnboarding: 0,
     kickoffScheduled: 0,
