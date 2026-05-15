@@ -275,40 +275,19 @@ function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = 
   const labelClass = isTotal
     ? 'mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold'
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
+  // Native title attribute — see CsmView for the reasoning.
   return (
-    <th className={`${alignClass} py-2 px-3`}>
-      {/* `relative group` lives on this inner wrapper, NOT the <th> — see
-          CsmView's TtfvStageHeader for the reasoning. */}
-      <div className={`relative group inline-block ${alignClass}`}>
-        <div className="cursor-help">
-          <div className={`flex items-center gap-1.5 ${flexAlign}`}>
-            <span className={labelClass}>{label}</span>
-            <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
-          </div>
-          {subtext && (
-            <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
-              {subtext}
-            </div>
-          )}
+    <th className={`${alignClass} py-2 px-3`} title={tooltip}>
+      <div className={alignClass}>
+        <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
+          <span className={labelClass}>{label}</span>
+          <Info className="w-3 h-3 text-stone-400 hover:text-stone-700 transition-colors flex-shrink-0" />
         </div>
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
-          <div
-            className="relative text-xs leading-relaxed rounded-lg normal-case tracking-normal font-normal text-left"
-            style={{
-              backgroundColor: '#1C1917',
-              color: '#F5F5F4',
-              padding: '14px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
-            }}
-          >
-            <div className="absolute top-0 left-0 right-0 rounded-t-lg" style={{ background: '#8B5CF6', height: '2px' }} />
-            <div
-              className="absolute left-1/2 -translate-x-1/2 rotate-45"
-              style={{ bottom: '-6px', width: '12px', height: '12px', backgroundColor: '#1C1917' }}
-            />
-            <div className="relative">{tooltip}</div>
+        {subtext && (
+          <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
+            {subtext}
           </div>
-        </div>
+        )}
       </div>
     </th>
   )
