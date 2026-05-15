@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Lightbulb, Plug, UserMinus, Crown, Zap, Info
+  Settings as SettingsIcon, Calendar, Lightbulb, Plug, UserMinus, Crown, Zap, Info,
+  ChevronLeft, ChevronRight, Lock, Send
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -10,7 +11,7 @@ import {
   customerTtfv, avgTtfv, newCustomer,
   CANCELLATION_CATEGORIES, cancellationCategoryLabel
 } from './constants'
-import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { fireConfetti } from './confetti'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
@@ -22,27 +23,40 @@ import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('activity')
   const [weekData, setWeekData] = useState(null)
+  const [submittedAt, setSubmittedAt] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const headerRef = useGlassInteraction()
-  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
+
+  // If propWeekKey is supplied (exec drilling in via ScorecardViewer), the
+  // parent owns week navigation and we mirror it. Otherwise the user is on
+  // their OWN scorecard and we manage the weekKey here.
+  const isExecDrillIn = propWeekKey !== undefined
+  const [ownWeekKey, setOwnWeekKey] = useState(getWeekKey())
+  const weekKey = isExecDrillIn ? propWeekKey : ownWeekKey
+
+  const currentWeekKey = getWeekKey()
+  const isViewingCurrentWeek = weekKey === currentWeekKey
+  const isLocked = !!submittedAt && !isViewingCurrentWeek
 
   // ----- Load this week's scorecard -----
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setSubmittedAt(null)
+    setSavedAt(null)
     supabase
       .from('weekly_scorecards')
-      .select('data')
+      .select('data, submitted_at')
       .eq('user_id', profile.id)
       .eq('week_key', weekKey)
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return
         if (error) console.error('Load error', error)
-        // Merge with BLANK_WEEK to handle older shapes / missing keys
         const blank = BLANK_WEEK()
         const loaded = data?.data || {}
         setWeekData({
@@ -53,12 +67,13 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
           retention: { ...blank.retention, ...(loaded.retention || {}) },
           ttfvCustomers: Array.isArray(loaded.ttfvCustomers) ? loaded.ttfvCustomers : [],
         })
+        setSubmittedAt(data?.submitted_at || null)
         setLoading(false)
       })
     return () => { cancelled = true }
   }, [profile.id, weekKey])
 
-  // ----- Auto-save (debounced) -----
+  // ----- Auto-save (debounced) — suppressed when locked -----
   const save = useCallback(async (newData) => {
     setSaving(true)
     const { error } = await supabase
@@ -79,9 +94,51 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
 
   useEffect(() => {
     if (!weekData || loading) return
+    if (isLocked) return // Locked weeks don't auto-save
     const t = setTimeout(() => save(weekData), 800)
     return () => clearTimeout(t)
-  }, [weekData, loading, save])
+  }, [weekData, loading, save, isLocked])
+
+  // ----- Submit / Unsubmit -----
+  const handleSubmit = useCallback(async () => {
+    if (!weekData || submittedAt) return
+    setSubmitting(true)
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('weekly_scorecards')
+      .upsert({
+        user_id: profile.id,
+        week_key: weekKey,
+        data: weekData,
+        submitted_at: now,
+        updated_at: now,
+      }, { onConflict: 'user_id,week_key' })
+    setSubmitting(false)
+    if (error) {
+      console.error('Submit error', error)
+      alert('Could not submit: ' + error.message)
+      return
+    }
+    setSubmittedAt(now)
+    fireConfetti({ count: 150 })
+  }, [profile.id, weekKey, weekData, submittedAt])
+
+  const handleUnsubmit = useCallback(async () => {
+    if (!submittedAt) return
+    setSubmitting(true)
+    const { error } = await supabase
+      .from('weekly_scorecards')
+      .update({ submitted_at: null, updated_at: new Date().toISOString() })
+      .eq('user_id', profile.id)
+      .eq('week_key', weekKey)
+    setSubmitting(false)
+    if (error) {
+      console.error('Unsubmit error', error)
+      alert('Could not unsubmit: ' + error.message)
+      return
+    }
+    setSubmittedAt(null)
+  }, [profile.id, weekKey, submittedAt])
 
   if (loading || !weekData) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
@@ -170,6 +227,41 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
         </div>
       </header>
 
+      {/* Week navigator — own-scorecard only. Exec drill-in uses ScorecardViewer's nav. */}
+      {!isExecDrillIn && (
+        <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={() => setOwnWeekKey(stepWeek(weekKey, -1))}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded"
+              title="Previous week"
+            >
+              <ChevronLeft className="w-4 h-4" /> Previous week
+            </button>
+            <div className="flex flex-col items-center px-4 py-1 min-w-[200px]">
+              <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
+              <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
+            </div>
+            <button
+              onClick={() => setOwnWeekKey(stepWeek(weekKey, 1))}
+              disabled={weekKey >= currentWeekKey}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Next week"
+            >
+              Next week <ChevronRight className="w-4 h-4" />
+            </button>
+            {!isViewingCurrentWeek && (
+              <button
+                onClick={() => setOwnWeekKey(currentWeekKey)}
+                className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
+              >
+                Jump to current
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-6 py-10">
         <div className="mb-10 fade-up">
           <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
@@ -179,6 +271,15 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
             How was <em className="display-font-i font-normal" style={{ color: '#6639A6' }}>your week,</em><br />{profile.name.split(' ')[0]}?
           </h1>
         </div>
+
+        {submittedAt && (
+          <SubmittedBanner
+            submittedAt={submittedAt}
+            canUnsubmit={isViewingCurrentWeek}
+            onUnsubmit={handleUnsubmit}
+            submitting={submitting}
+          />
+        )}
 
         {/* North Star tiles */}
         <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
@@ -207,7 +308,13 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
           })}
         </div>
 
-        <div className="fade-up" style={{ animationDelay: '160ms' }}>
+        <div
+          className="fade-up"
+          style={{
+            animationDelay: '160ms',
+            ...(isLocked ? { pointerEvents: 'none', opacity: 0.75, filter: 'saturate(0.85)' } : null),
+          }}
+        >
           {section === 'activity' && (
             <div className="space-y-12">
               <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />
@@ -228,6 +335,14 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
           {section === 'monthly' && <FdeMonthlyView profile={profile} />}
         </div>
+
+        {!isExecDrillIn && !submittedAt && section !== 'monthly' && (
+          <SubmitFooter
+            onSubmit={handleSubmit}
+            submitting={submitting}
+            isCurrentWeek={isViewingCurrentWeek}
+          />
+        )}
       </div>
       {showSettings && (
         <SettingsModal
@@ -248,6 +363,89 @@ function SaveIndicator({ saving, savedAt }) {
   if (saving) return <div className="flex items-center gap-1.5 text-xs text-stone-500 px-2"><Loader2 className="w-3 h-3 animate-spin" /> Saving</div>
   if (savedAt) return <div className="glass-vibrancy-pill flex items-center gap-1.5 text-xs"><Check className="w-3 h-3" /> Saved</div>
   return null
+}
+
+// Submitted banner — see CsmView for documentation.
+function SubmittedBanner({ submittedAt, canUnsubmit, onUnsubmit, submitting }) {
+  const stamp = useMemo(() => {
+    try {
+      const d = new Date(submittedAt)
+      return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    } catch { return '' }
+  }, [submittedAt])
+  return (
+    <div
+      className="mb-8 flex items-center justify-between gap-4 px-5 py-4 rounded-lg flex-wrap"
+      style={{
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.02) 100%)',
+        border: '1px solid rgba(16,185,129,0.25)',
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: '#10B981' }}>
+          <Check className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <div className="font-medium text-emerald-900 text-sm">Week submitted</div>
+          <div className="text-xs text-emerald-800/70">Submitted on {stamp} — this week is now locked.</div>
+        </div>
+      </div>
+      {canUnsubmit && (
+        <button
+          onClick={onUnsubmit}
+          disabled={submitting}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:text-emerald-950 bg-white/60 hover:bg-white border border-emerald-300 hover:border-emerald-400 rounded transition-colors disabled:opacity-50"
+        >
+          {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+          Unsubmit & edit
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Submit footer — see CsmView for documentation.
+function SubmitFooter({ onSubmit, submitting, isCurrentWeek }) {
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <div className="mt-10 mb-2 fade-up" style={{ animationDelay: '200ms' }}>
+      <div className="bg-white border border-stone-200 p-6 flex items-center justify-between gap-6 flex-wrap">
+        <div>
+          <div className="display-font text-xl font-medium text-stone-900 mb-1">Ready to wrap up the week?</div>
+          <p className="text-sm text-stone-600 max-w-md">
+            Submit your scorecard to lock in this week's results.
+            {isCurrentWeek ? ' You can still unsubmit and edit until Monday.' : ' Once submitted, only an admin can unlock it.'}
+          </p>
+        </div>
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            className="inline-flex items-center gap-2 px-5 py-3 bg-stone-900 hover:bg-stone-800 text-white font-medium transition-colors rounded"
+          >
+            <Send className="w-4 h-4" /> Submit this week
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setConfirming(false)}
+              disabled={submitting}
+              className="px-3 py-2 text-sm text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={submitting}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors rounded disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Confirm submit
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Each tab is a glass surface — pointer-tracked illumination per the doctrine.

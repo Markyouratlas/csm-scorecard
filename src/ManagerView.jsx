@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -33,6 +33,9 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
   const [tab, setTab] = useState(() => isExec ? 'overview' : profile.team)
   const [allProfiles, setAllProfiles] = useState([])
   const [scorecardData, setScorecardData] = useState({})
+  // Map of user_id → submitted_at ISO string (or null). Used to render the
+  // "Submitted ✓" badge on team rows so leads/execs can see who's wrapped up.
+  const [submittedMap, setSubmittedMap] = useState({})
   const [loading, setLoading] = useState(true)
   const weekKey = useMemo(() => getWeekKey(), [])
 
@@ -57,9 +60,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
     if (pErr) console.error(pErr)
     const { data: scorecards, error: sErr } = await supabase.from('weekly_scorecards').select('*').eq('week_key', weekKey)
     if (sErr) console.error(sErr)
-    const map = {}; (scorecards || []).forEach(s => { map[s.user_id] = s.data })
+    const map = {}; const subMap = {}
+    ;(scorecards || []).forEach(s => {
+      map[s.user_id] = s.data
+      subMap[s.user_id] = s.submitted_at || null
+    })
     setAllProfiles(profiles || [])
     setScorecardData(map)
+    setSubmittedMap(subMap)
     // Rehydrate viewingMember from sessionStorage if we're not already viewing
     // someone. This makes executives "stick" on a specific member's scorecard
     // across tab switches.
@@ -188,9 +196,9 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
           <TabButton active={tab === 'roster'} onClick={() => setTab('roster')} icon={UserCircle2}>Roster</TabButton>
         </div>
 
-        {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} />}
+        {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} />}
         {visibleTeams.find(t => t.key === tab) && (
-          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} onViewMember={setViewingMember} />
+          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} onViewMember={setViewingMember} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
         {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
@@ -216,7 +224,7 @@ function TabButton({ active, onClick, icon: Icon, children, color }) {
 //  Executive Overview — one row per team
 // ============================================================================
 
-function ExecOverviewTab({ profiles, data }) {
+function ExecOverviewTab({ profiles, data, submittedMap }) {
   const teamStats = useMemo(() => {
     return TEAMS.map(team => {
       const members = profiles.filter(p => p.team === team.key)
@@ -224,6 +232,9 @@ function ExecOverviewTab({ profiles, data }) {
       const launched = members.reduce((s, m) => s + (data[m.id]?.launchedThisWeek || 0), 0)
       const allCustomers = members.flatMap(m => data[m.id]?.ttfvCustomers || [])
       const ttfv = avgTtfv(allCustomers)
+      // Submission count for this team — how many members have submitted
+      // their scorecard this week. Useful at-a-glance signal for leadership.
+      const submittedCount = members.filter(m => submittedMap?.[m.id]).length
       return {
         team,
         memberCount: members.length,
@@ -232,9 +243,10 @@ function ExecOverviewTab({ profiles, data }) {
         totalRoles: team.roles.length,
         launched,
         ttfv,
+        submittedCount,
       }
     })
-  }, [profiles, data])
+  }, [profiles, data, submittedMap])
 
   return (
     <div className="space-y-8">
@@ -246,7 +258,9 @@ function ExecOverviewTab({ profiles, data }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4 fade-up" style={{ animationDelay: '60ms' }}>
-        {teamStats.map(({ team, memberCount, leadCount, liveRoles, totalRoles, launched, ttfv }) => (
+        {teamStats.map(({ team, memberCount, leadCount, liveRoles, totalRoles, launched, ttfv, submittedCount }) => {
+          const allSubmitted = submittedCount > 0 && submittedCount === memberCount
+          return (
           <div key={team.key} className="bg-white border border-stone-200 p-6 relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-1.5" style={{ background: team.color }} />
             <div className="flex items-start justify-between mb-4">
@@ -256,6 +270,21 @@ function ExecOverviewTab({ profiles, data }) {
               </div>
               <Briefcase className="w-5 h-5" style={{ color: team.color }} />
             </div>
+            {/* Weekly submission status — visible regardless of team type so
+                leadership can see at a glance who's wrapped up the week. */}
+            {memberCount > 0 && (
+              <div
+                className="flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded text-xs"
+                style={{
+                  background: allSubmitted ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.06)',
+                  color: allSubmitted ? '#065F46' : '#92400E',
+                  border: `1px solid ${allSubmitted ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                }}
+              >
+                {allSubmitted ? <Check className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                <span className="font-medium">{submittedCount} of {memberCount} submitted this week</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 mt-4">
               {team.key === 'customer_success' ? (
                 <>
@@ -278,7 +307,8 @@ function ExecOverviewTab({ profiles, data }) {
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -294,11 +324,42 @@ function MiniStat({ label, value, sublabel }) {
   )
 }
 
+// Compact submission status indicator for member rows. Green pill when
+// submitted (with a hover-revealed timestamp), grey "Not yet" when not.
+function SubmissionPill({ submittedAt }) {
+  const stamp = useMemo(() => {
+    if (!submittedAt) return ''
+    try {
+      const d = new Date(submittedAt)
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    } catch { return '' }
+  }, [submittedAt])
+  if (submittedAt) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 mono-font text-[9px] uppercase tracking-widest px-2 py-1 rounded"
+        style={{ background: 'rgba(16,185,129,0.1)', color: '#065F46', border: '1px solid rgba(16,185,129,0.25)' }}
+        title={`Submitted ${stamp}`}
+      >
+        <Check className="w-3 h-3" /> Submitted
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 mono-font text-[9px] uppercase tracking-widest px-2 py-1 rounded text-stone-500"
+      style={{ background: '#FAFAF9', border: '1px solid #E7E5E4' }}
+    >
+      <Clock className="w-3 h-3" /> Not yet
+    </span>
+  )
+}
+
 // ============================================================================
 //  Team Tab — one component, switches by team key
 // ============================================================================
 
-function TeamTab({ teamKey, profiles, data, onViewMember }) {
+function TeamTab({ teamKey, profiles, data, submittedMap, onViewMember }) {
   const team = getTeam(teamKey)
   const members = profiles.filter(p => p.team === teamKey)
   const [roleSubTab, setRoleSubTab] = useState(team.roles[0].key)
@@ -336,9 +397,9 @@ function TeamTab({ teamKey, profiles, data, onViewMember }) {
 
       {/* Role section */}
       {teamKey === 'customer_success' && activeRole.key === 'csm' ? (
-        <CsmTeamSection members={roleMembers} data={data} onViewMember={onViewMember} />
+        <CsmTeamSection members={roleMembers} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
       ) : (
-        <RoleTeamSection role={activeRole} members={roleMembers} data={data} onViewMember={onViewMember} />
+        <RoleTeamSection role={activeRole} members={roleMembers} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
       )}
     </div>
   )
@@ -348,7 +409,7 @@ function TeamTab({ teamKey, profiles, data, onViewMember }) {
 //  CSM team section (existing functionality, ported in)
 // ============================================================================
 
-function CsmTeamSection({ members, data, onViewMember }) {
+function CsmTeamSection({ members, data, submittedMap, onViewMember }) {
   const totalLaunched = members.reduce((s, c) => s + (data[c.id]?.launchedThisWeek || 0), 0)
   const allCustomers = members.flatMap(c => data[c.id]?.ttfvCustomers || [])
   const teamAvgTtfv = avgTtfv(allCustomers)
@@ -375,10 +436,11 @@ function CsmTeamSection({ members, data, onViewMember }) {
       <div>
         <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">By CSM</div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[640px]">
+          <table className="w-full text-sm min-w-[720px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">CSM</th>
+                <th className="text-left py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Launched</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Avg TTFV</th>
                 <th className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium"># Customers</th>
@@ -386,12 +448,13 @@ function CsmTeamSection({ members, data, onViewMember }) {
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
+              {members.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-stone-500">No CSMs yet.</td></tr>}
               {members.map(c => {
                 const d = data[c.id]
                 const customers = d?.ttfvCustomers || []
                 const ttfv = avgTtfv(customers)
                 const meetings = d?.meetings ? Object.values(d.meetings).reduce((s, arr) => s + sum(arr), 0) : 0
+                const submittedAt = submittedMap?.[c.id]
                 return (
                   <tr key={c.id}
                       onClick={() => onViewMember && onViewMember(c)}
@@ -411,6 +474,7 @@ function CsmTeamSection({ members, data, onViewMember }) {
                         </div>
                       </div>
                     </td>
+                    <td className="py-3 px-3"><SubmissionPill submittedAt={submittedAt} /></td>
                     <td className="py-3 px-3 text-right num-tabular font-semibold text-stone-900">{d?.launchedThisWeek || 0}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{ttfv ? `${ttfv}d` : '—'}</td>
                     <td className="py-3 px-3 text-right num-tabular text-stone-700">{customers.length}</td>
@@ -559,7 +623,7 @@ function CsmCancellationsFeatureRequestsRollup({ members }) {
   )
 }
 
-function RoleTeamSection({ role, members, data, onViewMember }) {
+function RoleTeamSection({ role, members, data, submittedMap, onViewMember }) {
   if (members.length === 0) {
     return (
       <div className="bg-white border border-stone-200 p-8">
@@ -583,7 +647,7 @@ function RoleTeamSection({ role, members, data, onViewMember }) {
           )}
         </div>
         <div className="bg-white border border-stone-200 overflow-x-auto">
-          <RoleMemberTable role={role} members={members} data={data} onViewMember={onViewMember} />
+          <RoleMemberTable role={role} members={members} data={data} submittedMap={submittedMap} onViewMember={onViewMember} />
         </div>
       </div>
     </div>
@@ -728,7 +792,7 @@ function RoleKpis({ role, members, data }) {
   )
 }
 
-function RoleMemberTable({ role, members, data, onViewMember }) {
+function RoleMemberTable({ role, members, data, submittedMap, onViewMember }) {
   // Each role gets its own column set
   let columns = []
   if (role.key === 'implementation') {
@@ -801,10 +865,11 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
   }
 
   return (
-    <table className="w-full text-sm min-w-[700px]">
+    <table className="w-full text-sm min-w-[760px]">
       <thead>
         <tr className="border-b border-stone-200 bg-stone-50">
           <th className="text-left py-3 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Member</th>
+          <th className="text-left py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
           {columns.map(c => (
             <th key={c.key} className="text-right py-3 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">{c.label}</th>
           ))}
@@ -830,6 +895,7 @@ function RoleMemberTable({ role, members, data, onViewMember }) {
                 </div>
               </div>
             </td>
+            <td className="py-3 px-3"><SubmissionPill submittedAt={submittedMap?.[m.id]} /></td>
             {columns.map(c => (
               <td key={c.key} className="py-3 px-3 text-right num-tabular text-stone-700">{c.compute(m)}</td>
             ))}
