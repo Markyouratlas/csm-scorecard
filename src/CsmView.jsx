@@ -254,13 +254,43 @@ function CsmTab({ active, onClick, children }) {
   )
 }
 
-// Column header for the TTFV table with a two-line layout (e.g. "STAGE 1"
-// over "Signed → OB Scheduled") and a hover tooltip explaining the stage.
-// CSS-only — uses `group-hover` to reveal an absolutely-positioned panel
-// below the header. The Info icon next to the top label signals the
-// affordance.
-// VERSION-MARKER-TOOLTIP-2026-05-14: this comment is a marker so we can grep
-// the deployed bundle to verify the right CsmView.jsx made it to production.
+// Column header for the TTFV table — two-line label with a hover tooltip.
+//
+// Why the structure is the way it is:
+// • The <th> just provides cell layout. All positioning context lives on an
+//   inner <div> (table cells are unreliable positioning ancestors).
+// • The tooltip wrapper uses transform: translateZ(0) to spawn a fresh
+//   stacking + containing context — this keeps the absolutely-positioned
+//   panel from being clipped by the table's overflow-x-auto wrapper above.
+// • All visual styling on the dark panel is inline (style={...}) so Tailwind
+//   purge can never strip the background, padding, or shadow.
+// • Reveal uses an expressive ease-out cubic-bezier with paired opacity and
+//   translateY for an "lifts in from below" feel. Respects reduced-motion.
+
+// Inline <style> block — rendered alongside the component. Defines the
+// :hover state for the tooltip panel (CSS can't transition between states
+// from inline styles alone, so we need a real class selector).
+function TtfvTooltipStyles() {
+  return (
+    <style>{`
+      .ttfv-tooltip-anchor:hover .ttfv-tooltip-panel,
+      .ttfv-tooltip-anchor:focus-within .ttfv-tooltip-panel {
+        opacity: 1 !important;
+        transform: translate(-50%, 0) !important;
+      }
+      .ttfv-tooltip-anchor:hover .ttfv-tooltip-icon {
+        color: #44403C !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ttfv-tooltip-panel {
+          transition: opacity 120ms linear !important;
+          transform: translate(-50%, 0) !important;
+        }
+      }
+    `}</style>
+  )
+}
+
 function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
@@ -269,52 +299,59 @@ function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = 
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
   return (
     <th className={`${alignClass} py-2 px-3`}>
-      {/* The `relative group` lives on this inner wrapper, NOT the <th>,
-          because <th>/<td> have inconsistent behaviour as positioning
-          contexts across browsers. With it on a plain <div> the absolute
-          tooltip positions reliably relative to the header content. */}
-      <div className={`relative group inline-block ${alignClass}`}>
-        <div className="cursor-help">
-          {/* Top line: STAGE 1 (etc.) + the Info icon */}
-          <div className={`flex items-center gap-1.5 ${flexAlign}`}>
+      <div
+        className="ttfv-tooltip-anchor"
+        style={{ position: 'relative', display: 'inline-block', transform: 'translateZ(0)' }}
+      >
+        <div className={alignClass}>
+          <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
             <span className={labelClass}>{label}</span>
-            <Info className="w-3 h-3 text-stone-400 group-hover:text-stone-700 transition-colors flex-shrink-0" />
+            <Info className="ttfv-tooltip-icon" style={{ width: 12, height: 12, color: '#A8A29E', flexShrink: 0, transition: 'color 180ms ease-out' }} />
           </div>
-          {/* Bottom line: descriptive subtext, smaller + lighter. Increased
-              from the original 8px to 10px for legibility while staying
-              subordinate. */}
           {subtext && (
             <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
               {subtext}
             </div>
           )}
         </div>
-        {/* Tooltip panel — positioned ABOVE the header so it doesn't extend
-            past the table's bottom edge (which would force scrollbars on the
-            overflow-x-auto wrapper). The area above the header row has plenty
-            of clearance (section padding + table top spacing).
-            z-30 keeps it above the table body; pointer-events-none stops it
-            from blocking clicks on what's underneath when not hovered.
-            Inline styles guarantee the dark panel always renders even if a
-            Tailwind purge/JIT issue strips utility classes. */}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-30">
+        {/* Tooltip panel — bottom: 100% pins to TOP of anchor; transform
+            lifts it slightly while invisible so the reveal feels like the
+            panel rises into place. */}
+        <div
+          className="ttfv-tooltip-panel"
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: '50%',
+            marginBottom: 10,
+            width: 280,
+            transform: 'translate(-50%, 6px)',
+            opacity: 0,
+            pointerEvents: 'none',
+            transition: 'opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+            zIndex: 50,
+          }}
+        >
           <div
-            className="relative text-xs leading-relaxed rounded-lg normal-case tracking-normal font-normal text-left"
             style={{
+              position: 'relative',
               backgroundColor: '#1C1917',
               color: '#F5F5F4',
-              padding: '14px',
-              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+              padding: '12px 14px',
+              borderRadius: 8,
+              fontSize: 12,
+              lineHeight: 1.5,
+              textTransform: 'none',
+              letterSpacing: 'normal',
+              fontWeight: 400,
+              textAlign: 'left',
+              boxShadow: '0 12px 24px -8px rgba(0,0,0,0.25), 0 4px 8px -4px rgba(0,0,0,0.15)',
             }}
           >
-            {/* Top brand-purple accent strip */}
-            <div className="absolute top-0 left-0 right-0 rounded-t-lg" style={{ background: '#8B5CF6', height: '2px' }} />
-            {/* Tooltip arrow — points DOWN toward the header */}
-            <div
-              className="absolute left-1/2 -translate-x-1/2 rotate-45"
-              style={{ bottom: '-6px', width: '12px', height: '12px', backgroundColor: '#1C1917' }}
-            />
-            <div className="relative">{tooltip}</div>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: '#8B5CF6', borderTopLeftRadius: 8, borderTopRightRadius: 8 }} />
+            <div style={{ position: 'absolute', bottom: -5, left: '50%', width: 10, height: 10, transform: 'translateX(-50%) rotate(45deg)', backgroundColor: '#1C1917' }} />
+            <div style={{ position: 'relative' }}>{tooltip}</div>
           </div>
         </div>
       </div>
@@ -671,8 +708,9 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
           <p className="text-sm text-stone-500">Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on any customer below to flag them.</p>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto overflow-y-visible">
-          <table className="w-full text-sm min-w-[760px]">
+        <div className="mt-6">
+          <TtfvTooltipStyles />
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-center py-2 pl-3 pr-1 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[44px]" title="Channel Partner">
