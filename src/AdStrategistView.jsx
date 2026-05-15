@@ -13,9 +13,12 @@ import ScorecardShell, {
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
 export default function AdStrategistView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
-  const weekKey = useMemo(() => propWeekKey || getWeekKey(), [propWeekKey])
   const monthKey = useMemo(() => getMonthKey(), [])
-  const { weekData, loading, saving, savedAt, update } = useScorecard(profile.id, weekKey, BLANK_AD_WEEK)
+  const {
+    weekData, loading, saving, savedAt, update,
+    weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
+    submittedAt, isLocked, submit, unsubmit, submitting,
+  } = useScorecard(profile.id, propWeekKey, BLANK_AD_WEEK)
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('daily')
 
@@ -50,7 +53,11 @@ export default function AdStrategistView({ profile, onSignOut, onSwitchToManager
   ]
 
   return (
-    <ScorecardShell profile={profile} weekKey={weekKey} saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
+    <ScorecardShell
+      profile={profile} weekKey={weekKey} setWeekKey={setWeekKey}
+      isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
+      submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
+      saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
       <PageHeader
         kicker={`Ad Strategist · Week of ${formatWeekLabel(weekKey)}`}
