@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
+  ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -11,7 +12,7 @@ import {
   cancellationCategoryLabel
 } from './constants'
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
-import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
 
 import ScorecardViewer from './ScorecardViewer'
@@ -37,8 +38,6 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
   // "Submitted ✓" badge on team rows so leads/execs can see who's wrapped up.
   const [submittedMap, setSubmittedMap] = useState({})
   const [loading, setLoading] = useState(true)
-  const weekKey = useMemo(() => getWeekKey(), [])
-
   // When set, we're viewing one specific member's scorecard (not the dashboard).
   // Persisted to sessionStorage so executives drilling into a specific member's
   // scorecard don't lose their place when switching browser tabs.
@@ -53,6 +52,13 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 
   // Whether to include archived users in the visible roster + dashboards.
   const [showArchived, setShowArchived] = useState(false)
+  // Time range selector — week is the only fully built mode for now.
+  // Other modes render a "coming soon" callout so the team knows it's planned.
+  const [timeRange, setTimeRange] = useState('week') // 'week' | 'month' | 'quarter' | 'year'
+  // weekKey is now state (not a memo) so the selector below can change it.
+  const [weekKey, setWeekKey] = useState(() => getWeekKey())
+  const currentWeekKey = getWeekKey()
+  const isViewingCurrentWeek = weekKey === currentWeekKey
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -196,9 +202,28 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
           <TabButton active={tab === 'roster'} onClick={() => setTab('roster')} icon={UserCircle2}>Roster</TabButton>
         </div>
 
-        {tab === 'overview' && isExec && <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} />}
-        {visibleTeams.find(t => t.key === tab) && (
-          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} onViewMember={setViewingMember} />
+        {/* Time range selector — only on time-sensitive tabs (overview + team tabs).
+            Roster and Testimonials don't aggregate by time so we hide it there. */}
+        {(tab === 'overview' || visibleTeams.find(t => t.key === tab)) && (
+          <TimeRangeSelector
+            timeRange={timeRange}
+            setTimeRange={setTimeRange}
+            weekKey={weekKey}
+            setWeekKey={setWeekKey}
+            currentWeekKey={currentWeekKey}
+            isViewingCurrentWeek={isViewingCurrentWeek}
+          />
+        )}
+
+        {tab === 'overview' && isExec && timeRange === 'week' && (
+          <ExecOverviewTab profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} isViewingCurrentWeek={isViewingCurrentWeek} weekKey={weekKey} />
+        )}
+        {visibleTeams.find(t => t.key === tab) && timeRange === 'week' && (
+          <TeamTab teamKey={tab} profiles={visibleProfiles} data={scorecardData} submittedMap={submittedMap} onViewMember={setViewingMember} isViewingCurrentWeek={isViewingCurrentWeek} weekKey={weekKey} />
+        )}
+        {/* Coming-soon placeholder when a longer time range is selected */}
+        {(tab === 'overview' || visibleTeams.find(t => t.key === tab)) && timeRange !== 'week' && (
+          <ComingSoonRange range={timeRange} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
         {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
@@ -224,7 +249,7 @@ function TabButton({ active, onClick, icon: Icon, children, color }) {
 //  Executive Overview — one row per team
 // ============================================================================
 
-function ExecOverviewTab({ profiles, data, submittedMap }) {
+function ExecOverviewTab({ profiles, data, submittedMap, isViewingCurrentWeek, weekKey }) {
   const teamStats = useMemo(() => {
     return TEAMS.map(team => {
       const members = profiles.filter(p => p.team === team.key)
@@ -251,7 +276,9 @@ function ExecOverviewTab({ profiles, data, submittedMap }) {
   return (
     <div className="space-y-8">
       <div className="fade-up">
-        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">Executive view · this week</div>
+        <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
+          Executive view · {isViewingCurrentWeek ? 'this week' : `week of ${formatWeekLabel(weekKey)}`}
+        </div>
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
           Every team's <em className="font-light">scorecard.</em>
         </h1>
@@ -282,7 +309,7 @@ function ExecOverviewTab({ profiles, data, submittedMap }) {
                 }}
               >
                 {allSubmitted ? <Check className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                <span className="font-medium">{submittedCount} of {memberCount} submitted this week</span>
+                <span className="font-medium">{submittedCount} of {memberCount} submitted {isViewingCurrentWeek ? 'this week' : 'that week'}</span>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 mt-4">
@@ -324,6 +351,109 @@ function MiniStat({ label, value, sublabel }) {
   )
 }
 
+// Time-range selector for the Manager view.
+//
+// • Tab strip on the left: Week (live) + Month/Quarter/Year (coming soon)
+// • Week navigator on the right: appears only when in week mode — prev/next
+//   arrows + the week label + a "Jump to current" shortcut when off-current
+//
+// The longer ranges intentionally render disabled buttons so the team can
+// see what's planned without being able to break things by clicking through.
+function TimeRangeSelector({ timeRange, setTimeRange, weekKey, setWeekKey, currentWeekKey, isViewingCurrentWeek }) {
+  const ranges = [
+    { key: 'week',    label: 'Week',    available: true },
+    { key: 'month',   label: 'Month',   available: false },
+    { key: 'quarter', label: 'Quarter', available: false },
+    { key: 'year',    label: 'Year',    available: false },
+  ]
+  return (
+    <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
+      {/* Range tabs */}
+      <div className="inline-flex bg-stone-100 rounded-lg p-1 gap-1">
+        {ranges.map(r => {
+          const active = r.key === timeRange
+          return (
+            <button
+              key={r.key}
+              onClick={() => r.available && setTimeRange(r.key)}
+              disabled={!r.available}
+              className={`relative px-4 py-1.5 text-sm rounded-md transition-all ${
+                active
+                  ? 'bg-white text-stone-900 shadow-sm font-medium'
+                  : r.available
+                    ? 'text-stone-600 hover:text-stone-900'
+                    : 'text-stone-400 cursor-not-allowed'
+              }`}
+              title={!r.available ? 'Coming soon' : undefined}
+            >
+              {r.label}
+              {!r.available && (
+                <span className="ml-1.5 mono-font text-[8px] uppercase tracking-widest text-amber-700 align-top">soon</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Week navigator — only visible in week mode */}
+      {timeRange === 'week' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setWeekKey(stepWeek(weekKey, -1))}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-100 transition-colors rounded"
+            title="Previous week"
+          >
+            <ChevronLeft className="w-4 h-4" /> Previous
+          </button>
+          <div className="flex flex-col items-center px-3 py-1 min-w-[180px]">
+            <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
+            <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
+          </div>
+          <button
+            onClick={() => setWeekKey(stepWeek(weekKey, 1))}
+            disabled={weekKey >= currentWeekKey}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-100 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Next week"
+          >
+            Next <ChevronRight className="w-4 h-4" />
+          </button>
+          {!isViewingCurrentWeek && (
+            <button
+              onClick={() => setWeekKey(currentWeekKey)}
+              className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
+            >
+              Jump to current
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Placeholder shown when a non-week time range is selected. Real rollups
+// (sum vs avg vs snapshot, per-metric per-team) require a design pass that
+// hasn't happened yet — see the chat with Mark for the open questions.
+function ComingSoonRange({ range }) {
+  const labels = { month: 'Monthly', quarter: 'Quarterly', year: 'Yearly' }
+  const label = labels[range] || 'This view'
+  return (
+    <div
+      className="rounded-lg p-10 text-center border border-dashed"
+      style={{ borderColor: 'rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.04)' }}
+    >
+      <div className="mono-font text-[10px] uppercase tracking-widest text-amber-700 mb-2">Coming soon</div>
+      <div className="display-font text-2xl font-medium text-stone-900 mb-2">{label} rollups</div>
+      <p className="text-sm text-stone-600 max-w-md mx-auto leading-relaxed">
+        We're working on aggregating these metrics across longer time ranges.
+        Each KPI needs its own rule (sum, average, or snapshot) — we'll roll this
+        out per team. For now, switch back to <span className="font-medium">Week</span> to
+        navigate through past weeks individually.
+      </p>
+    </div>
+  )
+}
+
 // Compact submission status indicator for member rows. Green pill when
 // submitted (with a hover-revealed timestamp), grey "Not yet" when not.
 function SubmissionPill({ submittedAt }) {
@@ -359,7 +489,7 @@ function SubmissionPill({ submittedAt }) {
 //  Team Tab — one component, switches by team key
 // ============================================================================
 
-function TeamTab({ teamKey, profiles, data, submittedMap, onViewMember }) {
+function TeamTab({ teamKey, profiles, data, submittedMap, onViewMember, isViewingCurrentWeek, weekKey }) {
   const team = getTeam(teamKey)
   const members = profiles.filter(p => p.team === teamKey)
   const [roleSubTab, setRoleSubTab] = useState(team.roles[0].key)
@@ -370,7 +500,7 @@ function TeamTab({ teamKey, profiles, data, submittedMap, onViewMember }) {
     <div className="space-y-8">
       <div className="fade-up">
         <div className="mono-font text-xs uppercase tracking-[0.2em] mb-3" style={{ color: team.color }}>
-          {team.label} · this week
+          {team.label} · {isViewingCurrentWeek ? 'this week' : `week of ${formatWeekLabel(weekKey)}`}
         </div>
         <h1 className="display-font text-4xl md:text-6xl font-medium leading-[1] tracking-tight text-stone-900">
           {team.label} <em className="font-light">team.</em>
