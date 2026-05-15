@@ -269,25 +269,88 @@ function FdeTab({ active, onClick, children }) {
 // keep the two scorecard views isolated — see notes in batch 6).
 // VERSION-MARKER-TOOLTIP-2026-05-14: this comment is a marker so we can grep
 // the deployed bundle to verify the right FdeView.jsx made it to production.
+// Inline <style> block — see CsmView for full rationale.
+function TtfvTooltipStyles() {
+  return (
+    <style>{`
+      .ttfv-tooltip-anchor:hover .ttfv-tooltip-panel,
+      .ttfv-tooltip-anchor:focus-within .ttfv-tooltip-panel {
+        opacity: 1 !important;
+        transform: translate(-50%, 0) !important;
+      }
+      .ttfv-tooltip-anchor:hover .ttfv-tooltip-icon {
+        color: #44403C !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ttfv-tooltip-panel {
+          transition: opacity 120ms linear !important;
+          transform: translate(-50%, 0) !important;
+        }
+      }
+    `}</style>
+  )
+}
+
 function TtfvStageHeader({ label, subtext, tooltip, align = 'center', isTotal = false }) {
   const alignClass = align === 'right' ? 'text-right' : 'text-center'
   const flexAlign = align === 'right' ? 'justify-end' : 'justify-center'
   const labelClass = isTotal
     ? 'mono-font text-[10px] uppercase tracking-widest text-stone-900 font-bold'
     : 'mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium'
-  // Native title attribute — see CsmView for the reasoning.
   return (
-    <th className={`${alignClass} py-2 px-3`} title={tooltip}>
-      <div className={alignClass}>
-        <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
-          <span className={labelClass}>{label}</span>
-          <Info className="w-3 h-3 text-stone-400 hover:text-stone-700 transition-colors flex-shrink-0" />
-        </div>
-        {subtext && (
-          <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
-            {subtext}
+    <th className={`${alignClass} py-2 px-3`}>
+      <div
+        className="ttfv-tooltip-anchor"
+        style={{ position: 'relative', display: 'inline-block', transform: 'translateZ(0)' }}
+      >
+        <div className={alignClass}>
+          <div className={`flex items-center gap-1.5 cursor-help ${flexAlign}`}>
+            <span className={labelClass}>{label}</span>
+            <Info className="ttfv-tooltip-icon" style={{ width: 12, height: 12, color: '#A8A29E', flexShrink: 0, transition: 'color 180ms ease-out' }} />
           </div>
-        )}
+          {subtext && (
+            <div className="text-[10px] text-stone-500 mt-0.5 normal-case tracking-normal font-normal">
+              {subtext}
+            </div>
+          )}
+        </div>
+        <div
+          className="ttfv-tooltip-panel"
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: '50%',
+            marginBottom: 10,
+            width: 280,
+            transform: 'translate(-50%, 6px)',
+            opacity: 0,
+            pointerEvents: 'none',
+            transition: 'opacity 220ms cubic-bezier(0.16, 1, 0.3, 1), transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              backgroundColor: '#1C1917',
+              color: '#F5F5F4',
+              padding: '12px 14px',
+              borderRadius: 8,
+              fontSize: 12,
+              lineHeight: 1.5,
+              textTransform: 'none',
+              letterSpacing: 'normal',
+              fontWeight: 400,
+              textAlign: 'left',
+              boxShadow: '0 12px 24px -8px rgba(0,0,0,0.25), 0 4px 8px -4px rgba(0,0,0,0.15)',
+            }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: '#8B5CF6', borderTopLeftRadius: 8, borderTopRightRadius: 8 }} />
+            <div style={{ position: 'absolute', bottom: -5, left: '50%', width: 10, height: 10, transform: 'translateX(-50%) rotate(45deg)', backgroundColor: '#1C1917' }} />
+            <div style={{ position: 'relative' }}>{tooltip}</div>
+          </div>
+        </div>
       </div>
     </th>
   )
@@ -653,8 +716,9 @@ function TtfvCustomersTable({ customers, addCustomer, removeCustomer, updateCust
           <p className="text-sm text-stone-500">Toggle the <Star className="w-3.5 h-3.5 inline -mt-0.5" /> on any customer below to flag them.</p>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto overflow-y-visible">
-          <table className="w-full text-sm min-w-[760px]">
+        <div className="mt-6">
+          <TtfvTooltipStyles />
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-center py-2 pl-3 pr-1 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[44px]" title="Channel Partner">
