@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   LogOut, LayoutDashboard, Settings as SettingsIcon, UserCircle2,
-  Lightbulb, Plug, Crown, Clock,
+  Lightbulb, Plug, Crown, Clock, Activity,
   Zap, ChevronRight, AlertCircle, RefreshCw, UserMinus,
-  Info, Sparkles,
+  Info, Sparkles, Eye,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
+import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
@@ -40,6 +41,10 @@ export default function LeadershipDashboardView({
   onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
+  // Toggle between live data view and the prototype demo. Per the design,
+  // this NEVER persists — every fresh page load starts on live data so
+  // the dashboard never accidentally shows fictional numbers to a visitor.
+  const [showPrototype, setShowPrototype] = useState(false)
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const headerRef = useGlassInteraction()
@@ -60,6 +65,41 @@ export default function LeadershipDashboardView({
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
                 Executive dashboard · Atlas Odyssey
               </div>
+            </div>
+            {/* Live ↔ Prototype toggle. Defaults to "Live" on every page load.
+                Sized to feel like a primary control, not a hidden switch. */}
+            <div
+              className="hidden md:flex items-center p-1 rounded-lg border ml-2"
+              style={{ background: 'rgba(255,255,255,0.6)', borderColor: 'rgba(102,57,166,0.20)' }}
+              role="tablist"
+              aria-label="Dashboard mode"
+            >
+              <button
+                onClick={() => setShowPrototype(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: !showPrototype ? BRAND : 'transparent',
+                  color: !showPrototype ? 'white' : '#56506A',
+                  boxShadow: !showPrototype ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                }}
+                role="tab"
+                aria-selected={!showPrototype}
+              >
+                <Activity className="w-3 h-3" /> Live data
+              </button>
+              <button
+                onClick={() => setShowPrototype(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: showPrototype ? BRAND : 'transparent',
+                  color: showPrototype ? 'white' : '#56506A',
+                  boxShadow: showPrototype ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                }}
+                role="tab"
+                aria-selected={showPrototype}
+              >
+                <Eye className="w-3 h-3" /> Prototype
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -103,21 +143,53 @@ export default function LeadershipDashboardView({
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-10 fade-up">
-        <DashboardBody
-          profile={profile}
-          metrics={metrics}
-          loading={loading}
-          error={error}
-          meta={meta}
-          refresh={refresh}
-          onSwitchToApiGuide={onSwitchToApiGuide}
-        />
-      </div>
+      {showPrototype ? (
+        <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
+          <PrototypeBanner />
+          <AtlasOdysseyPrototype />
+        </div>
+      ) : (
+        <div className="max-w-7xl mx-auto px-6 py-10 fade-up">
+          <DashboardBody
+            profile={profile}
+            metrics={metrics}
+            loading={loading}
+            error={error}
+            meta={meta}
+            refresh={refresh}
+            onSwitchToApiGuide={onSwitchToApiGuide}
+          />
+        </div>
+      )}
 
       {showSettings && (
         <SettingsModal profile={profile} onClose={() => setShowSettings(false)} onSaved={onProfileUpdated} />
       )}
+    </div>
+  )
+}
+
+// =============================================================================
+//  PrototypeBanner — a persistent header inside Prototype mode that makes it
+//  unambiguous this is the design preview, not live data.
+// =============================================================================
+
+function PrototypeBanner() {
+  return (
+    <div
+      className="mt-6 mb-4 p-4 rounded-xl flex items-start gap-3"
+      style={{ background: 'rgba(102,57,166,0.08)', border: '1px solid rgba(102,57,166,0.25)' }}
+    >
+      <Eye className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: BRAND }} />
+      <div className="flex-1 min-w-0">
+        <div className="display-font text-base text-stone-900 font-medium leading-tight">
+          Prototype demo — sample data
+        </div>
+        <div className="text-[12.5px] text-stone-600 mt-0.5 leading-snug">
+          You're viewing the design preview of Atlas Odyssey. Numbers below are illustrative.
+          Switch to <span className="font-semibold">Live data</span> in the header for current team metrics.
+        </div>
+      </div>
     </div>
   )
 }
