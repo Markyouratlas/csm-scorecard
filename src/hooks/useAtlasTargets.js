@@ -105,14 +105,15 @@ export function useAtlasTargets() {
     return state.targets[metricKey]?.[decKey]?.target ?? null
   }, [state.targets])
 
-  const getMonthHistory = useCallback((metricKey, monthsBack = 12) => {
-    // Returns up to `monthsBack` months of {monthKey, actual, target}, oldest first
+  const getMonthHistory = useCallback((metricKey, monthsBack = null) => {
+    // Returns months of {monthKey, actual, target}, oldest first.
+    // If monthsBack is null, returns ALL months that exist for this metric.
     const metric = state.targets[metricKey]
     if (!metric) return []
-    return Object.entries(metric)
+    const entries = Object.entries(metric)
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-monthsBack)
       .map(([monthKey, v]) => ({ monthKey, ...v }))
+    return monthsBack == null ? entries : entries.slice(-monthsBack)
   }, [state.targets])
 
   const save = useCallback(async (metricKey, monthKey, fields, userId) => {

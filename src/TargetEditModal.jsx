@@ -42,7 +42,7 @@ export default function TargetEditModal({
 
   const currentMonth = monthKey || targetsHook.currentMonthKey
   const monthValue = targetsHook.getMonthValue(metricKey, currentMonth) || {}
-  const history = targetsHook.getMonthHistory(metricKey, 12)
+  const history = targetsHook.getMonthHistory(metricKey)
 
   // Resolve actual: prefer atlas_targets value, fall back to caller-provided initialActual
   const displayActual = monthValue.actual ?? initialActual ?? null
@@ -268,11 +268,21 @@ export default function TargetEditModal({
           {/* Sparkline + history table */}
           {historyForChart.length >= 2 && (
             <div>
-              <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-500 mb-3">
-                History · last {historyForChart.length} months
+              <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-500 mb-3 flex items-center justify-between">
+                <span>All months · {historyForChart.length} total</span>
+                {canEdit && <span className="text-stone-400 normal-case tracking-normal text-[11px]">Click any target to edit</span>}
               </div>
               <HistoryChart data={historyForChart} format={catalog.format} />
-              <HistoryTable data={historyForChart} format={catalog.format} />
+              <HistoryTable
+                data={historyForChart}
+                format={catalog.format}
+                canEdit={canEdit}
+                metricKey={metricKey}
+                currentMonthKey={currentMonth}
+                targetsHook={targetsHook}
+                userId={userId}
+                onCurrentMonthSaved={(newTarget) => setTargetInput(newTarget != null ? String(newTarget) : '')}
+              />
             </div>
           )}
 
@@ -440,46 +450,206 @@ function HistoryChart({ data, format }) {
   )
 }
 
-function HistoryTable({ data, format }) {
-  const recent = data.slice(-6).reverse() // most recent 6, newest first
+function HistoryTable({ data, format, canEdit, metricKey, currentMonthKey, targetsHook, userId, onCurrentMonthSaved }) {
+  // Newest first, all months
+  const rows = [...data].reverse()
+
   return (
     <div className="rounded-xl border border-stone-200 overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-stone-50 text-[10.5px] mono-text uppercase tracking-widest text-stone-500">
-            <th className="text-left px-3 py-2 font-semibold">Month</th>
-            <th className="text-right px-3 py-2 font-semibold">Actual</th>
-            <th className="text-right px-3 py-2 font-semibold">Target</th>
-            <th className="text-right px-3 py-2 font-semibold">vs Target</th>
-          </tr>
-        </thead>
-        <tbody>
-          {recent.map(row => {
-            const pct = row.target != null && row.actual != null && row.target > 0
-              ? (row.actual / row.target) * 100
-              : null
-            return (
-              <tr key={row.monthKey} className="border-t border-stone-100">
-                <td className="px-3 py-2 text-stone-700 mono-text">{formatMonthLabel(row.monthKey)}</td>
-                <td className="px-3 py-2 text-right num-tabular text-stone-900">
-                  {row.actual != null ? formatMetricValue(row.actual, format) : <span className="text-stone-300">—</span>}
-                </td>
-                <td className="px-3 py-2 text-right num-tabular text-stone-700">
-                  {row.target != null ? formatMetricValue(row.target, format) : <span className="text-stone-300">—</span>}
-                </td>
-                <td className="px-3 py-2 text-right num-tabular">
-                  {pct != null
-                    ? <span className={pct >= 100 ? 'text-green-700 font-semibold' : 'text-orange-700 font-semibold'}>
-                        {pct.toFixed(0)}%
-                      </span>
-                    : <span className="text-stone-300">—</span>}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      <div className="max-h-[280px] overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-stone-50 text-[10.5px] mono-text uppercase tracking-widest text-stone-500 border-b border-stone-200">
+              <th className="text-left px-3 py-2 font-semibold">Month</th>
+              <th className="text-right px-3 py-2 font-semibold">Actual</th>
+              <th className="text-right px-3 py-2 font-semibold">Target</th>
+              <th className="text-right px-3 py-2 font-semibold w-16">vs Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <EditableTargetRow
+                key={row.monthKey}
+                row={row}
+                format={format}
+                canEdit={canEdit}
+                isCurrentMonth={row.monthKey === currentMonthKey}
+                metricKey={metricKey}
+                targetsHook={targetsHook}
+                userId={userId}
+                onSavedCurrent={onCurrentMonthSaved}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
+  )
+}
+
+function EditableTargetRow({ row, format, canEdit, isCurrentMonth, metricKey, targetsHook, userId, onSavedCurrent }) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState(row.target != null ? String(row.target) : '')
+  const [saving, setSaving] = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [error, setError] = useState(null)
+  const inputRef = useRef(null)
+
+  // Re-sync local input if the parent's row changes (e.g. after parent save)
+  useEffect(() => {
+    if (!editing) {
+      setInput(row.target != null ? String(row.target) : '')
+    }
+  }, [row.target, editing])
+
+  // Auto-focus the input when we enter editing mode
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  const pct = row.target != null && row.actual != null && row.target > 0
+    ? (row.actual / row.target) * 100
+    : null
+
+  function startEdit() {
+    if (!canEdit) return
+    setInput(row.target != null ? String(row.target) : '')
+    setError(null)
+    setEditing(true)
+  }
+
+  function cancelEdit() {
+    setEditing(false)
+    setInput(row.target != null ? String(row.target) : '')
+    setError(null)
+  }
+
+  async function saveEdit() {
+    if (!canEdit) return
+    const newTarget = input === '' ? null : Number(input)
+    if (newTarget != null && isNaN(newTarget)) {
+      setError('Invalid number')
+      return
+    }
+    const origTarget = row.target ?? null
+    if (newTarget === origTarget) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await targetsHook.save(metricKey, row.monthKey, { target: newTarget }, userId)
+      setEditing(false)
+      setSavedFlash(true)
+      if (isCurrentMonth && onSavedCurrent) onSavedCurrent(newTarget)
+      setTimeout(() => setSavedFlash(false), 1500)
+    } catch (e) {
+      console.error('Inline save error:', e)
+      setError(e.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      saveEdit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEdit()
+    }
+  }
+
+  const rowBg = savedFlash ? 'bg-green-50' : (isCurrentMonth ? 'bg-purple-50/40' : '')
+
+  return (
+    <tr className={`border-t border-stone-100 transition-colors ${rowBg}`}>
+      <td className="px-3 py-2 text-stone-700 mono-text whitespace-nowrap">
+        {formatMonthLabel(row.monthKey)}
+        {isCurrentMonth && (
+          <span className="ml-1.5 text-[9px] uppercase tracking-widest font-semibold" style={{ color: BRAND }}>now</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right num-tabular text-stone-900">
+        {row.actual != null ? formatMetricValue(row.actual, format) : <span className="text-stone-300">—</span>}
+      </td>
+      <td className="px-3 py-2 text-right num-tabular text-stone-700">
+        {editing ? (
+          <div className="flex items-center justify-end gap-1">
+            <input
+              ref={inputRef}
+              type="number"
+              step="any"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              onBlur={(e) => {
+                // Allow click on save/cancel buttons without losing focus
+                if (!e.relatedTarget?.closest('.row-edit-actions')) {
+                  saveEdit()
+                }
+              }}
+              className="w-24 text-right num-tabular bg-white border border-purple-300 focus:border-purple-500 outline-none rounded px-2 py-1 text-sm"
+              disabled={saving}
+            />
+            <div className="row-edit-actions flex items-center gap-0.5">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={saveEdit}
+                disabled={saving}
+                className="w-6 h-6 rounded flex items-center justify-center hover:bg-green-100 text-green-700 disabled:opacity-50"
+                title="Save (Enter)"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={cancelEdit}
+                disabled={saving}
+                className="w-6 h-6 rounded flex items-center justify-center hover:bg-stone-100 text-stone-500 disabled:opacity-50"
+                title="Cancel (Esc)"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={startEdit}
+            disabled={!canEdit}
+            className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded transition-colors ${
+              canEdit ? 'hover:bg-purple-50 cursor-pointer group' : 'cursor-default'
+            }`}
+            title={canEdit ? 'Click to edit' : ''}
+          >
+            <span>
+              {row.target != null
+                ? formatMetricValue(row.target, format)
+                : <span className="text-stone-300">{canEdit ? 'Set target' : '—'}</span>}
+            </span>
+            {canEdit && <Edit3 className="w-2.5 h-2.5 text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
+          </button>
+        )}
+        {error && (
+          <div className="text-[10px] text-red-600 font-semibold mt-0.5">{error}</div>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right num-tabular w-16">
+        {pct != null
+          ? <span className={pct >= 100 ? 'text-green-700 font-semibold' : 'text-orange-700 font-semibold'}>
+              {pct.toFixed(0)}%
+            </span>
+          : <span className="text-stone-300">—</span>}
+      </td>
+    </tr>
   )
 }
 
