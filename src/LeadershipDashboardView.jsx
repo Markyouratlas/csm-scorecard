@@ -9,6 +9,7 @@ import {
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
 import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
+import OdysseyView from './OdysseyView'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
@@ -41,10 +42,10 @@ export default function LeadershipDashboardView({
   onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
-  // Toggle between live data view and the prototype demo. Per the design,
-  // this NEVER persists — every fresh page load starts on live data so
-  // the dashboard never accidentally shows fictional numbers to a visitor.
-  const [showPrototype, setShowPrototype] = useState(false)
+  // Three modes: 'odyssey' (real prototype-shaped data, default), 'live' (the
+  // upgraded live dashboard), and 'prototype' (sample data demo). Per the
+  // design, mode NEVER persists — every fresh page load starts on Odyssey.
+  const [mode, setMode] = useState('odyssey')
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   const headerRef = useGlassInteraction()
@@ -66,8 +67,8 @@ export default function LeadershipDashboardView({
                 Executive dashboard · Atlas Odyssey
               </div>
             </div>
-            {/* Live ↔ Prototype toggle. Defaults to "Live" on every page load.
-                Sized to feel like a primary control, not a hidden switch. */}
+            {/* Odyssey ↔ Live data ↔ Prototype mode picker.
+                Defaults to Odyssey on every page load (never persists). */}
             <div
               className="hidden md:flex items-center p-1 rounded-lg border ml-2"
               style={{ background: 'rgba(255,255,255,0.6)', borderColor: 'rgba(102,57,166,0.20)' }}
@@ -75,28 +76,41 @@ export default function LeadershipDashboardView({
               aria-label="Dashboard mode"
             >
               <button
-                onClick={() => setShowPrototype(false)}
+                onClick={() => setMode('odyssey')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
                 style={{
-                  background: !showPrototype ? BRAND : 'transparent',
-                  color: !showPrototype ? 'white' : '#56506A',
-                  boxShadow: !showPrototype ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                  background: mode === 'odyssey' ? BRAND : 'transparent',
+                  color: mode === 'odyssey' ? 'white' : '#56506A',
+                  boxShadow: mode === 'odyssey' ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
                 }}
                 role="tab"
-                aria-selected={!showPrototype}
+                aria-selected={mode === 'odyssey'}
+              >
+                <Sparkles className="w-3 h-3" /> Odyssey
+              </button>
+              <button
+                onClick={() => setMode('live')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: mode === 'live' ? BRAND : 'transparent',
+                  color: mode === 'live' ? 'white' : '#56506A',
+                  boxShadow: mode === 'live' ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                }}
+                role="tab"
+                aria-selected={mode === 'live'}
               >
                 <Activity className="w-3 h-3" /> Live data
               </button>
               <button
-                onClick={() => setShowPrototype(true)}
+                onClick={() => setMode('prototype')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
                 style={{
-                  background: showPrototype ? BRAND : 'transparent',
-                  color: showPrototype ? 'white' : '#56506A',
-                  boxShadow: showPrototype ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                  background: mode === 'prototype' ? BRAND : 'transparent',
+                  color: mode === 'prototype' ? 'white' : '#56506A',
+                  boxShadow: mode === 'prototype' ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
                 }}
                 role="tab"
-                aria-selected={showPrototype}
+                aria-selected={mode === 'prototype'}
               >
                 <Eye className="w-3 h-3" /> Prototype
               </button>
@@ -143,12 +157,13 @@ export default function LeadershipDashboardView({
         </div>
       </header>
 
-      {showPrototype ? (
+      {mode === 'odyssey' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
-          <PrototypeBanner />
-          <AtlasOdysseyPrototype />
+          <OdysseyView onSwitchToScorecard={onSwitchToSelf} />
         </div>
-      ) : (
+      )}
+
+      {mode === 'live' && (
         <div className="max-w-7xl mx-auto px-6 py-10 fade-up">
           <DashboardBody
             profile={profile}
@@ -159,6 +174,13 @@ export default function LeadershipDashboardView({
             refresh={refresh}
             onSwitchToApiGuide={onSwitchToApiGuide}
           />
+        </div>
+      )}
+
+      {mode === 'prototype' && (
+        <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
+          <PrototypeBanner />
+          <AtlasOdysseyPrototype />
         </div>
       )}
 

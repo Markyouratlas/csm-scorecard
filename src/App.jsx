@@ -83,12 +83,17 @@ export default function App() {
         // load this browser session. Subsequent profile reloads (e.g. tab
         // regains focus and Supabase refreshes the session) must NOT clobber
         // the user's current view choice.
+        // Landing logic: members → self, team leads → manager, executives → leadership.
+        const landing =
+          tier === 'executive' ? 'leadership'
+          : tier === 'team_lead' ? 'manager'
+          : 'self'
         try {
           if (!sessionStorage.getItem('atlas:viewMode')) {
-            setViewMode(tier === 'member' ? 'self' : 'manager')
+            setViewMode(landing)
           }
         } catch {
-          setViewMode(tier === 'member' ? 'self' : 'manager')
+          setViewMode(landing)
         }
         setLoading(false)
         return
