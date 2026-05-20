@@ -83,7 +83,8 @@ export default function App() {
         // load this browser session. Subsequent profile reloads (e.g. tab
         // regains focus and Supabase refreshes the session) must NOT clobber
         // the user's current view choice.
-        // Landing logic: members → self, team leads → manager, executives → leadership.
+        // Landing logic: executives → leadership (Odyssey default tab),
+        // team leads → manager view, members → own scorecard.
         const landing =
           tier === 'executive' ? 'leadership'
           : tier === 'team_lead' ? 'manager'

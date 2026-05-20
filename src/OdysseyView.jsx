@@ -2,10 +2,12 @@ import React, { useState, useMemo } from 'react'
 import {
   Sparkles, TrendingUp, HeartHandshake, Megaphone, Rocket, Code,
   Info, Clock, ChevronRight, ArrowUpRight, ArrowDownRight,
-  Activity, AlertCircle, RefreshCw, ExternalLink,
+  Activity, AlertCircle, RefreshCw, ExternalLink, Edit3,
 } from 'lucide-react'
 import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
-import { TEAMS } from './teams.js'
+import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
+import { TEAMS, accessTier } from './teams.js'
+import TargetEditModal from './TargetEditModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -31,9 +33,21 @@ const DEPTS = {
   exec:      { name: 'Executive',             color: '#6639A6', icon: Sparkles },
 }
 
-export default function OdysseyView({ onSwitchToScorecard }) {
+export default function OdysseyView({ onSwitchToScorecard, profile }) {
   const [view, setView] = useState('executive')
+  const [modalMetric, setModalMetric] = useState(null) // { metricKey, monthKey, initialActual }
   const data = useOdysseyMetrics()
+  const targets = useAtlasTargets()
+  const tier = accessTier(profile)
+  const canEdit = tier === 'executive'
+
+  function openTargetModal(metricKey, initialActual) {
+    setModalMetric({ metricKey, initialActual })
+  }
+
+  function closeTargetModal() {
+    setModalMetric(null)
+  }
 
   if (data.error) {
     return (
@@ -52,9 +66,9 @@ export default function OdysseyView({ onSwitchToScorecard }) {
       <OdysseyStyles />
       <ProtoTabs view={view} setView={setView} />
       <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
-        {view === 'executive' && <ExecutiveView data={data} />}
-        {view === 'weekly'    && <WeeklyView data={data} />}
-        {view === 'daily'     && <DailyView data={data} />}
+        {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
         {view === 'log'       && <QuickLogView onSwitchToScorecard={onSwitchToScorecard} />}
         {view === 'tracking'  && <TrackingGuide />}
       </main>
@@ -62,6 +76,7 @@ export default function OdysseyView({ onSwitchToScorecard }) {
         <div className="max-w-[1400px] mx-auto px-2 sm:px-4 pb-6 flex items-center justify-between flex-wrap gap-2 mono-text">
           <div className="text-[11px] text-stone-500 uppercase tracking-widest">
             Refreshed {data.meta.fetchedAt.toLocaleTimeString()} · {data.meta.memberCount} members
+            {targets.loading && <span className="ml-2">· loading targets…</span>}
           </div>
           <button onClick={data.refresh}
             disabled={data.loading}
@@ -71,6 +86,16 @@ export default function OdysseyView({ onSwitchToScorecard }) {
             Refresh
           </button>
         </div>
+      )}
+      {modalMetric && (
+        <TargetEditModal
+          metricKey={modalMetric.metricKey}
+          initialActual={modalMetric.initialActual}
+          targetsHook={targets}
+          canEdit={canEdit}
+          userId={profile?.id}
+          onClose={closeTargetModal}
+        />
       )}
     </div>
   )
@@ -117,50 +142,58 @@ function ProtoTabs({ view, setView }) {
 //  Executive view — annual targets + quarterly OKRs + strategic initiatives
 // =============================================================================
 
-function ExecutiveView({ data }) {
+function ExecutiveView({ data, targets, canEdit, openModal }) {
+  // Pull actuals from atlas_targets (manual backfill) — falling back to live Supabase computed
+  const mrrLatest = targets.getLatestActual('total-mrr')
+  const customersLatest = targets.getLatestActual('total-customers')
+  const arpuLatest = targets.getLatestActual('arpu')
+
+  // Annual target = December's target for current year (or as far as we have)
+  const currentYear = new Date().getFullYear()
+  const mrrAnnualTarget = targets.getAnnualTarget('total-mrr', currentYear)
+  const customersAnnualTarget = targets.getAnnualTarget('total-customers', currentYear)
+
   return (
     <div className="space-y-10 fade-in">
       <SectionHeader
         deptKey="exec"
         eyebrow="Annual Target"
         title="Atlas Goals"
-        description="Where the company is heading this year."
+        description="Where the company is heading this year. Click any metric to edit its target."
       />
 
-      {/* Annual targets — mostly Stripe-dependent */}
+      {/* Annual hero cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <HeroAnnualCard
+          metricKey="total-mrr"
           label="Total MRR"
-          target={300000}
+          value={mrrLatest?.actual}
+          target={mrrAnnualTarget}
           prefix="$"
-          awaiting={data.awaiting?.totalMRR}
+          format="currency"
+          asOfMonth={mrrLatest?.monthKey}
+          openModal={openModal}
+          canEdit={canEdit}
         />
         <HeroAnnualCard
+          metricKey="total-customers"
           label="Total Customers"
-          target={600}
-          awaiting={data.awaiting?.totalCustomers}
+          value={customersLatest?.actual}
+          target={customersAnnualTarget}
+          format="count"
+          asOfMonth={customersLatest?.monthKey}
+          openModal={openModal}
+          canEdit={canEdit}
         />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <NumberBlock
-          label="LTV : CAC"
-          value={null}
-          suffix=":1"
-          awaiting={data.awaiting?.ltvCac}
-        />
-        <NumberBlock
-          label="Gross Margin"
-          value={null}
-          suffix="%"
-          awaiting={data.awaiting?.grossMargin}
-        />
-        <NumberBlock
-          label="Net Rev Retention"
-          value={null}
-          suffix="%"
-          awaiting={data.awaiting?.netRevRetention}
-        />
+        <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1"
+          awaiting={data.awaiting?.ltvCac} openModal={openModal} />
+        <NumberBlock metricKey="gross-margin" label="Gross Margin" value={null} suffix="%"
+          awaiting={data.awaiting?.grossMargin} openModal={openModal} />
+        <NumberBlock metricKey="net-rev-retention" label="Net Rev Retention" value={null} suffix="%"
+          awaiting={data.awaiting?.netRevRetention} openModal={openModal} />
       </div>
 
       <SectionHeader
@@ -169,7 +202,7 @@ function ExecutiveView({ data }) {
         title="Where the executive team is leaning in"
         description="The bets we're making this quarter, and how they're tracking."
       />
-      <StrategicInitiatives data={data} />
+      <StrategicInitiatives data={data} targets={targets} openModal={openModal} />
 
       <SectionHeader
         deptKey="exec"
@@ -192,12 +225,19 @@ function ExecutiveView({ data }) {
         title="The numbers under the hood"
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard label="ARPU"           awaiting={data.awaiting?.arpu} />
-        <MetricCard label="Gross Margin"   awaiting={data.awaiting?.grossMargin} />
-        <MetricCard label="Cost / Service" awaiting={data.awaiting?.grossMargin} />
-        <MetricCard label="CAC"            awaiting={data.awaiting?.cac} />
-        <MetricCard label="CAC Payback"    awaiting={data.awaiting?.cacPayback} />
-        <MetricCard label="LTV : CAC"      awaiting={data.awaiting?.ltvCac} />
+        <MetricCard metricKey="arpu" label="ARPU" value={arpuLatest?.actual} prefix="$" format="currency"
+          openModal={openModal} />
+        <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting={data.awaiting?.grossMargin}
+          openModal={openModal} />
+        <MetricCard metricKey="cac" label="CAC" awaiting={data.awaiting?.cac} openModal={openModal} />
+        <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting={data.awaiting?.cacPayback}
+          openModal={openModal} />
+        <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting={data.awaiting?.ltvCac}
+          openModal={openModal} />
+        <MetricCard metricKey="churn-pct" label="Churn %"
+          value={targets.getLatestActual('churn-pct')?.actual}
+          format="percent"
+          openModal={openModal} />
       </div>
     </div>
   )
@@ -207,7 +247,7 @@ function ExecutiveView({ data }) {
 //  Weekly view — the actual rollups of what was logged this week
 // =============================================================================
 
-function WeeklyView({ data }) {
+function WeeklyView({ data, targets, canEdit, openModal }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
 
@@ -221,48 +261,60 @@ function WeeklyView({ data }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <GaugeCard
+          metricKey="opt-in-rate"
           label="Opt-In Rate"
           value={w.optInRatePctWeek}
           target={3}
           suffix="%"
           color={DEPTS.marketing.color}
           trend={t.optInRate}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="cost-per-lead"
           label="Cost / Lead"
           value={w.costPerLeadWeek}
           prefix="$"
           color={DEPTS.marketing.color}
           trend={t.costPerLead}
           invertDelta
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="website-visitors"
           label="Website Visitors"
           value={w.websiteVisitorsWeek}
           color={DEPTS.marketing.color}
           trend={t.websiteVisitors}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="total-ad-spend"
           label="Total Ad Spend"
           value={w.totalAdSpendWeek}
           prefix="$"
           color={DEPTS.marketing.color}
           trend={t.totalAdSpend}
           invertDelta
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="organic-leads"
           label="Organic Leads"
           value={w.organicLeadsWeek}
           color={DEPTS.marketing.color}
           trend={t.organicLeads}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="paid-leads"
           label="Paid Ad Leads"
           value={w.paidLeadsWeek}
           color={DEPTS.marketing.color}
           trend={t.paidLeads}
+          openModal={openModal}
         />
-        <MetricCard label="CAC" awaiting={data.awaiting?.cac} />
+        <MetricCard metricKey="cac" label="CAC" awaiting={data.awaiting?.cac} openModal={openModal} />
         <MetricCard label="Cost / Booked Demo" awaiting={data.awaiting?.costPerDemo} />
       </div>
 
@@ -274,39 +326,49 @@ function WeeklyView({ data }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <NumberBlock
+          metricKey="sales-calls-booked"
           label="Demos Booked"
           value={w.demosBookedWeek}
           color={DEPTS.sales.color}
           trend={t.demosBooked}
+          openModal={openModal}
         />
         <GaugeCard
+          metricKey="show-rate"
           label="Show-Up Rate"
           value={w.showUpRatePct}
           target={75}
           suffix="%"
           color={DEPTS.sales.color}
           trend={t.showRate}
+          openModal={openModal}
         />
         <GaugeCard
+          metricKey="close-rate"
           label="Close Rate"
           value={w.closeRatePct}
           target={30}
           suffix="%"
           color={DEPTS.sales.color}
           trend={t.closeRate}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="net-new-sales"
           label="Closes"
           value={w.trialSignupsWeek}
           color={DEPTS.sales.color}
           trend={t.trialsStarted}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="net-new-mrr"
           label="New MRR Closed"
           value={data.thisMonth?.newMrrClosedMonth}
           prefix="$"
           color={DEPTS.sales.color}
           hint="month-to-date"
+          openModal={openModal}
         />
         <NumberBlock
           label="Avg Deal Size"
@@ -315,8 +377,22 @@ function WeeklyView({ data }) {
           color={DEPTS.sales.color}
           hint="from won deals"
         />
-        <MetricCard label="Total MRR" awaiting={data.awaiting?.totalMRR} />
-        <MetricCard label="ARPU" awaiting={data.awaiting?.arpu} />
+        <MetricCard
+          metricKey="total-mrr"
+          label="Total MRR"
+          value={targets.getLatestActual('total-mrr')?.actual}
+          prefix="$"
+          format="currency"
+          openModal={openModal}
+        />
+        <MetricCard
+          metricKey="arpu"
+          label="ARPU"
+          value={targets.getLatestActual('arpu')?.actual}
+          prefix="$"
+          format="currency"
+          openModal={openModal}
+        />
       </div>
 
       <SectionHeader
@@ -326,9 +402,12 @@ function WeeklyView({ data }) {
         description="Churn, NRR, and the on-time activation bar that keeps customers live within the 14-day mark."
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        <MetricCard label="On-Time Activation" awaiting={data.awaiting?.onTimeActivation} />
-        <MetricCard label="Churn Rate" awaiting={data.awaiting?.churnRate} />
-        <MetricCard label="Net Rev Retention" awaiting={data.awaiting?.NRR} />
+        <MetricCard metricKey="on-time-activation" label="On-Time Activation" awaiting={data.awaiting?.onTimeActivation} openModal={openModal} />
+        <MetricCard metricKey="churn-pct" label="Churn Rate"
+          value={targets.getLatestActual('churn-pct')?.actual}
+          format="percent"
+          openModal={openModal} />
+        <MetricCard metricKey="net-rev-retention" label="Net Rev Retention" awaiting={data.awaiting?.NRR} openModal={openModal} />
         <MetricCard label="Implementations" awaiting={data.awaiting?.implementations} />
         <MetricCard label="Tickets Resolved" awaiting={data.awaiting?.ticketsResolved} />
         <MetricCard label="Time-To-First-Value" awaiting={data.awaiting?.timeToValue} />
@@ -342,19 +421,23 @@ function WeeklyView({ data }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <NumberBlock
+          metricKey="prs-deployed"
           label="PRs Deployed"
           value={w.prsDeployedWeek}
           color={DEPTS.product.color}
           trend={t.prsDeployed}
+          openModal={openModal}
         />
         <NumberBlock
+          metricKey="new-bugs"
           label="New Bugs Reported"
           value={w.newBugsWeek}
           color={DEPTS.product.color}
           trend={t.newBugs}
           invertDelta
+          openModal={openModal}
         />
-        <MetricCard label="User Adoption Rate" awaiting={data.awaiting?.userAdoption} />
+        <MetricCard metricKey="activation-rate" label="User Adoption Rate" awaiting={data.awaiting?.userAdoption} openModal={openModal} />
       </div>
 
       <SectionHeader
@@ -365,13 +448,15 @@ function WeeklyView({ data }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <NumberBlock
+          metricKey="trials-started"
           label="Trials Started"
           value={w.trialSignupsWeek}
           color={DEPTS.growth.color}
           trend={t.trialsStarted}
+          openModal={openModal}
         />
-        <MetricCard label="Trial → Paid" awaiting={data.awaiting?.trialToPaid} />
-        <MetricCard label="User Activation Rate" awaiting={data.awaiting?.activationRate} />
+        <MetricCard metricKey="trial-to-paid" label="Trial → Paid" awaiting={data.awaiting?.trialToPaid} openModal={openModal} />
+        <MetricCard metricKey="activation-rate" label="User Activation Rate" awaiting={data.awaiting?.activationRate} openModal={openModal} />
       </div>
     </div>
   )
@@ -381,7 +466,7 @@ function WeeklyView({ data }) {
 //  Daily view — today's daily entries
 // =============================================================================
 
-function DailyView({ data }) {
+function DailyView({ data, targets, canEdit, openModal }) {
   const td = data.today || {}
   const now = new Date()
   const dayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -680,7 +765,7 @@ function TrackingGuide() {
 //  Strategic Initiatives — derived from real data
 // =============================================================================
 
-function StrategicInitiatives({ data }) {
+function StrategicInitiatives({ data, targets, openModal }) {
   const w = data.thisWeek || {}
   const initiatives = [
     {
@@ -773,34 +858,54 @@ function SectionHeader({ deptKey, eyebrow, title, description }) {
   )
 }
 
-function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta }) {
+function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format }) {
+  const clickable = metricKey && openModal
+  const handleClick = () => clickable && openModal(metricKey, value)
+  const Wrapper = clickable ? 'button' : 'div'
+  const wrapperProps = clickable
+    ? { onClick: handleClick, type: 'button', className: 'card p-4 flex flex-col text-left w-full hover:shadow-md hover:border-stone-400 transition-all relative group', style: { minHeight: 170 } }
+    : { className: 'card p-4 flex flex-col relative', style: { minHeight: 170 } }
+
   if (awaiting) {
     return (
-      <div className="card p-4 flex flex-col" style={{ minHeight: 170 }}>
+      <Wrapper {...wrapperProps}>
+        {clickable && (
+          <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+        )}
         <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
           {label}
         </div>
         <div className="flex-1 flex items-center">
           <AwaitingBadge provider={awaiting} />
         </div>
-      </div>
+      </Wrapper>
     )
   }
   const change = trend && trend.length >= 2 ? deltaPct(trend) : 0
   const positive = invertDelta ? change < 0 : change > 0
+  const displayValue = format && value != null
+    ? formatMetricValue(value, format)
+    : value != null ? `${prefix}${fmtNum(value)}${suffix}` : null
   return (
-    <div className="card p-4 flex flex-col" style={{ minHeight: 170 }}>
+    <Wrapper {...wrapperProps}>
+      {clickable && (
+        <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
       <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
         {label}
       </div>
       <div className="flex items-end justify-between gap-2">
         <div className="display-text font-medium leading-none num-tabular" style={{ color, fontSize: '32px' }}>
           {value != null ? (
-            <>
-              {prefix && <span style={{ opacity: 0.55 }}>{prefix}</span>}
-              {fmtNum(value)}
-              {suffix && <span style={{ opacity: 0.55, fontSize: '0.6em' }}>{suffix}</span>}
-            </>
+            format ? (
+              displayValue
+            ) : (
+              <>
+                {prefix && <span style={{ opacity: 0.55 }}>{prefix}</span>}
+                {fmtNum(value)}
+                {suffix && <span style={{ opacity: 0.55, fontSize: '0.6em' }}>{suffix}</span>}
+              </>
+            )
           ) : (
             <span className="text-stone-300 text-base font-normal">No data yet</span>
           )}
@@ -812,34 +917,45 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
           <Sparkline data={trend} color={color} />
         </div>
       )}
-    </div>
+    </Wrapper>
   )
 }
 
-function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint }) {
+function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint, metricKey, openModal, format }) {
   return (
     <MetricCard label={label} value={value} prefix={prefix} suffix={suffix}
-      color={color} trend={trend} awaiting={awaiting} invertDelta={invertDelta} />
+      color={color} trend={trend} awaiting={awaiting} invertDelta={invertDelta}
+      metricKey={metricKey} openModal={openModal} format={format} />
   )
 }
 
-function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting }) {
+function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting, metricKey, openModal }) {
+  const clickable = metricKey && openModal
+  const handleClick = () => clickable && openModal(metricKey, value)
+  const Wrapper = clickable ? 'button' : 'div'
+  const wrapperBaseClass = 'card p-4 flex flex-col items-center relative'
+  const wrapperProps = clickable
+    ? { onClick: handleClick, type: 'button', className: `${wrapperBaseClass} text-left w-full hover:shadow-md hover:border-stone-400 transition-all group`, style: { minHeight: 170 } }
+    : { className: wrapperBaseClass, style: { minHeight: 170 } }
+
   if (awaiting) {
     return (
-      <div className="card p-4 flex flex-col" style={{ minHeight: 170 }}>
-        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
+      <Wrapper {...wrapperProps}>
+        {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3 self-start">
           {label}
         </div>
-        <div className="flex-1 flex items-center">
+        <div className="flex-1 flex items-center self-start">
           <AwaitingBadge provider={awaiting} />
         </div>
-      </div>
+      </Wrapper>
     )
   }
   if (value == null) {
     return (
-      <div className="card p-4 flex flex-col" style={{ minHeight: 170 }}>
-        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
+      <Wrapper {...wrapperProps}>
+        {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3 self-start">
           {label}
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -848,7 +964,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
         {target != null && (
           <div className="mono-text text-[10px] text-stone-400 text-center mt-1">target {target}{suffix}</div>
         )}
-      </div>
+      </Wrapper>
     )
   }
 
@@ -868,7 +984,8 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
     : '#EF4444'
 
   return (
-    <div className="card p-4 flex flex-col items-center" style={{ minHeight: 170 }}>
+    <Wrapper {...wrapperProps}>
+      {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
       <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1 self-start">
         {label}
       </div>
@@ -887,50 +1004,93 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
       {target != null && (
         <div className="mono-text text-[10px] text-stone-500 mt-1">target {target}{suffix}</div>
       )}
-    </div>
+    </Wrapper>
   )
 }
 
-function HeroAnnualCard({ label, value, target, prefix = '', awaiting }) {
+function HeroAnnualCard({ metricKey, label, value, target, prefix = '', awaiting, format, asOfMonth, openModal, canEdit }) {
+  const clickable = metricKey && openModal
+  const handleClick = () => clickable && openModal(metricKey, value)
+  const Wrapper = clickable ? 'button' : 'div'
+  const baseClass = 'card p-6 relative overflow-hidden'
+  const wrapperProps = clickable
+    ? { onClick: handleClick, type: 'button', className: `${baseClass} text-left w-full hover:shadow-md hover:border-stone-400 transition-all group`, style: { minHeight: 220 } }
+    : { className: baseClass, style: { minHeight: 220 } }
+
+  const fmtTarget = (n) => format ? formatMetricValue(n, format) : `${prefix}${fmtNum(n)}`
+  const fmtValue = (n) => format ? formatMetricValue(n, format) : `${prefix}${fmtNum(n)}`
+
   if (awaiting) {
     return (
-      <div className="card p-6 relative overflow-hidden" style={{ minHeight: 220 }}>
+      <Wrapper {...wrapperProps}>
+        {clickable && <Edit3 className="absolute top-4 right-4 w-3.5 h-3.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
         <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold mb-2" style={{ color: BRAND }}>
-          Annual Target · Atlas Goals
+          Annual Target · {label}
         </div>
         <div className="display-text text-3xl text-stone-300 font-medium mb-2">
-          {prefix}{fmtNum(target)}
+          {target != null ? fmtTarget(target) : 'Set a target'}
         </div>
         <div className="mb-4">
           <AwaitingBadge provider={awaiting} />
         </div>
-        <div className="text-[12px] text-stone-500 mt-2">
-          Target: {prefix}{fmtNum(target)} {label.toLowerCase()}
-        </div>
-      </div>
+        {target != null && (
+          <div className="text-[12px] text-stone-500 mt-2">
+            Target: {fmtTarget(target)} {label.toLowerCase()}
+          </div>
+        )}
+        {canEdit && <div className="text-[11px] text-stone-400 mt-3 mono-text">Click to edit target</div>}
+      </Wrapper>
     )
   }
 
-  const pct = target ? Math.min(100, (Number(value) / target) * 100) : 0
+  // No value yet (but no awaiting either) — show empty state
+  if (value == null && target == null) {
+    return (
+      <Wrapper {...wrapperProps}>
+        {clickable && <Edit3 className="absolute top-4 right-4 w-3.5 h-3.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+        <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold mb-2" style={{ color: BRAND }}>
+          Annual Target · {label}
+        </div>
+        <div className="display-text text-3xl text-stone-300 font-medium mb-2">No target set</div>
+        {canEdit && <div className="text-[12px] text-stone-500">Click to set a target</div>}
+      </Wrapper>
+    )
+  }
+
+  const pct = target ? Math.min(100, (Number(value || 0) / target) * 100) : 0
   return (
-    <div className="card p-6 relative overflow-hidden" style={{ minHeight: 220 }}>
+    <Wrapper {...wrapperProps}>
+      {clickable && <Edit3 className="absolute top-4 right-4 w-3.5 h-3.5 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
       <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold mb-2" style={{ color: BRAND }}>
-        Annual Target · Atlas Goals
+        Annual Target · {label}
       </div>
-      <div className="display-text font-medium num-tabular leading-none mb-3" style={{ color: BRAND, fontSize: 'clamp(48px, 8vw, 72px)' }}>
-        {prefix && <span style={{ opacity: 0.55 }}>{prefix}</span>}
-        {fmtNum(value)}
+      <div className="display-text font-medium num-tabular leading-none mb-3" style={{ color: BRAND, fontSize: 'clamp(40px, 7vw, 64px)' }}>
+        {value != null ? fmtValue(value) : <span className="text-stone-300">—</span>}
       </div>
-      <div className="text-sm text-stone-500 mb-3">of {prefix}{fmtNum(target)} {label.toLowerCase()}</div>
-      <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden mb-2">
-        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: BRAND }} />
+      <div className="text-sm text-stone-500 mb-3">
+        {target != null ? <>of {fmtTarget(target)} {label.toLowerCase()}</> : <>no target set</>}
+        {asOfMonth && <span className="mono-text text-[10.5px] ml-2 text-stone-400">· as of {formatShortMonth(asOfMonth)}</span>}
       </div>
-      <div className="flex justify-between text-[11px] mono-text text-stone-500">
-        <span>{pct.toFixed(1)}% to goal</span>
-        <span>{(100 - pct).toFixed(1)}% remaining</span>
-      </div>
-    </div>
+      {target != null && (
+        <>
+          <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden mb-2">
+            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: BRAND }} />
+          </div>
+          <div className="flex justify-between text-[11px] mono-text text-stone-500">
+            <span>{pct.toFixed(1)}% to goal</span>
+            <span>{(100 - pct).toFixed(1)}% remaining</span>
+          </div>
+        </>
+      )}
+    </Wrapper>
   )
+}
+
+function formatShortMonth(monthKey) {
+  if (!monthKey) return ''
+  const [y, m] = monthKey.split('-')
+  const date = new Date(Number(y), Number(m) - 1, 1)
+  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
 }
 
 function AwaitingBadge({ provider }) {

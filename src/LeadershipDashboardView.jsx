@@ -42,9 +42,9 @@ export default function LeadershipDashboardView({
   onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
-  // Three modes: 'odyssey' (real prototype-shaped data, default), 'live' (the
-  // upgraded live dashboard), and 'prototype' (sample data demo). Per the
-  // design, mode NEVER persists — every fresh page load starts on Odyssey.
+  // Three modes: 'odyssey' (real prototype-shaped data with editable targets, default),
+  // 'live' (the upgraded live dashboard), and 'prototype' (sample data demo).
+  // Per the design, mode NEVER persists — every fresh page load starts on Odyssey.
   const [mode, setMode] = useState('odyssey')
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
@@ -159,7 +159,7 @@ export default function LeadershipDashboardView({
 
       {mode === 'odyssey' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
-          <OdysseyView onSwitchToScorecard={onSwitchToSelf} />
+          <OdysseyView onSwitchToScorecard={onSwitchToSelf} profile={profile} />
         </div>
       )}
 
