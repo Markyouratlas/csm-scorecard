@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react'
 import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
+import {
   Sparkles, TrendingUp, HeartHandshake, Megaphone, Rocket, Code,
   Info, Clock, ChevronRight, ArrowUpRight, ArrowDownRight,
   Activity, AlertCircle, RefreshCw, ExternalLink, Edit3,
@@ -148,10 +151,25 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
   const customersLatest = targets.getLatestActual('total-customers')
   const arpuLatest = targets.getLatestActual('arpu')
 
-  // Annual target = December's target for current year (or as far as we have)
+  // For the hero: "annual target" = December of the CURRENT year if available,
+  // else December of the year the latest actual lives in, else just take whatever
+  // the most-distant target we have is. This gives the most motivating "X of Y" framing.
   const currentYear = new Date().getFullYear()
   const mrrAnnualTarget = targets.getAnnualTarget('total-mrr', currentYear)
+                       ?? targets.getAnnualTarget('total-mrr', currentYear + 1)
   const customersAnnualTarget = targets.getAnnualTarget('total-customers', currentYear)
+                             ?? targets.getAnnualTarget('total-customers', currentYear + 1)
+
+  // Build monthly MRR trajectory: only months where we have an actual value
+  const mrrHistory = targets.getMonthHistory('total-mrr')
+  const mrrSeries = mrrHistory
+    .filter(h => h.actual != null)
+    .map(h => ({
+      month: shortMonthLabel(h.monthKey),
+      monthKey: h.monthKey,
+      mrr: h.actual,
+      target: h.target,
+    }))
 
   return (
     <div className="space-y-10 fade-in">
@@ -162,31 +180,22 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         description="Where the company is heading this year. Click any metric to edit its target."
       />
 
-      {/* Annual hero cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <HeroAnnualCard
-          metricKey="total-mrr"
-          label="Total MRR"
-          value={mrrLatest?.actual}
-          target={mrrAnnualTarget}
-          prefix="$"
-          format="currency"
-          asOfMonth={mrrLatest?.monthKey}
-          openModal={openModal}
-          canEdit={canEdit}
-        />
-        <HeroAnnualCard
-          metricKey="total-customers"
-          label="Total Customers"
-          value={customersLatest?.actual}
-          target={customersAnnualTarget}
-          format="count"
-          asOfMonth={customersLatest?.monthKey}
-          openModal={openModal}
-          canEdit={canEdit}
-        />
-      </div>
+      {/* MRR Hero — prototype-style unified card */}
+      <MrrHeroCard
+        value={mrrLatest?.actual}
+        target={mrrAnnualTarget}
+        asOfMonth={mrrLatest?.monthKey}
+        series={mrrSeries}
+        customers={customersLatest?.actual}
+        customersTarget={customersAnnualTarget}
+        arpu={arpuLatest?.actual}
+        onClickMrr={() => openModal('total-mrr', mrrLatest?.actual)}
+        onClickCustomers={() => openModal('total-customers', customersLatest?.actual)}
+        onClickArpu={() => openModal('arpu', arpuLatest?.actual)}
+        canEdit={canEdit}
+      />
 
+      {/* Annual metrics that depend on ProfitWell */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1"
           awaiting={data.awaiting?.ltvCac} openModal={openModal} />
@@ -1091,6 +1100,179 @@ function formatShortMonth(monthKey) {
   const [y, m] = monthKey.split('-')
   const date = new Date(Number(y), Number(m) - 1, 1)
   return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+}
+
+function shortMonthLabel(monthKey) {
+  if (!monthKey) return ''
+  const [y, m] = monthKey.split('-')
+  const date = new Date(Number(y), Number(m) - 1, 1)
+  return date.toLocaleDateString('en-US', { month: 'short' })
+}
+
+// =============================================================================
+//  MrrHeroCard — the big unified hero matching the prototype's design.
+//  Left: current MRR + progress bar + 3 inline stats (Customers, ARPU, target).
+//  Right: monthly MRR trajectory area chart from atlas_targets history.
+//  The whole card is clickable to open the MRR target modal. Sub-stats have
+//  their own click handlers that open their respective metric modals.
+// =============================================================================
+
+function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTarget, arpu,
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit }) {
+  const pct = target && value ? Math.min(100, (value / target) * 100) : 0
+  const hasMrr = value != null
+  const hasTarget = target != null
+  const hasChart = series && series.length >= 2
+
+  return (
+    <div className="mrr-hero-card relative overflow-hidden rounded-2xl border border-stone-200 transition-shadow"
+      style={{
+        background: 'linear-gradient(135deg, #FAFAF7 0%, #FAF5FF 100%)',
+        boxShadow: '0 1px 2px rgba(26,15,46,0.04)',
+      }}>
+      {/* Decorative purple radial */}
+      <div className="absolute -top-32 -right-24 w-[500px] h-[500px] rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.18), transparent 70%)' }} />
+
+      <div className="relative grid lg:grid-cols-12 gap-6 lg:gap-8 p-6 lg:p-10 items-center">
+        {/* LEFT — number, progress, sub-stats */}
+        <div className="lg:col-span-5">
+          <button
+            type="button"
+            onClick={onClickMrr}
+            className="text-left w-full group"
+            disabled={!onClickMrr}
+          >
+            <div className="flex items-center gap-2 mono-text text-[10.5px] uppercase tracking-[0.18em] font-semibold mb-3" style={{ color: BRAND }}>
+              <Sparkles className="w-3 h-3" /> Annual Target — Total MRR
+              {canEdit && <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />}
+            </div>
+            {hasMrr ? (
+              <div className="display-text font-medium leading-[0.9] tracking-tight num-tabular"
+                style={{ color: BRAND, fontSize: 'clamp(56px, 9vw, 96px)' }}>
+                {formatMetricValue(value, 'currency')}
+              </div>
+            ) : (
+              <div className="display-text font-medium text-stone-300" style={{ fontSize: 'clamp(48px, 8vw, 80px)' }}>
+                No data
+              </div>
+            )}
+            <div className="display-text italic text-xl md:text-2xl mt-2 text-stone-500">
+              {hasTarget ? <>of {formatMetricValue(target, 'currency')} MRR</> : 'no target set'}
+              {asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
+            </div>
+            {hasTarget && (
+              <div className="mt-5 max-w-md">
+                <div className="flex items-center justify-between mono-text text-[11px] mb-2 text-stone-500">
+                  <span>{pct.toFixed(1)}% to goal</span>
+                  <span>{(100 - pct).toFixed(1)}% remaining</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(102,57,166,0.12)' }}>
+                  <div className="h-full rounded-full transition-all"
+                    style={{ background: 'linear-gradient(90deg, #6639A6, #9B6EE0)', width: `${pct}%` }} />
+                </div>
+              </div>
+            )}
+          </button>
+
+          {/* Sub-stats: Customers, ARPU, Target */}
+          <div className="grid grid-cols-3 gap-4 mt-7 pt-6 border-t border-stone-200/60">
+            <HeroSubStat
+              label="Customers"
+              value={customers != null ? Math.round(customers).toLocaleString() : null}
+              target={customersTarget != null ? `target ${Math.round(customersTarget).toLocaleString()}` : 'no target'}
+              onClick={onClickCustomers}
+              canEdit={canEdit}
+            />
+            <HeroSubStat
+              label="ARPU"
+              value={arpu != null ? formatMetricValue(arpu, 'currency') : null}
+              target={arpu != null ? 'per customer / mo' : 'awaiting Stripe'}
+              onClick={onClickArpu}
+              canEdit={canEdit}
+            />
+            <HeroSubStat
+              label="MRR Target"
+              value={hasTarget ? formatMetricValue(target, 'currency') : null}
+              target={hasTarget ? 'end of year goal' : 'set target →'}
+              onClick={onClickMrr}
+              canEdit={canEdit}
+            />
+          </div>
+        </div>
+
+        {/* RIGHT — monthly MRR trajectory chart */}
+        <div className="lg:col-span-7">
+          <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between">
+            <span>MRR Trajectory · last {series?.length || 0} months</span>
+            {hasChart && (
+              <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
+                {series[0].month} → {series[series.length - 1].month}
+              </span>
+            )}
+          </div>
+          {hasChart ? (
+            <div className="h-56 lg:h-64">
+              <ResponsiveContainer>
+                <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="odyMrrGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.32} />
+                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="2 4" stroke="rgba(26,15,46,0.1)" vertical={false} />
+                  <XAxis dataKey="month" stroke="#56506A" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#56506A" fontSize={11} tickLine={false} axisLine={false}
+                    tickFormatter={(v) => `$${v >= 1_000_000 ? (v / 1_000_000).toFixed(1) + 'M' : (v / 1000).toFixed(0) + 'K'}`} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'white',
+                      border: '1px solid rgba(26,15,46,0.16)',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontFamily: 'JetBrains Mono, monospace',
+                      boxShadow: '0 4px 16px rgba(26,15,46,0.08)',
+                    }}
+                    labelFormatter={(label) => label}
+                    formatter={(v, name) => [`$${Number(v).toLocaleString()}`, name === 'mrr' ? 'Actual' : 'Target']}
+                  />
+                  <Area type="monotone" dataKey="mrr" stroke={BRAND} strokeWidth={2.4} fill="url(#odyMrrGrad)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-56 lg:h-64 rounded-xl border border-dashed border-stone-300 flex flex-col items-center justify-center text-stone-400 text-sm">
+              <Clock className="w-6 h-6 mb-2" />
+              <div className="font-semibold">Not enough monthly history yet</div>
+              <div className="text-[11px] mt-1">Need at least 2 months of MRR actuals</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HeroSubStat({ label, value, target, onClick, canEdit }) {
+  const clickable = !!onClick
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={`text-left rounded-lg -mx-1 px-1 py-1 transition-colors ${clickable ? 'hover:bg-purple-50/60 cursor-pointer group' : 'cursor-default'}`}
+    >
+      <div className="mono-text text-[10px] uppercase tracking-[0.14em] font-semibold text-stone-500 flex items-center gap-1">
+        {label}
+        {clickable && canEdit && <Edit3 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
+      </div>
+      <div className="display-text text-2xl font-medium mt-1 num-tabular text-stone-900 leading-tight">
+        {value ?? <span className="text-stone-300 text-base font-normal">—</span>}
+      </div>
+      <div className="mono-text text-[10.5px] text-stone-400 mt-0.5">{target}</div>
+    </button>
+  )
 }
 
 function AwaitingBadge({ provider }) {
