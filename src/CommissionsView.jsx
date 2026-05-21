@@ -1,8 +1,10 @@
 // ============================================================
 // CommissionsView — top-level view for the Commission Tracker
 // ============================================================
-// Rendered when viewMode === 'commissions'. Wrapped in ScorecardShell so
-// it inherits the Atlas logo, glass nav, fonts, view-switcher.
+// Rendered when viewMode === 'commissions'. Has its own standalone header
+// (CommissionsHeader, defined at the bottom of this file) which mirrors the
+// nav row used by Leadership / Manager / Shared pages — so the user can
+// always navigate OUT of the Commission Tracker.
 //
 // Sub-tabs:
 //   overview — KPIs, per-rep table, alerts (needs-AE, unmatched)
@@ -19,10 +21,14 @@ import {
   TrendingUp, Users, DollarSign, AlertCircle, Settings, Download,
   GitCompare, Calendar, Zap, FileText, Check, X, Plus,
   RefreshCw, Search, Inbox,
+  LogOut, LayoutDashboard, UserCircle2, Lightbulb, Plug, UserMinus, Crown,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import Papa from "papaparse";
 
-import ScorecardShell from "./ScorecardShell";
+import AtlasLogo from "./AtlasLogo";
+import SettingsModal from "./SettingsModal";
+import { useGlassInteraction } from "./hooks/useGlassInteraction.js";
 import { useCommissions } from "./useCommissions";
 import {
   ALL_REPS, REPS, isAE,
@@ -30,7 +36,7 @@ import {
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
 } from "./commissionEngine";
-import { accessTier } from "./teams";
+import { accessTier, isLeadershipRole } from "./teams";
 
 const BRAND = {
   purple: "#6639a6",
@@ -40,9 +46,23 @@ const BRAND = {
   purpleTintMid: "#e4d8f4",
 };
 
-export default function CommissionsView({ profile, onSignOut }) {
+export default function CommissionsView({
+  profile,
+  onSignOut,
+  onSwitchToSelf,
+  onSwitchToManager,
+  onSwitchToFeatureRequests,
+  onSwitchToIntegrations,
+  onSwitchToCancellations,
+  onSwitchToApiGuide,
+  onSwitchToLeadership,
+  onProfileUpdated,
+}) {
   const tier = accessTier(profile);
   const isExecutive = tier === "executive";
+  const canSeeManagerView = tier === "executive" || tier === "team_lead";
+  const canGoToSelf = !isLeadershipRole(profile?.role_type);
+  const [showSettings, setShowSettings] = useState(false);
   const c = useCommissions();
   const [tab, setTab] = useState("overview");
   const [jumpRep, setJumpRep] = useState(null);
@@ -50,22 +70,52 @@ export default function CommissionsView({ profile, onSignOut }) {
 
   if (c.loading) {
     return (
-      <ScorecardShell profile={profile} onSignOut={onSignOut}>
+      <CommissionsHeader
+        profile={profile}
+        onSignOut={onSignOut}
+        onSwitchToSelf={onSwitchToSelf}
+        onSwitchToManager={onSwitchToManager}
+        onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+        onSwitchToIntegrations={onSwitchToIntegrations}
+        onSwitchToCancellations={onSwitchToCancellations}
+        onSwitchToApiGuide={onSwitchToApiGuide}
+        onSwitchToLeadership={onSwitchToLeadership}
+        canSeeManagerView={canSeeManagerView}
+        canGoToSelf={canGoToSelf}
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        onProfileUpdated={onProfileUpdated}
+      >
         <div className="max-w-7xl mx-auto px-6 py-12 text-center text-stone-500 text-sm">
           Loading commission data…
         </div>
-      </ScorecardShell>
+      </CommissionsHeader>
     );
   }
   if (c.error) {
     return (
-      <ScorecardShell profile={profile} onSignOut={onSignOut}>
+      <CommissionsHeader
+        profile={profile}
+        onSignOut={onSignOut}
+        onSwitchToSelf={onSwitchToSelf}
+        onSwitchToManager={onSwitchToManager}
+        onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+        onSwitchToIntegrations={onSwitchToIntegrations}
+        onSwitchToCancellations={onSwitchToCancellations}
+        onSwitchToApiGuide={onSwitchToApiGuide}
+        onSwitchToLeadership={onSwitchToLeadership}
+        canSeeManagerView={canSeeManagerView}
+        canGoToSelf={canGoToSelf}
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        onProfileUpdated={onProfileUpdated}
+      >
         <div className="max-w-7xl mx-auto px-6 py-12">
           <div className="bg-red-50 border border-red-200 px-5 py-4 text-sm text-red-900">
             <strong>Failed to load commission data.</strong> {c.error}
           </div>
         </div>
-      </ScorecardShell>
+      </CommissionsHeader>
     );
   }
 
@@ -86,7 +136,22 @@ export default function CommissionsView({ profile, onSignOut }) {
   ];
 
   return (
-    <ScorecardShell profile={profile} onSignOut={onSignOut}>
+    <CommissionsHeader
+      profile={profile}
+      onSignOut={onSignOut}
+      onSwitchToSelf={onSwitchToSelf}
+      onSwitchToManager={onSwitchToManager}
+      onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+      onSwitchToIntegrations={onSwitchToIntegrations}
+      onSwitchToCancellations={onSwitchToCancellations}
+      onSwitchToApiGuide={onSwitchToApiGuide}
+      onSwitchToLeadership={onSwitchToLeadership}
+      canSeeManagerView={canSeeManagerView}
+      canGoToSelf={canGoToSelf}
+      showSettings={showSettings}
+      setShowSettings={setShowSettings}
+      onProfileUpdated={onProfileUpdated}
+    >
       <div className="max-w-7xl mx-auto px-6 py-6">
         <div className="mb-6">
           <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-medium">Atlas</div>
@@ -120,7 +185,7 @@ export default function CommissionsView({ profile, onSignOut }) {
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
-    </ScorecardShell>
+    </CommissionsHeader>
   );
 }
 
@@ -1050,6 +1115,94 @@ function SettingsTab({ c }) {
         </Btn>
         <Btn onClick={() => setDraft(c.config)}>Discard</Btn>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CommissionsHeader — standalone-view chrome
+// Matches the nav row used by SharedPagesView, LeadershipDashboardView,
+// and ManagerView so the user can always navigate out of Commissions.
+// ============================================================
+function CommissionsHeader({
+  profile, onSignOut,
+  onSwitchToSelf, onSwitchToManager, onSwitchToFeatureRequests,
+  onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
+  onSwitchToLeadership,
+  canSeeManagerView, canGoToSelf,
+  showSettings, setShowSettings, onProfileUpdated,
+  children,
+}) {
+  const headerRef = useGlassInteraction();
+  return (
+    <div className="min-h-screen" style={{ background: "var(--bg, #FAFAF7)" }}>
+      <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <AtlasLogo height={28} />
+            <div className="hidden sm:block">
+              <div className="display-font text-lg font-medium text-stone-900 leading-tight">Commission Tracker</div>
+              <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500">Atlas · Sales &amp; CS</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 flex-wrap">
+            {onSwitchToLeadership && (
+              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
+                style={{ color: "#6639A6" }}
+                title="Leadership Dashboard">
+                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
+              </button>
+            )}
+            {onSwitchToApiGuide && (
+              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup">
+                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
+              </button>
+            )}
+            {onSwitchToFeatureRequests && (
+              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
+                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
+              </button>
+            )}
+            {onSwitchToIntegrations && (
+              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
+                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
+              </button>
+            )}
+            {onSwitchToCancellations && (
+              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
+                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
+              </button>
+            )}
+            {canGoToSelf && onSwitchToSelf && (
+              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
+                <UserCircle2 className="w-4 h-4" /> My scorecard
+              </button>
+            )}
+            {canSeeManagerView && onSwitchToManager && (
+              <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
+                <LayoutDashboard className="w-4 h-4" /> Manager view
+              </button>
+            )}
+            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
+              <SettingsIcon className="w-4 h-4" />
+            </button>
+            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
+              <LogOut className="w-4 h-4" /> Sign out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {children}
+
+      {showSettings && (
+        <SettingsModal
+          profile={profile}
+          onClose={() => setShowSettings(false)}
+          onProfileUpdated={onProfileUpdated}
+        />
+      )}
     </div>
   );
 }
