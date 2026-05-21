@@ -16,13 +16,14 @@ import LeadershipPendingView from './LeadershipPendingView'
 import SharedPagesView from './SharedPagesView'
 import ApiIntegrationGuide from './ApiIntegrationGuide'
 import LeadershipDashboardView from './LeadershipDashboardView'
+import CommissionsView from './CommissionsView'
 import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership'
+  // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership' | 'commissions'
   // Hydrate from sessionStorage so the user's current view survives across
   // tab switches and page reloads within the same browser session.
   const [viewMode, setViewModeRaw] = useState(() => {
@@ -133,6 +134,11 @@ export default function App() {
     if (viewMode === 'leadership' && currentTier !== 'executive') {
       setViewMode('self')
     }
+    // Commissions is gated to managers (exec or team_lead). If a user gets
+    // demoted while on commissions, bounce them to self.
+    if (viewMode === 'commissions' && currentTier !== 'executive' && currentTier !== 'team_lead') {
+      setViewMode('self')
+    }
   }, [profile, viewMode])
 
   if (loading) return <Shell><div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div></Shell>
@@ -155,6 +161,8 @@ export default function App() {
 
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
+  // Commissions visibility = same tier as manager view (executives + team leads).
+  const canSeeCommissions = canSeeManagerView
 
   // Leadership team members who haven't been promoted to executive yet
   // see a "waiting for approval" screen instead of an irrelevant scorecard.
@@ -195,6 +203,7 @@ export default function App() {
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
           onProfileUpdated={setProfile}
         />
       </Shell>
@@ -222,6 +231,7 @@ export default function App() {
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
           onProfileUpdated={setProfile}
         />
       </Shell>
@@ -243,6 +253,7 @@ export default function App() {
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
           onProfileUpdated={setProfile}
         />
       </Shell>
@@ -252,6 +263,34 @@ export default function App() {
   // through normal nav since the button is gated, but could happen via stale
   // state after a role demotion), we just fall through to the normal routing
   // below — they'll land on their personal scorecard or manager view.
+
+  // Commissions view — gated to executives + team leads. If a non-manager
+  // somehow lands here via stale state, bounce them to self.
+  if (viewMode === 'commissions') {
+    if (!canSeeCommissions) {
+      setViewMode('self')
+      return null
+    }
+    const canGoToSelf = !isLeadershipRole(profile.role_type)
+    const canSeeLeadership = tier === 'executive'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
+    return (
+      <Shell>
+        <CommissionsView
+          profile={profile}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
+          onSwitchToManager={() => setViewMode('manager')}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
+          onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
+          onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
+          onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
 
   // Manager view (executives + team leads)
   if (canSeeManagerView && viewMode === 'manager') {
@@ -267,6 +306,7 @@ export default function App() {
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
         />
       </Shell>
     )
@@ -287,6 +327,7 @@ export default function App() {
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
         />
       </Shell>
     )
@@ -296,6 +337,7 @@ export default function App() {
   // Permissions for the side-buttons in the scorecard header:
   //  - API Setup is technical infrastructure for executives only.
   //  - Cancellations is for executives + CS team + FDE team.
+  //  - Commissions is for executives + team leads (manager-tier access).
   const canSeeCancellationsForSelf = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
   const canSeeApiGuideForSelf = tier === 'executive'
   return (
@@ -309,6 +351,7 @@ export default function App() {
         onSwitchToCancellations={canSeeCancellationsForSelf ? () => setViewMode('cancellations') : null}
         onSwitchToApiGuide={canSeeApiGuideForSelf ? () => setViewMode('api_guide') : null}
         onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
+        onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
         onProfileUpdated={setProfile}
       />
     </Shell>
@@ -316,9 +359,9 @@ export default function App() {
 }
 
 // Routes to the right scorecard component based on the user's role.
-function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }) {
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const role = profile.role_type
-  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated }
+  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }
   switch (role) {
     case 'csm':
       return <CsmView {...props} />
