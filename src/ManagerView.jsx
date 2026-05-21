@@ -19,7 +19,7 @@ import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership }) {
+export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
@@ -170,6 +170,11 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
             {onSwitchToCancellations && (
               <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
                 <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
+              </button>
+            )}
+            {onSwitchToCommissions && (
+              <button onClick={onSwitchToCommissions} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Commissions">
+                <DollarSign className="w-4 h-4" /> <span className="hidden lg:inline">Commissions</span>
               </button>
             )}
             {!isLeadershipRole(profile.role_type) && (

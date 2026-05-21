@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CalendarCheck, Users, TrendingUp, Quote, Activity, LogOut, LayoutDashboard,
   Award, Clock, Loader2, Check, Plus, Trash2, Upload, Download, Star, ShieldCheck,
-  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, Crown, Zap, Info,
+  Settings as SettingsIcon, Calendar, Heart, Lightbulb, Plug, UserMinus, Crown, Zap, Info, DollarSign,
   ChevronLeft, ChevronRight, Lock, Send
 } from 'lucide-react'
 import { supabase } from './supabase'
@@ -18,6 +18,7 @@ import AtlasLogo from './AtlasLogo'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
+import CommissionsTab from './CommissionsTab'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
@@ -195,6 +196,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
     { id: 'retention',        label: 'Retention',         icon: Activity },
     { id: 'health',           label: 'Health Scores',     icon: Heart },
     { id: 'monthly',          label: 'Monthly View',      icon: Calendar },
+    { id: 'commission',       label: 'My Commission',     icon: DollarSign },
   ]
 
   return (
@@ -370,13 +372,14 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
           {section === 'retention' && <RetentionSection weekData={weekData} setRetention={setRetention} />}
           {section === 'health' && <HealthSection weekData={weekData} update={update} />}
           {section === 'monthly' && <CsmMonthlyView profile={profile} />}
+          {section === 'commission' && <CommissionsTab profile={profile} />}
         </div>
 
         {/* Submit footer — visible at the bottom of every section. Hides
             when locked (replaced by the banner up top) or on the Monthly View
             tab which is a read-only summary. Exec drill-in also hides this:
             users submit their own weeks, execs only view. */}
-        {!isExecDrillIn && !submittedAt && section !== 'monthly' && (
+        {!isExecDrillIn && !submittedAt && section !== 'monthly' && section !== 'commission' && (
           <SubmitFooter
             onSubmit={handleSubmit}
             submitting={submitting}

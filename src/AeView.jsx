@@ -11,6 +11,7 @@ import ScorecardShell, {
   NorthStarTile, SectionTabs, PageHeader, MoneyField
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
+import CommissionsTab from './CommissionsTab'
 
 export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
@@ -35,10 +36,11 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   const close = closeRate(totalSignups, totalCompleted)
 
   const sections = [
-    { id: 'funnel',   label: 'Daily Funnel',  icon: Target },
-    { id: 'pipeline', label: 'Pipeline',      icon: Briefcase },
-    { id: 'monthly',  label: 'Monthly View',  icon: Calendar },
-    { id: 'notes',    label: 'Notes',         icon: FileText },
+    { id: 'funnel',     label: 'Daily Funnel',   icon: Target },
+    { id: 'pipeline',   label: 'Pipeline',       icon: Briefcase },
+    { id: 'monthly',    label: 'Monthly View',   icon: Calendar },
+    { id: 'commission', label: 'My Commission',  icon: DollarSign },
+    { id: 'notes',      label: 'Notes',          icon: FileText },
   ]
 
   return (
@@ -80,6 +82,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} />}
         {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
+        {section === 'commission' && <CommissionsTab profile={profile} />}
         {section === 'notes' && <NotesSection weekData={weekData} update={update} />}
       </div>
     </ScorecardShell>
