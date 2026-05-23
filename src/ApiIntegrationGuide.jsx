@@ -5,7 +5,7 @@ import {
   AlertCircle, Megaphone, Briefcase, HeartHandshake, Code, Headphones,
   TrendingUp, Activity, FileSpreadsheet, Sparkles, Calendar, Target,
   CreditCard, BarChart3, Globe, Database, Mail, Phone, GitPullRequest,
-  Zap, ShieldCheck, Lock, Server, ExternalLink, Copy, UserMinus
+  Zap, ShieldCheck, Lock, Server, ExternalLink, Copy, UserMinus, DollarSign
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import SettingsModal from './SettingsModal'
@@ -296,6 +296,7 @@ const PRIORITY_LABELS = {
 export default function ApiIntegrationGuide({
   profile, onSignOut, onSwitchToManager, onSwitchToSelf,
   onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToLeadership,
+  onSwitchToCommissions,
   onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
@@ -337,6 +338,11 @@ export default function ApiIntegrationGuide({
             {onSwitchToCancellations && (
               <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
                 <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
+              </button>
+            )}
+            {onSwitchToCommissions && (
+              <button onClick={onSwitchToCommissions} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Commissions">
+                <DollarSign className="w-4 h-4" /> <span className="hidden lg:inline">Commissions</span>
               </button>
             )}
             {onSwitchToSelf && (

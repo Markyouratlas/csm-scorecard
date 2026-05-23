@@ -152,11 +152,19 @@ export default function CommissionsView({
       setShowSettings={setShowSettings}
       onProfileUpdated={onProfileUpdated}
     >
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="mb-6">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-medium">Atlas</div>
-          <h1 className="font-serif italic text-3xl text-stone-900 mt-0.5">Commission Tracker</h1>
-          <div className="text-xs text-stone-500 mt-1">
+      <div className="max-w-7xl mx-auto px-6 py-10">
+        <div className="mb-8">
+          <div className="mono-font text-[10.5px] uppercase tracking-[0.18em] font-semibold text-stone-500">
+            Sales &amp; CS · commission ledger
+          </div>
+          <h1 className="display-font text-4xl md:text-5xl font-medium text-stone-900 mt-1">
+            Where the team is <em className="display-font-i font-normal" style={{ color: '#6639a6' }}>earning</em>
+          </h1>
+          <p className="text-stone-600 mt-3 max-w-2xl">
+            Every paying customer attributed to a rep, with live commission math.
+            Heather and Mason earn on AE deals; Matt, Sean, and Noah earn on their CSM book.
+          </p>
+          <div className="text-xs text-stone-500 mt-3 mono-font">
             {c.customers.length} customers · {c.monthCols.length} months
             {c.lastSyncAt && <> · last synced {new Date(c.lastSyncAt).toLocaleString()}</>}
           </div>

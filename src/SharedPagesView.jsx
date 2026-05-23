@@ -72,7 +72,7 @@ const REUSABLE_OPTIONS = [
 export default function SharedPagesView({
   profile, page, onSignOut, onSwitchToManager, onSwitchToSelf,
   onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations,
-  onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated,
+  onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
   const tier = accessTier(profile)
@@ -122,6 +122,14 @@ export default function SharedPagesView({
                 onClick={onSwitchToCancellations}
                 icon={UserMinus}
                 label="Cancellations"
+              />
+            )}
+            {onSwitchToCommissions && (
+              <HeaderButton
+                active={false}
+                onClick={onSwitchToCommissions}
+                icon={DollarSign}
+                label="Commissions"
               />
             )}
             <div className="hidden md:block h-6 w-px bg-stone-200 mx-1" />
@@ -377,8 +385,15 @@ function FeatureRequestsPage({ profile }) {
         }
       `}</style>
       <div>
-        <div className="display-font text-3xl font-medium text-stone-900 mb-1">Feature requests</div>
-        <p className="text-stone-600">A shared log of what customers are asking for. Anyone in the company can add or edit. Only the original logger or a leader can delete.</p>
+        <div className="mono-font text-[10.5px] uppercase tracking-[0.18em] font-semibold text-stone-500">
+          Shared · feature requests log
+        </div>
+        <h1 className="display-font text-4xl md:text-5xl font-medium text-stone-900 mt-1">
+          What customers <em className="display-font-i font-normal" style={{ color: '#7C3AED' }}>are asking for</em>
+        </h1>
+        <p className="text-stone-600 mt-3 max-w-2xl">
+          A shared log of what customers want next. Anyone in the company can add or edit; only the original logger or a leader can delete.
+        </p>
       </div>
 
       {/* Status summary tiles */}
@@ -882,8 +897,15 @@ function IntegrationsPage({ profile }) {
   return (
     <div className="space-y-6">
       <div>
-        <div className="display-font text-3xl font-medium text-stone-900 mb-1">Integrations tracker</div>
-        <p className="text-stone-600">A shared library of every integration we've built. Reference it before you start a new one — and add to it when you finish.</p>
+        <div className="mono-font text-[10.5px] uppercase tracking-[0.18em] font-semibold text-stone-500">
+          Engineering · integrations library
+        </div>
+        <h1 className="display-font text-4xl md:text-5xl font-medium text-stone-900 mt-1">
+          Every integration <em className="display-font-i font-normal" style={{ color: '#0F766E' }}>we've shipped</em>
+        </h1>
+        <p className="text-stone-600 mt-3 max-w-2xl">
+          A shared library to reference before starting a new one — and add to when you finish. Future-you (and future-them) will thank you.
+        </p>
       </div>
 
       {/* Status summary tiles */}
