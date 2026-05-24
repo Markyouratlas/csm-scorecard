@@ -760,8 +760,13 @@ function PendingDealRow({ deal, customers, profile, isEditing, isMatching, onSta
   };
 
   const handleUnmatch = async () => {
-    if (!confirm(`Unmatch this deal and return to "Awaiting review"?`)) return;
+    if (!confirm(`Unmatch this deal and return to "Awaiting review"? This will also remove ${deal.ae_name} from the AE attribution on this customer.`)) return;
     setBusy(true);
+
+    const previouslyMatchedId = deal.matched_stripe_customer_id;
+    const aeFirstName = (deal.ae_name || "").split(" ")[0];
+
+    // 1. Reset the pending deal
     const { error } = await supabase
       .from("commission_pending_deals")
       .update({
@@ -774,9 +779,46 @@ function PendingDealRow({ deal, customers, profile, isEditing, isMatching, onSta
         match_confidence: null,
       })
       .eq("id", deal.id);
+
+    if (error) {
+      setBusy(false);
+      alert("Failed: " + error.message);
+      return;
+    }
+
+    // 2. Reverse the AE assignment we created during match
+    // (only remove if the assignment is currently this AE — protect against
+    // a manager having manually reassigned the customer to someone else)
+    if (previouslyMatchedId && aeFirstName) {
+      try {
+        const { data: assignmentRow } = await supabase
+          .from("commission_assignments")
+          .select("*")
+          .eq("stripe_customer_id", previouslyMatchedId)
+          .maybeSingle();
+
+        if (assignmentRow && assignmentRow.ae === aeFirstName) {
+          if (assignmentRow.csm) {
+            // Keep the CSM, just clear the AE
+            await supabase
+              .from("commission_assignments")
+              .update({ ae: null })
+              .eq("id", assignmentRow.id);
+          } else {
+            // No CSM either — delete the row entirely
+            await supabase
+              .from("commission_assignments")
+              .delete()
+              .eq("id", assignmentRow.id);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to reverse assignment on unmatch:", e);
+      }
+    }
+
     setBusy(false);
-    if (error) alert("Failed: " + error.message);
-    else onChanged();
+    onChanged();
   };
 
   return (
@@ -1053,9 +1095,56 @@ function MatchDealPanel({ deal, customers, suggestion, profile, onCancel, onMatc
         match_confidence: 1.00,
       })
       .eq("id", deal.id);
+
+    if (error) {
+      setBusy(false);
+      setError(error.message);
+      return;
+    }
+
+    // 3. Bridge into commission_assignments — this is what flows the deal
+    // into the AE's earnings on the Overview tab and the AE's scorecard.
+    // The deal's ae_name is the first-name token; that's what the
+    // assignment system uses.
+    const aeFirstName = (deal.ae_name || "").split(" ")[0];
+    if (aeFirstName && selected) {
+      try {
+        const existing = customers.find(cu => cu.stripe_customer_id === selectedId);
+        if (existing) {
+          // Look for an existing assignment for this customer
+          const { data: assignmentRow } = await supabase
+            .from("commission_assignments")
+            .select("*")
+            .eq("stripe_customer_id", selectedId)
+            .maybeSingle();
+
+          if (assignmentRow) {
+            // Update existing assignment, keep CSM if already set
+            await supabase
+              .from("commission_assignments")
+              .update({ ae: aeFirstName })
+              .eq("id", assignmentRow.id);
+          } else {
+            // Create a new assignment row
+            await supabase
+              .from("commission_assignments")
+              .insert({
+                stripe_customer_id: selectedId,
+                email: existing.email,
+                ae: aeFirstName,
+                csm: null,
+              });
+          }
+        }
+      } catch (e) {
+        // Don't block the match if assignment write fails — just log and warn
+        console.error("Failed to create AE assignment after match:", e);
+        // Still proceed — the match itself succeeded
+      }
+    }
+
     setBusy(false);
-    if (error) setError(error.message);
-    else onMatched();
+    onMatched();
   };
 
   return (
