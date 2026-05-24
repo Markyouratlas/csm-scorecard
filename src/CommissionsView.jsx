@@ -38,6 +38,7 @@ import {
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
 } from "./commissionEngine";
+import { findBestMatch, buildAutoMatchOps } from "./dealMatcher";
 import { accessTier, isLeadershipRole } from "./teams";
 
 const BRAND = {
@@ -513,6 +514,8 @@ function PendingDealsTab({ c, profile }) {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [matchingId, setMatchingId] = useState(null);
+  const [autoMatchBusy, setAutoMatchBusy] = useState(false);
+  const [autoMatchResult, setAutoMatchResult] = useState(null);
 
   const loadDeals = async () => {
     setLoading(true);
@@ -572,6 +575,79 @@ function PendingDealsTab({ c, profile }) {
       matchedMRR: matched.reduce((s, d) => s + (Number(d.mrr_amount) || 0), 0),
     };
   }, [deals]);
+
+  // Run the auto-matcher across all submitted deals.
+  // - Builds operations via dealMatcher (pure JS)
+  // - Writes back to DB (suggestions + auto-confirmed matches)
+  // - For each auto-confirmed match, also writes the AE assignment (Phase 3.5 bridge)
+  const handleRunAutoMatch = async () => {
+    setAutoMatchBusy(true);
+    setAutoMatchResult(null);
+
+    const ops = buildAutoMatchOps(deals, c.customers, { autoConfirmExactEmail: "always" });
+
+    let autoConfirmed = 0;
+    let suggestionsAdded = 0;
+    let noMatch = 0;
+
+    for (const op of ops) {
+      try {
+        // Write the deal update
+        const { error } = await supabase
+          .from("commission_pending_deals")
+          .update(op.fields)
+          .eq("id", op.dealId);
+        if (error) {
+          console.error("Auto-match write failed for deal", op.dealId, error);
+          continue;
+        }
+
+        if (op.autoConfirmed && op.match) {
+          // Replicate Phase 3.5 bridge: create/update commission_assignments
+          const dealRow = deals.find(d => d.id === op.dealId);
+          const aeFirstName = (dealRow?.ae_name || "").split(" ")[0];
+          const stripeId = op.match.customer.stripe_customer_id;
+          if (aeFirstName && stripeId) {
+            try {
+              const { data: assignmentRow } = await supabase
+                .from("commission_assignments")
+                .select("*")
+                .eq("stripe_customer_id", stripeId)
+                .maybeSingle();
+              if (assignmentRow) {
+                await supabase
+                  .from("commission_assignments")
+                  .update({ ae: aeFirstName })
+                  .eq("id", assignmentRow.id);
+              } else {
+                await supabase
+                  .from("commission_assignments")
+                  .insert({
+                    stripe_customer_id: stripeId,
+                    email: op.match.customer.email,
+                    ae: aeFirstName,
+                    csm: null,
+                  });
+              }
+            } catch (assignErr) {
+              console.error("Bridge write failed for auto-confirmed match:", assignErr);
+            }
+          }
+          autoConfirmed++;
+        } else if (op.fields.suggested_match_stripe_customer_id) {
+          suggestionsAdded++;
+        } else {
+          noMatch++;
+        }
+      } catch (e) {
+        console.error("Auto-match op failed:", e);
+      }
+    }
+
+    setAutoMatchResult({ autoConfirmed, suggestionsAdded, noMatch });
+    setAutoMatchBusy(false);
+    await loadDeals();
+  };
 
   if (loading) {
     return (
@@ -638,11 +714,37 @@ function PendingDealsTab({ c, profile }) {
             className="w-full text-sm bg-transparent border-b border-transparent focus:border-stone-900 focus:outline-none py-1" />
         </div>
 
+        <button onClick={handleRunAutoMatch} disabled={autoMatchBusy}
+          title="Re-run auto-matching across all submitted deals"
+          className="text-xs px-2.5 py-1 text-white rounded-sm hover:opacity-90 disabled:opacity-40 transition-opacity inline-flex items-center gap-1"
+          style={{ background: "#6639a6" }}>
+          {autoMatchBusy
+            ? <><Loader2 className="w-3 h-3 animate-spin" /> Matching…</>
+            : <><Zap className="w-3 h-3" /> Re-run auto-match</>}
+        </button>
+
         <button onClick={loadDeals}
           className="text-xs px-2.5 py-1 border border-stone-200 text-stone-600 hover:border-stone-900 transition-colors inline-flex items-center gap-1">
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
       </div>
+
+      {/* Auto-match result banner */}
+      {autoMatchResult && (
+        <div className="px-4 py-3 border-l-4 bg-white" style={{ borderLeftColor: "#6639a6" }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="text-sm text-stone-700">
+              Auto-match completed:
+              {" "}<span className="font-semibold text-emerald-700">{autoMatchResult.autoConfirmed} auto-confirmed</span>
+              {" · "}<span className="font-semibold text-blue-700">{autoMatchResult.suggestionsAdded} suggestions added</span>
+              {" · "}<span className="font-semibold text-stone-600">{autoMatchResult.noMatch} couldn't be matched</span>
+            </div>
+            <button onClick={() => setAutoMatchResult(null)} className="text-stone-400 hover:text-stone-900">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       {visible.length === 0 ? (
@@ -725,16 +827,24 @@ function PendingDealRow({ deal, customers, profile, isEditing, isMatching, onSta
     return customers.find(cu => cu.stripe_customer_id === deal.matched_stripe_customer_id);
   }, [deal.matched_stripe_customer_id, customers]);
 
-  // Auto-suggestion: try to find a customer by exact email match
-  const emailSuggestion = useMemo(() => {
-    if (deal.status === "matched") return null;
-    const aeEmail = (deal.customer_email || "").toLowerCase().trim();
-    if (!aeEmail) return null;
-    return customers.find(cu =>
-      (cu.email || "").toLowerCase().trim() === aeEmail ||
-      (cu.secondary_email || "").toLowerCase().trim() === aeEmail
-    );
+  // Persisted suggestion from the auto-matcher (set when handleRunAutoMatch ran)
+  const persistedSuggestion = useMemo(() => {
+    if (!deal.suggested_match_stripe_customer_id) return null;
+    const cu = customers.find(c => c.stripe_customer_id === deal.suggested_match_stripe_customer_id);
+    if (!cu) return null;
+    return { customer: cu, confidence: deal.match_confidence, method: deal.match_method, reason: deal.suggested_match_reason };
   }, [deal, customers]);
+
+  // Live fallback if no persisted suggestion: compute one on the fly
+  const liveSuggestion = useMemo(() => {
+    if (deal.status === "matched") return null;
+    if (persistedSuggestion) return null;
+    return findBestMatch(deal, customers);
+  }, [deal, customers, persistedSuggestion]);
+
+  // Combined: prefer persisted (the manager's "official" suggestion), fall back to live
+  const suggestion = persistedSuggestion || liveSuggestion;
+  const emailSuggestion = suggestion?.customer || null;  // for legacy code paths below
 
   const handleNeedsReview = async () => {
     setBusy(true);
@@ -838,15 +948,16 @@ function PendingDealRow({ deal, customers, profile, isEditing, isMatching, onSta
         </td>
         <td className="px-3 py-2 text-xs">
           {matchedCustomer ? (
-            <span className="inline-flex items-center gap-1 text-emerald-700">
+            <span className="inline-flex items-center gap-1 text-emerald-700"
+              title={deal.matched_by_name === "Auto-matcher" ? "Auto-matched — review when convenient" : ""}>
               <CheckCircle2 className="w-3 h-3" />
-              <span className="truncate max-w-[160px]" title={matchedCustomer.name}>{matchedCustomer.name}</span>
+              <span className="truncate max-w-[160px]">{matchedCustomer.name}</span>
+              {deal.matched_by_name === "Auto-matcher" && (
+                <span className="text-[9px] mono-font px-1 rounded text-violet-700" style={{ background: "#f3eefb" }}>auto</span>
+              )}
             </span>
-          ) : emailSuggestion ? (
-            <span className="inline-flex items-center gap-1 text-blue-700">
-              <Search className="w-3 h-3" />
-              <span className="truncate max-w-[160px]" title={`Likely: ${emailSuggestion.name}`}>Likely: {emailSuggestion.name}</span>
-            </span>
+          ) : suggestion ? (
+            <SuggestionPill suggestion={suggestion} />
           ) : (
             <span className="text-stone-400">No match yet</span>
           )}
@@ -907,7 +1018,9 @@ function PendingDealRow({ deal, customers, profile, isEditing, isMatching, onSta
       {isMatching && (
         <tr className="border-b border-stone-200" style={{ background: "#faf7ff" }}>
           <td colSpan={9} className="p-4">
-            <MatchDealPanel deal={deal} customers={customers} suggestion={emailSuggestion}
+            <MatchDealPanel deal={deal} customers={customers}
+              suggestion={emailSuggestion}
+              suggestionMeta={suggestion}
               profile={profile} onCancel={onCancel}
               onMatched={() => { onChanged(); onCancel(); }} />
           </td>
@@ -1013,7 +1126,7 @@ function EditDealPanel({ deal, onCancel, onSaved }) {
 }
 
 // Match panel — pick a Stripe customer from a searchable list and confirm
-function MatchDealPanel({ deal, customers, suggestion, profile, onCancel, onMatched }) {
+function MatchDealPanel({ deal, customers, suggestion, suggestionMeta, profile, onCancel, onMatched }) {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState(suggestion?.stripe_customer_id || null);
   const [busy, setBusy] = useState(false);
@@ -1156,6 +1269,20 @@ function MatchDealPanel({ deal, customers, suggestion, profile, onCancel, onMatc
         <button onClick={onCancel} className="text-stone-500 hover:text-stone-900"><X className="w-4 h-4" /></button>
       </div>
 
+      {/* Auto-matcher suggestion reason */}
+      {suggestionMeta && (
+        <div className="px-4 py-2 border-b border-stone-200 text-xs"
+          style={{ background: "#faf7ff", color: "#4d2a7e" }}>
+          <span className="mono-font uppercase tracking-wider text-[10px] font-semibold mr-1.5">✨ Auto-suggestion:</span>
+          {suggestionMeta.reason}
+          {suggestionMeta.confidence != null && (
+            <span className="ml-2 text-stone-500">
+              · Confidence: {Math.round(suggestionMeta.confidence * 100)}%
+            </span>
+          )}
+        </div>
+      )}
+
       {/* AE-submitted summary */}
       <div className="px-4 py-2 bg-stone-50 border-b border-stone-200 text-xs text-stone-600">
         <span className="font-medium text-stone-700">{deal.ae_name}</span> submitted:
@@ -1292,6 +1419,42 @@ function FormField({ label, hint, className = "", children }) {
       <label className="block text-[10px] uppercase tracking-[0.12em] text-stone-500 font-medium mb-1">{label}</label>
       {children}
       {hint && <div className="text-[10px] text-stone-500 mt-0.5">{hint}</div>}
+    </div>
+  );
+}
+
+// Renders an auto-match suggestion as a colored pill with confidence.
+// Color/icon vary by match method:
+//   exact_email_primary   → emerald — strongest, billing-email match
+//   exact_email_secondary → emerald — strong, secondary-email match
+//   fuzzy_name_strong     → blue    — name very close
+//   fuzzy_name_weak       → amber   — name only loosely matches; needs review
+function SuggestionPill({ suggestion }) {
+  const { customer, confidence, method, reason } = suggestion;
+  const pct = Math.round((confidence || 0) * 100);
+
+  let style, IconComp, label;
+  if (method === "exact_email_primary" || method === "exact_email_secondary") {
+    style = { background: "#d1fae5", color: "#065f46" };
+    IconComp = CheckCircle2;
+    label = method === "exact_email_primary" ? "Email ✓" : "Secondary ✓";
+  } else if (method === "fuzzy_name_strong") {
+    style = { background: "#dbeafe", color: "#1e40af" };
+    IconComp = Search;
+    label = `Name ${pct}%`;
+  } else {
+    style = { background: "#fef3c7", color: "#92400e" };
+    IconComp = AlertCircle;
+    label = `Weak ${pct}%`;
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5" title={reason || ""}>
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] font-medium" style={style}>
+        <IconComp className="w-3 h-3" />
+        {label}
+      </span>
+      <span className="text-stone-600 truncate max-w-[160px] text-[11px]">{customer.name}</span>
     </div>
   );
 }
