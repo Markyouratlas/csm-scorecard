@@ -329,6 +329,113 @@ export function calcRepCommission(
 }
 
 // ------------------------------------------------------------
+// Per-customer breakdown for one rep
+// ------------------------------------------------------------
+// Returns an array of {customer, monthly[], totals} for each customer in
+// the rep's book. The same math as calcRepCommission, but kept per-customer
+// instead of aggregated. Useful for displaying "which customers am I earning
+// from?" in the personal commission tab.
+//
+// Returns:
+//   [
+//     {
+//       customer: { name, email, start_date, stripe_customer_id, ... },
+//       isMatched: boolean,
+//       cashCollected: number,       // total cash collected lifetime (upfront)
+//       voiceAICommission: number,   // YTD Voice AI on this customer
+//       residual: number,            // YTD residual on this customer
+//       total: number,               // sum
+//       latestMRR: number,           // most recent month's MRR (for sorting)
+//       startDate: string,           // for display
+//     },
+//     ...
+//   ]
+//
+// Sorted by total commission descending.
+export function calcRepCommissionByCustomer(
+  rep,
+  customers,
+  indexedAssignments,
+  config,
+  monthCols,
+  indexedOverrides = null,
+  matchedDealsByCustomer = null,
+) {
+  const ae = isAE(rep);
+
+  // Filter the rep's book
+  const book = customers.filter((c) => {
+    const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
+    return ae ? a.ae === rep : a.csm === rep;
+  });
+
+  return book.map((c) => {
+    let voiceAI = 0;
+    let voiceAICash = 0;
+    let residual = 0;
+    let latestMRR = 0;
+
+    for (const m of monthCols) {
+      const mrr = (c.monthly_mrr && c.monthly_mrr[m]) || 0;
+      if (mrr > 0) latestMRR = mrr;
+      if (mrr <= 0) continue;
+
+      if (ae) {
+        const diff = monthDiff(c.start_date, m);
+        const matchedDeal = matchedDealsByCustomer ? matchedDealsByCustomer[c.stripe_customer_id] : null;
+        const effectiveAtDate = (matchedDeal?.closed_date) || c.start_date || m + "-01";
+        const effCfg = resolveRepConfig(rep, effectiveAtDate, indexedOverrides, config);
+
+        const startKey = c.start_date ? c.start_date.slice(0, 7) : null;
+        const startMRR = (startKey && c.monthly_mrr && c.monthly_mrr[startKey]) || 0;
+        let prepayMonths = effCfg.upfrontMultiplier || 3;
+        if (matchedDeal && Number(matchedDeal.upfront_amount) > 0 && startMRR > 0) {
+          prepayMonths = Math.max(1, Math.round(Number(matchedDeal.upfront_amount) / startMRR));
+        }
+
+        if (diff === 0) {
+          let cash;
+          if (matchedDeal && Number(matchedDeal.upfront_amount) > 0) {
+            cash = Number(matchedDeal.upfront_amount);
+          } else {
+            cash = mrr * effCfg.upfrontMultiplier;
+          }
+          voiceAICash += cash;
+          voiceAI += cash * effCfg.aeVoiceRate;
+        } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
+          residual += mrr * effCfg.aeResidualRate;
+        }
+      } else {
+        // CSM
+        const effCfg = resolveRepConfig(rep, c.start_date || m + "-01", indexedOverrides, config);
+        const csmCap = effCfg.csmResidualMonths;
+        let csmEligible = true;
+        if (csmCap != null && c.start_date) {
+          const diff = monthDiff(c.start_date, m);
+          if (diff != null && diff >= csmCap) csmEligible = false;
+        }
+        if (csmEligible) {
+          residual += mrr * effCfg.csmRate;
+        }
+      }
+    }
+
+    const matchedDeal = matchedDealsByCustomer ? matchedDealsByCustomer[c.stripe_customer_id] : null;
+
+    return {
+      customer: c,
+      isMatched: !!matchedDeal,
+      cashCollected: voiceAICash,
+      voiceAICommission: voiceAI,
+      residual,
+      total: voiceAI + residual,
+      latestMRR,
+      startDate: c.start_date,
+    };
+  }).sort((a, b) => b.total - a.total);
+}
+
+// ------------------------------------------------------------
 // Team Lead Override
 // ------------------------------------------------------------
 // A team lead earns a configurable percentage of every commission earned

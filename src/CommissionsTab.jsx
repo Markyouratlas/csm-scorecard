@@ -27,7 +27,8 @@ import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
 import { useCommissions } from "./useCommissions";
 import {
-  calcRepCommission, calcAccelerator, calcTeamLeadOverride, monthLabel, fmtMoney, fmtPct, isAE,
+  calcRepCommission, calcAccelerator, calcTeamLeadOverride, calcRepCommissionByCustomer,
+  monthLabel, fmtMoney, fmtPct, isAE,
 } from "./commissionEngine";
 
 const BRAND = {
@@ -79,6 +80,21 @@ export default function CommissionsTab({ profile }) {
     );
   }, [profile, c.profiles, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
 
+  // Per-customer commission breakdown — shows which customers drive each
+  // line item in the monthly table.
+  const byCustomer = useMemo(() => {
+    if (!repName) return [];
+    return calcRepCommissionByCustomer(
+      repName,
+      c.customers,
+      c.indexedAssignments,
+      c.config,
+      c.monthCols,
+      c.indexedOverrides,
+      c.matchedDealsByCustomer,
+    );
+  }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
+
   if (c.loading) {
     return <div className="px-6 py-12 text-center text-stone-500 text-sm">Loading commissions…</div>;
   }
@@ -126,7 +142,7 @@ export default function CommissionsTab({ profile }) {
           </div>
         </div>
       ) : (
-        <EarningsSection calc={calc} userIsAE={userIsAE} config={c.config} tlOverrideCalc={tlOverrideCalc} repName={repName} />
+        <EarningsSection calc={calc} userIsAE={userIsAE} config={c.config} tlOverrideCalc={tlOverrideCalc} byCustomer={byCustomer} repName={repName} />
       )}
     </div>
   );
@@ -667,7 +683,7 @@ function PendingStat({ label, value, sub, icon: Icon, iconColor }) {
 // ============================================================
 // Earnings section (existing functionality — preserved)
 // ============================================================
-function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, repName }) {
+function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, byCustomer, repName }) {
   const ytd = calc.monthly.reduce((a, m) => ({
     voiceAINetSales:   a.voiceAINetSales + (m.voiceAINetSales || 0),
     voiceAICommission: a.voiceAICommission + m.voiceAICommission,
@@ -788,6 +804,95 @@ function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, repName }) {
                 <td className="px-3 py-2 text-right text-stone-400">—</td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold" style={{ color: BRAND.purple }}>
                   {fmtMoney(tlOverrideCalc.totalOverride)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* My Customers — per-customer earnings breakdown */}
+      {byCustomer && byCustomer.length > 0 && (
+        <div className="bg-white border border-stone-200 overflow-x-auto">
+          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-stone-500 font-medium">My Customers</div>
+              <h3 className="text-base font-medium text-stone-900 italic" style={{ fontFamily: "'EB Garamond', Georgia, serif" }}>
+                Who you're earning from
+              </h3>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-stone-400">
+              {byCustomer.length} customer{byCustomer.length === 1 ? "" : "s"} in book
+            </span>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="border-b border-stone-200 bg-stone-50/50">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+                <th className="px-4 py-2 font-medium">Customer</th>
+                <th className="px-3 py-2 font-medium">Email</th>
+                <th className="px-3 py-2 font-medium text-right">Start</th>
+                <th className="px-3 py-2 font-medium text-right">Current MRR</th>
+                {userIsAE && <th className="px-3 py-2 font-medium text-right">Cash Collected</th>}
+                {userIsAE && <th className="px-3 py-2 font-medium text-right">Voice AI</th>}
+                <th className="px-3 py-2 font-medium text-right">Residual</th>
+                <th className="px-4 py-2 font-medium text-right">YTD Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byCustomer.map((row) => (
+                <tr key={row.customer.stripe_customer_id || row.customer.email} className="border-b border-stone-100 hover:bg-stone-50/50">
+                  <td className="px-4 py-2 text-stone-900 font-medium">
+                    {row.customer.name || <span className="text-stone-400 italic">—</span>}
+                    {row.isMatched && (
+                      <span className="ml-1.5 inline-flex items-center text-[9px] mono-font px-1 py-0.5 rounded font-medium" style={{ background: "#d1fae5", color: "#065f46" }}>
+                        matched
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-stone-600 text-[12px] mono-font">
+                    {row.customer.email || <span className="text-stone-400">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right text-stone-600 text-[11px] mono-font tabular-nums">
+                    {row.startDate ? row.startDate.slice(0, 10) : <span className="text-stone-400">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                    {row.latestMRR > 0 ? fmtMoney(row.latestMRR) : <span className="text-stone-300">—</span>}
+                  </td>
+                  {userIsAE && (
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                      {row.cashCollected > 0 ? fmtMoney(row.cashCollected) : <span className="text-stone-300">—</span>}
+                    </td>
+                  )}
+                  {userIsAE && (
+                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                      {row.voiceAICommission > 0 ? fmtMoney(row.voiceAICommission) : <span className="text-stone-300">—</span>}
+                    </td>
+                  )}
+                  <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                    {row.residual > 0 ? fmtMoney(row.residual) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
+                    {row.total > 0 ? fmtMoney(row.total) : <span className="text-stone-300">—</span>}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-stone-300 bg-stone-50/50 font-medium">
+                <td className="px-4 py-2 text-[10px] uppercase tracking-wider" colSpan={userIsAE ? 4 : 4}>Total</td>
+                {userIsAE && (
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                    {fmtMoney(byCustomer.reduce((s, r) => s + r.cashCollected, 0))}
+                  </td>
+                )}
+                {userIsAE && (
+                  <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                    {fmtMoney(byCustomer.reduce((s, r) => s + r.voiceAICommission, 0))}
+                  </td>
+                )}
+                <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                  {fmtMoney(byCustomer.reduce((s, r) => s + r.residual, 0))}
+                </td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">
+                  {fmtMoney(byCustomer.reduce((s, r) => s + r.total, 0))}
                 </td>
               </tr>
             </tbody>
