@@ -128,13 +128,24 @@ function mrrOfSub(sub: any): number {
 // ------------------------------------------------------------
 // Main handler
 // ------------------------------------------------------------
+//
+// IMPORTANT: This function returns 202 Accepted immediately and runs the
+// actual sync in the background using EdgeRuntime.waitUntil(). This is
+// necessary because Stripe accounts with thousands of customers can take
+// 2-5 minutes to fully sync — well beyond Supabase's 60-150 second function
+// timeout for synchronous responses.
+//
+// The caller (UI button or cron) doesn't wait. To know if the sync finished,
+// check commission_customers.last_synced_at — it updates row-by-row as the
+// upsert progresses. When the most recent timestamp matches "right now,"
+// the sync has finished.
+//
+// The audit log entry is written at the END of the background work, so its
+// presence is another signal that the run completed.
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-
-  const t0 = Date.now();
-  const errors: string[] = [];
 
   try {
     const sk = Deno.env.get("STRIPE_SECRET_KEY");
@@ -145,38 +156,85 @@ serve(async (req: Request) => {
       );
     }
 
-    // Auth: require a signed-in user, and they must be a commission manager.
-    // We verify by calling profiles with the user's JWT (so RLS applies).
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } }
-    );
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    const { data: profile, error: profErr } = await userClient
-      .from("profiles")
-      .select("role, role_type, is_team_lead")
-      .eq("id", user.id)
-      .single();
-    if (profErr || !profile) {
-      return new Response(JSON.stringify({ error: "Profile not found" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    const isManager =
-      profile.role === "executive" ||
-      profile.role === "manager" ||
-      profile.is_team_lead === true ||
-      ["ceo", "coo", "cto", "cfo", "vp"].includes(profile.role_type);
-    if (!isManager) {
-      return new Response(JSON.stringify({ error: "Forbidden — manager access required" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Auth: two valid paths (see comments above the original code).
+    const authHeader = req.headers.get("Authorization") || "";
+    const cronSecretHeader = req.headers.get("X-Cron-Secret") || "";
+    const cronSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
+    const isServiceRoleCall = !!cronSecret && cronSecretHeader === cronSecret;
+
+    // `actorId` is stored for the audit log. For cron calls it stays null
+    // (the audit log accepts null actor_id for system events).
+    let actorId: string | null = null;
+
+    if (!isServiceRoleCall) {
+      // Path A: verify user is a signed-in manager.
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const { data: { user }, error: authErr } = await userClient.auth.getUser();
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { data: profile, error: profErr } = await userClient
+        .from("profiles")
+        .select("role, role_type, is_team_lead")
+        .eq("id", user.id)
+        .single();
+      if (profErr || !profile) {
+        return new Response(JSON.stringify({ error: "Profile not found" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const isManager =
+        profile.role === "executive" ||
+        profile.role === "manager" ||
+        profile.is_team_lead === true ||
+        ["ceo", "coo", "cto", "cfo", "vp"].includes(profile.role_type);
+      if (!isManager) {
+        return new Response(JSON.stringify({ error: "Forbidden — manager access required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      actorId = user.id;
     }
 
-    // Use service-role client for the upsert so RLS doesn't block writes.
+    // Kick the actual sync work off into the background. Deno's EdgeRuntime
+    // keeps the worker alive after we return the 202 response, so the long-
+    // running sync continues to completion.
+    //
+    // @ts-ignore — EdgeRuntime is a Supabase-specific global, not in @types/deno
+    EdgeRuntime.waitUntil(runSync(sk, actorId, isServiceRoleCall));
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        status: "accepted",
+        message: "Sync started. Check commission_customers.last_synced_at in 2-5 minutes to confirm completion.",
+        triggered_by: isServiceRoleCall ? "cron" : "user",
+        actor_id: actorId,
+        started_at: new Date().toISOString(),
+      }),
+      { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (e: any) {
+    return new Response(
+      JSON.stringify({ error: e.message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});
+
+// ------------------------------------------------------------
+// runSync — the actual sync logic
+// ------------------------------------------------------------
+// Runs in the background after the handler responds. Errors are caught and
+// logged to commission_audit_log so they're visible in the dashboard.
+async function runSync(sk: string, actorId: string | null, isServiceRoleCall: boolean) {
+  const t0 = Date.now();
+  const errors: string[] = [];
+
+  try {
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -284,34 +342,44 @@ serve(async (req: Request) => {
 
     // ---- Audit log entry ----
     await admin.from("commission_audit_log").insert({
-      actor_id: user.id,
+      actor_id: actorId,  // null for cron, user id for UI button
       action: "stripe_sync",
       target_type: "customer",
       target_id: null,
       after_value: {
         customers_upserted: upserted,
-        months: monthCols,
-        duration_ms: Date.now() - t0,
-      },
-    });
-
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        customers_upserted: upserted,
         customers_fetched: customers.length,
         subscriptions_fetched: subs.length,
         months: monthCols,
-        generated_at: new Date().toISOString(),
         duration_ms: Date.now() - t0,
+        triggered_by: isServiceRoleCall ? "cron" : "user",
         errors,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      },
+    });
+
+    // Background work complete. Nothing to return — the original 202 already shipped.
+    console.log(`[stripe-sync] Sync complete: ${upserted} customers, ${Date.now() - t0}ms`);
   } catch (e: any) {
-    return new Response(
-      JSON.stringify({ error: e.message, duration_ms: Date.now() - t0 }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error(`[stripe-sync] Background sync failed:`, e);
+    // Try to log the failure to the audit log for visibility
+    try {
+      const admin = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      await admin.from("commission_audit_log").insert({
+        actor_id: actorId,
+        action: "stripe_sync_failed",
+        target_type: "customer",
+        target_id: null,
+        after_value: {
+          error: e?.message || String(e),
+          duration_ms: Date.now() - t0,
+          triggered_by: isServiceRoleCall ? "cron" : "user",
+        },
+      });
+    } catch {
+      // Best-effort logging — if even this fails, we've at least got console.error
+    }
   }
-});
+}

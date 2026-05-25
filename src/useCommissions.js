@@ -213,21 +213,69 @@ export function useCommissions() {
   }, [loadAll]);
 
   // ---- Stripe sync trigger ----
+  //
+  // The Edge Function now returns 202 immediately and runs the sync in the
+  // background (necessary for accounts with thousands of customers — the
+  // sync can take 2-5 minutes, way past Supabase's 60-150s function timeout).
+  //
+  // After the function accepts the request, we POLL commission_customers
+  // every 10s for an updated `last_synced_at`, and reload when it changes.
+  // We stop polling after 8 minutes or once data refreshes.
   const triggerStripeSync = useCallback(async () => {
     setSyncing(true);
+
+    // Capture the most recent last_synced_at before kicking off the sync.
+    // We'll watch for it to change as the signal that background work landed.
+    let baselineLastSynced = lastSyncAt || null;
+
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("stripe-sync");
       if (fnErr) throw fnErr;
       if (data?.error) throw new Error(data.error);
+
+      // If the function returned synchronously (old behavior or zero-customer case),
+      // we're done — reload immediately.
+      if (data?.customers_upserted !== undefined) {
+        await loadAll();
+        return data;
+      }
+
+      // Otherwise it's the 202 accepted path. Poll for the data to update.
+      const pollStart = Date.now();
+      const maxWaitMs = 8 * 60 * 1000; // 8 minutes
+      const pollIntervalMs = 10_000;
+
+      while (Date.now() - pollStart < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+
+        // Check if any customer row has been touched since our baseline
+        const { data: latestRow } = await supabase
+          .from("commission_customers")
+          .select("last_synced_at")
+          .order("last_synced_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const latest = latestRow?.last_synced_at || null;
+        if (latest && latest !== baselineLastSynced) {
+          // Data updated — reload the dashboard
+          await loadAll();
+          return { ...data, polled_until: new Date().toISOString() };
+        }
+      }
+
+      // Timeout — sync probably still running, but we stop polling.
+      // The user can hit refresh later to pick up the eventual update.
+      console.warn("Stripe sync polling timeout — data may still be syncing in background");
       await loadAll();
-      return data;
+      return { ...data, timed_out: true };
     } catch (e) {
       console.error("Stripe sync failed:", e);
       throw e;
     } finally {
       setSyncing(false);
     }
-  }, [loadAll]);
+  }, [loadAll, lastSyncAt]);
 
   return {
     customers,
