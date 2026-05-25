@@ -18,17 +18,25 @@
 //        - During the prepay window (1 <= diff < prepayMonths): NO residual.
 //          AE already got paid 10% on the cash for these months via Voice AI.
 //
-//     RESIDUAL: aeResidualRate × mrr for months AFTER the prepay window,
-//     capped at aeResidualMonths months from start_date (12 by default).
-//        - For a 3-month prepay: residual months 4-12.
-//        - For an annual prepay covering 12 months: no residual ever (prepay
-//          covers the full residual window).
+//     RESIDUAL: aeResidualRate × monthly_cash_received[m] for months AFTER
+//     the prepay window, capped at aeResidualMonths months from start_date.
+//        - monthly_cash_received is sourced from Stripe paid invoices, NOT
+//          subscription state. A customer who paid upfront and never renewed
+//          will have cash_received = 0 in subsequent months → no residual.
+//        - A customer who renews ($1,497 in Feb covering Feb/Mar/Apr) gets
+//          residual = 3% × $1,497 = $44.91 in Feb (the renewal month).
+//          No residual in Mar/Apr (no new cash arrived those months).
+//        - For a 3-month prepay with no renewal: residual only fires if new
+//          cash arrives in months 4-12 (which requires a renewal).
 //        - "After the customer has been a customer for 12 months, no more
 //          commission paid on this customer." — measured from start_date.
+//        - BACKWARD-COMPAT: if monthly_cash_received is empty (sync hasn't
+//          populated it yet), falls back to MRR-based residual.
 //
 //   CSM:
-//     Any month with mrr > 0:    csmRate × mrr
+//     Any month with mrr > 0:    csmRate × monthly_cash_received[m]
 //     (Optional CSM cap by csmResidualMonths if specified)
+//     (Same cash-based logic as AE residual; falls back to MRR if needed)
 //
 //   Accelerator (AE only, annual variable comp):
 //     yearTotal >= target            → status = ontarget
@@ -250,7 +258,11 @@ export function calcRepCommission(
 
     for (const c of book) {
       const mrr = (c.monthly_mrr && c.monthly_mrr[m]) || 0;
-      if (mrr <= 0) continue;
+      // Cash actually collected this month for this customer. Sourced from
+      // paid Stripe invoices in the sync. Used to gate residual commission
+      // (we only pay residual on months where new cash arrived).
+      const cashReceived = (c.monthly_cash_received && c.monthly_cash_received[m]) || 0;
+      if (mrr <= 0 && cashReceived <= 0) continue;
       bookMRR += mrr;
 
       if (ae) {
@@ -291,9 +303,21 @@ export function calcRepCommission(
           newMRR += mrr;
         } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
           // Beyond the prepay window AND before the residual cap.
-          // (Cap is measured from start_date — "12 months after the customer has
-          // been a customer for 12 months there is no more commission paid.")
-          aeResidual += mrr * effCfg.aeResidualRate;
+          //
+          // Residual is paid on ACTUAL CASH COLLECTED this month, not on the
+          // subscription MRR. This matches comp policy: "residual on payments
+          // received after the initial." For a customer who paid upfront and
+          // never renewed, cashReceived = 0 in subsequent months → no residual.
+          //
+          // Backward-compat: if monthly_cash_received is empty (sync hasn't run
+          // yet since the column was added), fall back to MRR-based residual
+          // so existing dashboards don't suddenly show $0.
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            aeResidual += residualBase * effCfg.aeResidualRate;
+          }
         }
         // else (1 <= diff < prepayMonths): covered by upfront, no residual paid.
         // else (diff >= aeResidualMonths): customer is past the 12-month residual window.
@@ -307,7 +331,13 @@ export function calcRepCommission(
           if (diff != null && diff >= csmCap) csmEligible = false;
         }
         if (csmEligible) {
-          csmResidual += mrr * effCfg.csmRate;
+          // Same cash-based logic for CSM residuals
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            csmResidual += residualBase * effCfg.csmRate;
+          }
         }
       }
     }
@@ -377,8 +407,9 @@ export function calcRepCommissionByCustomer(
 
     for (const m of monthCols) {
       const mrr = (c.monthly_mrr && c.monthly_mrr[m]) || 0;
+      const cashReceived = (c.monthly_cash_received && c.monthly_cash_received[m]) || 0;
       if (mrr > 0) latestMRR = mrr;
-      if (mrr <= 0) continue;
+      if (mrr <= 0 && cashReceived <= 0) continue;
 
       if (ae) {
         const diff = monthDiff(c.start_date, m);
@@ -403,7 +434,13 @@ export function calcRepCommissionByCustomer(
           voiceAICash += cash;
           voiceAI += cash * effCfg.aeVoiceRate;
         } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
-          residual += mrr * effCfg.aeResidualRate;
+          // Residual on actual cash received this month (with MRR fallback for legacy)
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            residual += residualBase * effCfg.aeResidualRate;
+          }
         }
       } else {
         // CSM
@@ -415,7 +452,12 @@ export function calcRepCommissionByCustomer(
           if (diff != null && diff >= csmCap) csmEligible = false;
         }
         if (csmEligible) {
-          residual += mrr * effCfg.csmRate;
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            residual += residualBase * effCfg.csmRate;
+          }
         }
       }
     }

@@ -242,9 +242,16 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
 
     // ---- Fetch from Stripe ----
     const monthCols = lastNMonths(TRAILING_MONTHS);
-    const [customers, subs] = await Promise.all([
+    // Calculate the cutoff for invoice fetching: start of the earliest month in monthCols.
+    // We want all paid invoices from the trailing 13 months (matches monthly_mrr window).
+    const earliestMonth = monthCols[0]; // e.g. "2025-05"
+    const invoiceCutoffTs = Math.floor(new Date(earliestMonth + "-01T00:00:00Z").getTime() / 1000);
+    const invoiceQuery = `status=paid&created[gte]=${invoiceCutoffTs}`;
+
+    const [customers, subs, invoices] = await Promise.all([
       stripePaginate("customers", sk),
       stripePaginate("subscriptions", sk, "status=all&expand[]=data.items.data.price"),
+      stripePaginate("invoices", sk, invoiceQuery),
     ]);
 
     // ---- Build per-customer monthly MRR ----
@@ -262,6 +269,9 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         is_ae_era: false,
         is_active_ever: false,
         monthly_mrr: Object.fromEntries(monthCols.map((m) => [m, 0])),
+        // Cash actually collected per month (sourced from paid invoices, not
+        // subscription state). This is the basis for residual commission math.
+        monthly_cash_received: Object.fromEntries(monthCols.map((m) => [m, 0])),
       };
     }
 
@@ -286,6 +296,20 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
       // latest end (only if all subs ended)
       if (subEnd && (!row.end_date || subEnd > row.end_date)) row.end_date = subEnd;
       if (!subEnd) row.end_date = null; // any active sub clears end_date
+    }
+
+    // ---- Aggregate cash received per customer per month from paid invoices ----
+    // Invoices have amount_paid (cents) and status_transitions.paid_at (unix
+    // timestamp). We bucket by the month the invoice was paid.
+    for (const inv of invoices) {
+      const row = byId[inv.customer];
+      if (!row) continue;
+      const paidAtTs = inv.status_transitions?.paid_at;
+      if (!paidAtTs) continue;
+      const paidMonth = ymOf(new Date(paidAtTs * 1000));
+      if (!row.monthly_cash_received.hasOwnProperty(paidMonth)) continue; // outside our window
+      const amountDollars = (inv.amount_paid || 0) / 100;
+      row.monthly_cash_received[paidMonth] += amountDollars;
     }
 
     // Derive flags
@@ -350,6 +374,7 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         customers_upserted: upserted,
         customers_fetched: customers.length,
         subscriptions_fetched: subs.length,
+        invoices_fetched: invoices.length,
         months: monthCols,
         duration_ms: Date.now() - t0,
         triggered_by: isServiceRoleCall ? "cron" : "user",
