@@ -2036,7 +2036,7 @@ function SettingsTab({ c }) {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
 
-  const update = (k, v) => setDraft({ ...draft, [k]: parseFloat(v) || 0 });
+  const update = (k, v) => setDraft({ ...draft, [k]: typeof v === "number" ? v : (parseFloat(v) || 0) });
 
   const save = async () => {
     setSaving(true);
@@ -2056,35 +2056,57 @@ function SettingsTab({ c }) {
       <div className="bg-white border border-stone-200">
         <div className="px-5 py-3 border-b border-stone-200">
           <h3 className="text-sm font-medium text-stone-900">AE Compensation · Heather, Mason</h3>
+          <p className="text-[11px] text-stone-500 mt-0.5">Global defaults applied to all AEs unless overridden per-rep below.</p>
         </div>
         <div className="p-5 grid grid-cols-2 gap-4 text-sm">
-          {[
-            ["aeVoiceRate",        "Voice AI rate (initial cash)", 0.01],
-            ["upfrontMultiplier",  "Upfront multiplier (mo. prepaid)", 0.1],
-            ["aeResidualRate",     "AE residual rate (months 2+)", 0.01],
-            ["aeResidualMonths",   "Residual cap (months)", 1],
-            ["acceleratorTarget",  "Annual variable target ($)", 1000],
-          ].map(([k, label, step]) => (
-            <label key={k} className="flex flex-col">
-              <span className="text-xs text-stone-600 mb-1">{label}</span>
-              <input type="number" step={step} value={draft[k]} onChange={(e) => update(k, e.target.value)}
-                className="border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none" />
-            </label>
-          ))}
+          <PercentField
+            label="Voice AI rate (on initial cash)"
+            value={draft.aeVoiceRate}
+            onChange={(v) => update("aeVoiceRate", v)}
+            hint="10% of cash collected at deal close"
+          />
+          <PercentField
+            label="AE residual rate (monthly)"
+            value={draft.aeResidualRate}
+            onChange={(v) => update("aeResidualRate", v)}
+            hint="3% of MRR each month after prepay window"
+          />
+          <NumberField
+            label="Residual cap (months)"
+            value={draft.aeResidualMonths}
+            onChange={(v) => update("aeResidualMonths", v)}
+            step={1}
+            hint="Stop paying residual after this many months from start"
+          />
+          <NumberField
+            label="Annual variable target ($)"
+            value={draft.acceleratorTarget}
+            onChange={(v) => update("acceleratorTarget", v)}
+            step={1000}
+            hint="Accelerator unlocks above this"
+          />
+          <NumberField
+            label="Upfront multiplier (advanced)"
+            value={draft.upfrontMultiplier}
+            onChange={(v) => update("upfrontMultiplier", v)}
+            step={0.5}
+            hint="Fallback only — used to estimate upfront cash for legacy seed customers without a submitted deal record. New AE deals use the actual cash submitted via the form, so this rarely matters."
+          />
         </div>
       </div>
 
       <div className="bg-white border border-stone-200">
         <div className="px-5 py-3 border-b border-stone-200">
           <h3 className="text-sm font-medium text-stone-900">CSM Compensation · Matt, Sean, Noah</h3>
+          <p className="text-[11px] text-stone-500 mt-0.5">Global defaults applied to all CSMs unless overridden per-rep below.</p>
         </div>
         <div className="p-5 grid grid-cols-2 gap-4 text-sm">
-          <label className="flex flex-col">
-            <span className="text-xs text-stone-600 mb-1">Monthly residual rate</span>
-            <input type="number" step="0.01" value={draft.csmRate}
-              onChange={(e) => update("csmRate", e.target.value)}
-              className="border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none" />
-          </label>
+          <PercentField
+            label="Monthly residual rate"
+            value={draft.csmRate}
+            onChange={(v) => update("csmRate", v)}
+            hint="3% of MRR each month the customer pays"
+          />
         </div>
       </div>
 
@@ -2100,6 +2122,71 @@ function SettingsTab({ c }) {
 
       {/* Reporting structure panel */}
       <ReportingStructurePanel c={c} />
+    </div>
+  );
+}
+
+// Helper input components for Settings — keep the display layer in % while the
+// underlying storage stays as a 0-1 decimal (engine reads 0.10, not 10).
+function PercentField({ label, value, onChange, hint }) {
+  // Convert storage (0.10) to display (10), edit, then convert back on change.
+  // Round to 2 decimal places when displaying to avoid 0.030000000000004 artifacts.
+  const display = value != null && !isNaN(value) ? Math.round(Number(value) * 10000) / 100 : "";
+  return (
+    <label className="flex flex-col">
+      <span className="text-xs text-stone-600 mb-1">{label}</span>
+      <div className="relative">
+        <input
+          type="number"
+          step="0.1"
+          value={display}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") return onChange(0);
+            const pct = parseFloat(raw);
+            if (isNaN(pct)) return;
+            onChange(pct / 100);
+          }}
+          className="w-full border border-stone-200 px-2 py-1.5 pr-8 font-mono tabular-nums focus:outline-none focus:border-stone-900"
+        />
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 text-xs pointer-events-none">%</span>
+      </div>
+      {hint && <span className="text-[10px] text-stone-500 mt-1 leading-snug">{hint}</span>}
+    </label>
+  );
+}
+
+function NumberField({ label, value, onChange, step = 1, hint }) {
+  return (
+    <label className="flex flex-col">
+      <span className="text-xs text-stone-600 mb-1">{label}</span>
+      <input
+        type="number"
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        className="w-full border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none focus:border-stone-900"
+      />
+      {hint && <span className="text-[10px] text-stone-500 mt-1 leading-snug">{hint}</span>}
+    </label>
+  );
+}
+
+// PercentInput — input that displays whole numbers (10, 12.5) representing
+// percentages. Used inside form state where the value lives as a string;
+// caller is responsible for dividing by 100 when persisting to DB.
+function PercentInput({ value, onChange, placeholder }) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        step="0.1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border border-stone-300 px-2 py-1.5 pr-8 text-sm font-mono focus:outline-none focus:border-stone-900"
+      />
+      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 text-xs pointer-events-none">%</span>
     </div>
   );
 }
@@ -2397,13 +2484,26 @@ function NewRateEntryForm({ rep, isAERep, onSaved }) {
 
     // Build payload — only include non-empty fields
     const payload = { rep_name: rep, effective_date: form.effective_date };
-    const numFields = [
-      "ae_pct", "ae_residual_pct", "ae_residual_months",
-      "csm_pct", "csm_residual_months",
-      "accelerator_target", "accel_1_5x_pct", "accel_2x_pct",
+    // Fields that are PERCENTAGES in the UI but DECIMALS (0-1) in the DB.
+    // User types "10", we store 0.10.
+    const percentFields = [
+      "ae_pct", "ae_residual_pct",
+      "csm_pct",
+      "accel_1_5x_pct", "accel_2x_pct",
       "team_lead_override_pct",
     ];
-    for (const f of numFields) {
+    // Fields that are stored as raw numbers (months, $ targets)
+    const rawNumFields = [
+      "ae_residual_months",
+      "csm_residual_months",
+      "accelerator_target",
+    ];
+    for (const f of percentFields) {
+      if (form[f] !== "" && form[f] != null) {
+        payload[f] = Number(form[f]) / 100;
+      }
+    }
+    for (const f of rawNumFields) {
       if (form[f] !== "" && form[f] != null) {
         payload[f] = Number(form[f]);
       }
@@ -2476,17 +2576,11 @@ function NewRateEntryForm({ rep, isAERep, onSaved }) {
 
             {isAERep && (
               <>
-                <Field label="AE Voice AI %" hint="e.g. 0.10 = 10%">
-                  <input type="number" step="0.001" value={form.ae_pct}
-                    onChange={(e) => update("ae_pct", e.target.value)}
-                    placeholder="0.10"
-                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                <Field label="AE Voice AI %" hint="e.g. 10 for 10%">
+                  <PercentInput value={form.ae_pct} onChange={(v) => update("ae_pct", v)} placeholder="10" />
                 </Field>
-                <Field label="AE Residual %" hint="e.g. 0.03 = 3%">
-                  <input type="number" step="0.001" value={form.ae_residual_pct}
-                    onChange={(e) => update("ae_residual_pct", e.target.value)}
-                    placeholder="0.03"
-                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                <Field label="AE Residual %" hint="e.g. 3 for 3%">
+                  <PercentInput value={form.ae_residual_pct} onChange={(v) => update("ae_residual_pct", v)} placeholder="3" />
                 </Field>
                 <Field label="AE Residual months" hint="e.g. 12">
                   <input type="number" step="1" value={form.ae_residual_months}
@@ -2500,28 +2594,19 @@ function NewRateEntryForm({ rep, isAERep, onSaved }) {
                     placeholder="60000"
                     className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
                 </Field>
-                <Field label="Accel 1.5× threshold" hint="e.g. 1.20 = 120% of target">
-                  <input type="number" step="0.01" value={form.accel_1_5x_pct}
-                    onChange={(e) => update("accel_1_5x_pct", e.target.value)}
-                    placeholder="1.20"
-                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                <Field label="Accel 1.5× threshold" hint="e.g. 120 for 120% of target">
+                  <PercentInput value={form.accel_1_5x_pct} onChange={(v) => update("accel_1_5x_pct", v)} placeholder="120" />
                 </Field>
-                <Field label="Accel 2× threshold" hint="e.g. 1.50 = 150% of target">
-                  <input type="number" step="0.01" value={form.accel_2x_pct}
-                    onChange={(e) => update("accel_2x_pct", e.target.value)}
-                    placeholder="1.50"
-                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                <Field label="Accel 2× threshold" hint="e.g. 150 for 150% of target">
+                  <PercentInput value={form.accel_2x_pct} onChange={(v) => update("accel_2x_pct", v)} placeholder="150" />
                 </Field>
               </>
             )}
 
             {!isAERep && (
               <>
-                <Field label="CSM monthly residual %" hint="e.g. 0.03 = 3%">
-                  <input type="number" step="0.001" value={form.csm_pct}
-                    onChange={(e) => update("csm_pct", e.target.value)}
-                    placeholder="0.03"
-                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                <Field label="CSM monthly residual %" hint="e.g. 3 for 3%">
+                  <PercentInput value={form.csm_pct} onChange={(v) => update("csm_pct", v)} placeholder="3" />
                 </Field>
                 <Field label="CSM residual months" hint="blank = no cap">
                   <input type="number" step="1" value={form.csm_residual_months}
@@ -2532,11 +2617,8 @@ function NewRateEntryForm({ rep, isAERep, onSaved }) {
               </>
             )}
 
-            <Field label="Team Lead Override %" hint="if this rep is a team lead, % they earn on reports' commissions">
-              <input type="number" step="0.001" value={form.team_lead_override_pct}
-                onChange={(e) => update("team_lead_override_pct", e.target.value)}
-                placeholder="0.02"
-                className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+            <Field label="Team Lead Override %" hint="if this rep is a team lead, % they earn on reports' commissions (e.g. 2)">
+              <PercentInput value={form.team_lead_override_pct} onChange={(v) => update("team_lead_override_pct", v)} placeholder="2" />
             </Field>
 
             <Field label="Notes (optional)" className="col-span-2 md:col-span-3">

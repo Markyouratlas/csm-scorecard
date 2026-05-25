@@ -588,7 +588,14 @@ export const fmtMoney = (n) => {
     : { maximumFractionDigits: 0 };
   return `$${num.toLocaleString("en-US", opts)}`;
 };
+// fmtPct displays a 0-1 decimal as a percent. Shows decimals only if the
+// percent value isn't a whole number:
+//   0.10 → "10%"
+//   0.125 → "12.5%"
+//   0.03 → "3%"
 export const fmtPct = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
-  return `${(n * 100).toFixed(1)}%`;
+  const pct = Number(n) * 100;
+  const hasFraction = Math.abs(pct - Math.round(pct)) > 0.005;
+  return `${pct.toLocaleString("en-US", hasFraction ? { minimumFractionDigits: 1, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })}%`;
 };
