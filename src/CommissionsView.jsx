@@ -34,7 +34,7 @@ import { useGlassInteraction } from "./hooks/useGlassInteraction.js";
 import { useCommissions } from "./useCommissions";
 import {
   ALL_REPS, REPS, isAE,
-  calcRepCommission, calcAccelerator, aeCustomerLifetimeProjection,
+  calcRepCommission, calcAccelerator, calcTeamLeadOverride, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
 } from "./commissionEngine";
@@ -265,15 +265,56 @@ function OverviewTab({ c, onJumpTo }) {
       const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
       if (r.monthly.length > 0) totalThisMonth += r.monthly[r.monthly.length - 1].total;
     }
+    // Add TL override earnings for any team leads (they earn on top of their direct)
+    for (const p of (c.profiles || [])) {
+      if (!p.is_team_lead) continue;
+      const tl = calcTeamLeadOverride(
+        p, c.profiles, c.customers, c.indexedAssignments,
+        c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer,
+      );
+      if (tl.monthly.length > 0) totalThisMonth += tl.monthly[tl.monthly.length - 1].total;
+    }
     return { paying, aeEra, needsCSM, needsAE, totalThisMonth };
-  }, [c.customers, c.assignments, c.indexedAssignments, c.config, c.monthCols]);
+  }, [c.customers, c.assignments, c.indexedAssignments, c.config, c.monthCols, c.profiles, c.indexedOverrides, c.matchedDealsByCustomer]);
 
   const perRep = useMemo(() => ALL_REPS.map((rep) => {
     const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
     const ytd = r.monthly.reduce((s, m) => s + m.total, 0);
     const thisMonth = r.monthly[r.monthly.length - 1]?.total || 0;
-    return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth };
-  }), [c.customers, c.indexedAssignments, c.config, c.monthCols]);
+
+    // Compute TL override earnings if this rep is a team lead
+    // Look up the rep's profile to get the team lead flag
+    const profile = (c.profiles || []).find((p) =>
+      (p.name || "").split(" ")[0] === rep
+    );
+    let tlOverrideYTD = 0;
+    let tlOverrideThisMonth = 0;
+    let tlOverrideByReport = {};
+    if (profile?.is_team_lead) {
+      const tlCalc = calcTeamLeadOverride(
+        profile,
+        c.profiles,
+        c.customers,
+        c.indexedAssignments,
+        c.config,
+        c.monthCols,
+        c.indexedOverrides,
+        c.matchedDealsByCustomer,
+      );
+      tlOverrideYTD = tlCalc.totalOverride;
+      tlOverrideThisMonth = tlCalc.monthly[tlCalc.monthly.length - 1]?.total || 0;
+      tlOverrideByReport = tlCalc.byReport;
+    }
+
+    return {
+      rep, isAE: r.isAE, bookSize: r.book.length,
+      ytd, thisMonth,
+      tlOverrideYTD, tlOverrideThisMonth, tlOverrideByReport,
+      isTeamLead: !!profile?.is_team_lead,
+      totalYTD: ytd + tlOverrideYTD,
+      totalThisMonth: thisMonth + tlOverrideThisMonth,
+    };
+  }), [c.customers, c.indexedAssignments, c.config, c.monthCols, c.profiles, c.indexedOverrides, c.matchedDealsByCustomer]);
 
   const pendingUnmatched = c.unmatched.filter((u) => u.status === "pending");
 
@@ -301,14 +342,22 @@ function OverviewTab({ c, onJumpTo }) {
               <th className="px-3 py-2.5 font-medium">Role</th>
               <th className="px-3 py-2.5 font-medium text-right">Book</th>
               <th className="px-3 py-2.5 font-medium text-right">This Month</th>
-              <th className="px-5 py-2.5 font-medium text-right">YTD Comm.</th>
+              <th className="px-3 py-2.5 font-medium text-right" title="Team Lead override earnings — % of reports' commissions">TL Override (YTD)</th>
+              <th className="px-5 py-2.5 font-medium text-right">YTD Total</th>
             </tr>
           </thead>
           <tbody>
             {perRep.map((r) => (
               <tr key={r.rep} className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer"
                   onClick={() => onJumpTo("byRep", r.rep)}>
-                <td className="px-5 py-2.5 font-medium text-stone-900">{r.rep}</td>
+                <td className="px-5 py-2.5 font-medium text-stone-900">
+                  {r.rep}
+                  {r.isTeamLead && (
+                    <span className="ml-1.5 inline-flex items-center text-[9px] mono-font px-1 py-0.5 rounded font-medium" style={{ background: BRAND.purpleTint, color: BRAND.purpleDeep }}>
+                      TL
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2.5">
                   <span className="text-xs px-1.5 py-0.5 border" style={r.isAE
                     ? { background: BRAND.purpleTint, color: BRAND.purpleDeep, borderColor: BRAND.purpleTintMid }
@@ -317,8 +366,18 @@ function OverviewTab({ c, onJumpTo }) {
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-right font-mono tabular-nums text-stone-700">{r.bookSize}</td>
-                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-stone-900">{fmtMoney(r.thisMonth)}</td>
-                <td className="px-5 py-2.5 text-right font-mono tabular-nums font-medium text-stone-900">{fmtMoney(r.ytd)}</td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-stone-900">
+                  {fmtMoney(r.thisMonth)}
+                  {r.tlOverrideThisMonth > 0 && (
+                    <div className="text-[10px] mt-0.5" style={{ color: BRAND.purple }}>
+                      + {fmtMoney(r.tlOverrideThisMonth)} TL
+                    </div>
+                  )}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums" style={{ color: r.tlOverrideYTD > 0 ? BRAND.purple : "#a8a29e" }}>
+                  {r.tlOverrideYTD > 0 ? fmtMoney(r.tlOverrideYTD) : <span className="text-stone-300">—</span>}
+                </td>
+                <td className="px-5 py-2.5 text-right font-mono tabular-nums font-medium text-stone-900">{fmtMoney(r.totalYTD)}</td>
               </tr>
             ))}
           </tbody>
@@ -1468,6 +1527,27 @@ function ByRepTab({ c, initialRep }) {
     () => calcRepCommission(selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer),
     [selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols]
   );
+
+  // Look up the rep's profile to check if they're a team lead
+  const selectedRepProfile = useMemo(() =>
+    (c.profiles || []).find((p) => (p.name || "").split(" ")[0] === selectedRep),
+    [selectedRep, c.profiles]
+  );
+
+  // If they're a team lead, compute their TL override earnings
+  const tlOverrideCalc = useMemo(() => {
+    if (!selectedRepProfile?.is_team_lead) return null;
+    return calcTeamLeadOverride(
+      selectedRepProfile,
+      c.profiles,
+      c.customers,
+      c.indexedAssignments,
+      c.config,
+      c.monthCols,
+      c.indexedOverrides,
+      c.matchedDealsByCustomer,
+    );
+  }, [selectedRepProfile, c.profiles, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
   const ytd = useMemo(() => calc.monthly.reduce((a, m) => ({
     voiceAICommission: a.voiceAICommission + m.voiceAICommission,
     voiceAINetSales: a.voiceAINetSales + m.voiceAINetSales,
@@ -1566,6 +1646,58 @@ function ByRepTab({ c, initialRep }) {
               Accelerator bonus: <span className="font-mono font-medium" style={{ color: BRAND.purple }}>{fmtMoney(acc.bonus)}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Team Lead Override Earnings — only shown if rep is a team lead */}
+      {tlOverrideCalc && tlOverrideCalc.totalOverride > 0 && (
+        <div className="bg-white border border-stone-200">
+          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-stone-900">Team Lead Override Earnings</h3>
+              <p className="text-[11px] text-stone-500 mt-0.5">
+                {selectedRep} earns a percentage of each report's commissions. Listed below per report.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">YTD Override</div>
+              <div className="text-lg font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>
+                {fmtMoney(tlOverrideCalc.totalOverride)}
+              </div>
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50/50 border-b border-stone-200">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+                <th className="px-5 py-2 font-medium">Report</th>
+                <th className="px-3 py-2 font-medium text-right">Their YTD Commission</th>
+                <th className="px-3 py-2 font-medium text-right">{selectedRep}'s Override</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(tlOverrideCalc.byReport).map(([reportName, breakdown]) => {
+                const reportTotalCommission = breakdown.perMonth.reduce((s, m) => s + m.reportTotal, 0);
+                return (
+                  <tr key={reportName} className="border-b border-stone-100">
+                    <td className="px-5 py-2 text-stone-900 font-medium">{reportName}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                      {fmtMoney(reportTotalCommission)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                      {fmtMoney(breakdown.total)}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-stone-300 bg-stone-50/50">
+                <td className="px-5 py-2 text-[10px] uppercase tracking-wider font-medium">Total</td>
+                <td className="px-3 py-2 text-right text-stone-400">—</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold" style={{ color: BRAND.purple }}>
+                  {fmtMoney(tlOverrideCalc.totalOverride)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
 

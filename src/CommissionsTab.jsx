@@ -27,7 +27,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
 import { useCommissions } from "./useCommissions";
 import {
-  calcRepCommission, calcAccelerator, monthLabel, fmtMoney, fmtPct, isAE,
+  calcRepCommission, calcAccelerator, calcTeamLeadOverride, monthLabel, fmtMoney, fmtPct, isAE,
 } from "./commissionEngine";
 
 const BRAND = {
@@ -63,6 +63,21 @@ export default function CommissionsTab({ profile }) {
     if (!repName) return null;
     return calcRepCommission(repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
   }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols]);
+
+  // If the current user is a team lead, compute their TL override earnings
+  const tlOverrideCalc = useMemo(() => {
+    if (!profile?.is_team_lead) return null;
+    return calcTeamLeadOverride(
+      profile,
+      c.profiles,
+      c.customers,
+      c.indexedAssignments,
+      c.config,
+      c.monthCols,
+      c.indexedOverrides,
+      c.matchedDealsByCustomer,
+    );
+  }, [profile, c.profiles, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
 
   if (c.loading) {
     return <div className="px-6 py-12 text-center text-stone-500 text-sm">Loading commissions…</div>;
@@ -111,7 +126,7 @@ export default function CommissionsTab({ profile }) {
           </div>
         </div>
       ) : (
-        <EarningsSection calc={calc} userIsAE={userIsAE} config={c.config} />
+        <EarningsSection calc={calc} userIsAE={userIsAE} config={c.config} tlOverrideCalc={tlOverrideCalc} repName={repName} />
       )}
     </div>
   );
@@ -652,7 +667,7 @@ function PendingStat({ label, value, sub, icon: Icon, iconColor }) {
 // ============================================================
 // Earnings section (existing functionality — preserved)
 // ============================================================
-function EarningsSection({ calc, userIsAE, config }) {
+function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, repName }) {
   const ytd = calc.monthly.reduce((a, m) => ({
     voiceAINetSales:   a.voiceAINetSales + (m.voiceAINetSales || 0),
     voiceAICommission: a.voiceAICommission + m.voiceAICommission,
@@ -722,6 +737,61 @@ function EarningsSection({ calc, userIsAE, config }) {
               Accelerator bonus earned: <span className="font-mono font-medium" style={{ color: BRAND.purple }}>{fmtMoney(acc.bonus)}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Team Lead Override Earnings — only shown if rep is a team lead */}
+      {tlOverrideCalc && tlOverrideCalc.totalOverride > 0 && (
+        <div className="bg-white border border-stone-200">
+          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-stone-500 font-medium">Team Lead Override</div>
+              <h3 className="text-base font-medium text-stone-900 italic" style={{ fontFamily: "'EB Garamond', Georgia, serif" }}>
+                Your team's earnings
+              </h3>
+              <p className="text-[11px] text-stone-500 mt-0.5">
+                You earn a percentage of each report's commissions on top of your direct deals.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">YTD Override</div>
+              <div className="text-xl font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>
+                {fmtMoney(tlOverrideCalc.totalOverride)}
+              </div>
+            </div>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50/50 border-b border-stone-200">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+                <th className="px-5 py-2 font-medium">Report</th>
+                <th className="px-3 py-2 font-medium text-right">Their YTD Commission</th>
+                <th className="px-3 py-2 font-medium text-right">Your Override</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(tlOverrideCalc.byReport).map(([reportName, breakdown]) => {
+                const reportTotal = breakdown.perMonth.reduce((s, m) => s + m.reportTotal, 0);
+                return (
+                  <tr key={reportName} className="border-b border-stone-100">
+                    <td className="px-5 py-2 text-stone-900 font-medium">{reportName}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                      {fmtMoney(reportTotal)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                      {fmtMoney(breakdown.total)}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-stone-300 bg-stone-50/50">
+                <td className="px-5 py-2 text-[10px] uppercase tracking-wider font-medium">Total</td>
+                <td className="px-3 py-2 text-right text-stone-400">—</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold" style={{ color: BRAND.purple }}>
+                  {fmtMoney(tlOverrideCalc.totalOverride)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
 
