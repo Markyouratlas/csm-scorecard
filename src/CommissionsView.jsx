@@ -2094,6 +2094,588 @@ function SettingsTab({ c }) {
         </Btn>
         <Btn onClick={() => setDraft(c.config)}>Discard</Btn>
       </div>
+
+      {/* Per-rep overrides panel */}
+      <PerRepRatesPanel c={c} />
+
+      {/* Reporting structure panel */}
+      <ReportingStructurePanel c={c} />
+    </div>
+  );
+}
+
+// ============================================================
+// Per-Rep Rates Panel — executive can set rep-specific commission rates
+// with effective dating
+// ============================================================
+function PerRepRatesPanel({ c }) {
+  const [editingRep, setEditingRep] = useState(null);
+
+  // Build "currently effective" rates per rep by walking the overrides list
+  // (the engine's indexOverrides already returns sorted desc by date, so the
+  // first applicable row for each rep is what we want)
+  const currentRates = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const out = {};
+    for (const rep of ALL_REPS) {
+      const repOverrides = c.indexedOverrides?.[rep] || [];
+      const effective = repOverrides.find((o) => (o.effective_date || "") <= today);
+      out[rep] = effective || null;
+    }
+    return out;
+  }, [c.indexedOverrides]);
+
+  // Helper to display a value either from the rep's override or the default config
+  const display = (rep, field, defaultKey, isPct = false, isMoney = false) => {
+    const override = currentRates[rep];
+    const overrideVal = override?.[field];
+    if (overrideVal != null) {
+      return (
+        <span className="font-mono tabular-nums" style={{ color: "#6639a6" }} title={`Override · effective ${override.effective_date}`}>
+          {isPct ? fmtPct(Number(overrideVal)) : isMoney ? fmtMoney(Number(overrideVal)) : Number(overrideVal)}
+        </span>
+      );
+    }
+    const defaultVal = c.config?.[defaultKey];
+    return (
+      <span className="font-mono tabular-nums text-stone-500">
+        {isPct ? fmtPct(defaultVal) : isMoney ? fmtMoney(defaultVal) : defaultVal}
+        <span className="ml-1 text-[10px] text-stone-400">default</span>
+      </span>
+    );
+  };
+
+  return (
+    <div className="bg-white border border-stone-200">
+      <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-stone-900">Per-Rep Rate Overrides</h3>
+          <p className="text-xs text-stone-500 mt-0.5">Override the global rates above for a specific rep on a specific date. Click <span className="font-mono">Edit</span> to manage a rep's rate history.</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-stone-50/50 border-b border-stone-200">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+              <th className="px-3 py-2 font-medium">Rep</th>
+              <th className="px-3 py-2 font-medium">Role</th>
+              <th className="px-3 py-2 font-medium text-right">AE Voice AI %</th>
+              <th className="px-3 py-2 font-medium text-right">AE Residual %</th>
+              <th className="px-3 py-2 font-medium text-right">Residual Months</th>
+              <th className="px-3 py-2 font-medium text-right">CSM %</th>
+              <th className="px-3 py-2 font-medium text-right">Annual Target</th>
+              <th className="px-3 py-2 font-medium text-right">TL Override %</th>
+              <th className="px-3 py-2 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {ALL_REPS.map((rep) => {
+              const isAERep = isAE(rep);
+              return (
+                <tr key={rep} className="border-b border-stone-100">
+                  <td className="px-3 py-2 text-stone-900 font-medium">{rep}</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center text-[10px] mono-font px-1.5 py-0.5 rounded ${isAERep ? "" : ""}`}
+                      style={isAERep
+                        ? { background: "#f3eefb", color: "#4d2a7e" }
+                        : { background: "#fef3c7", color: "#92400e" }}>
+                      {isAERep ? "AE" : "CSM"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {isAERep ? display(rep, "ae_pct", "aeVoiceRate", true) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {isAERep ? display(rep, "ae_residual_pct", "aeResidualRate", true) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {isAERep ? display(rep, "ae_residual_months", "aeResidualMonths") : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {!isAERep ? display(rep, "csm_pct", "csmRate", true) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {isAERep ? display(rep, "accelerator_target", "acceleratorTarget", false, true) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {(() => {
+                      const override = currentRates[rep];
+                      const val = override?.team_lead_override_pct;
+                      if (val != null) {
+                        return (
+                          <span className="font-mono tabular-nums" style={{ color: "#6639a6" }}>
+                            {fmtPct(Number(val))}
+                          </span>
+                        );
+                      }
+                      return <span className="text-stone-400 text-[10px]">none</span>;
+                    })()}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      onClick={() => setEditingRep(rep)}
+                      className="inline-flex items-center gap-1 text-xs text-stone-600 hover:text-stone-900 transition-colors px-2 py-1 hover:bg-stone-100 rounded-sm"
+                    >
+                      <Edit3 className="w-3 h-3" /> Edit
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {editingRep && (
+        <RepRatesEditor rep={editingRep} c={c} onClose={() => setEditingRep(null)} />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// RepRatesEditor modal — manages the rate history (timeline) for one rep
+// ============================================================
+function RepRatesEditor({ rep, c, onClose }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const isAERep = isAE(rep);
+
+  const loadHistory = async () => {
+    setLoading(true);
+    setError(null);
+    const { data, error: e } = await supabase
+      .from("commission_rep_overrides")
+      .select("*")
+      .eq("rep_name", rep)
+      .order("effective_date", { ascending: false });
+    if (e) setError(e.message);
+    else setHistory(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadHistory(); }, [rep]);
+
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this rate entry? The previous entry will become effective again.")) return;
+    const { error: e } = await supabase
+      .from("commission_rep_overrides")
+      .delete()
+      .eq("id", id);
+    if (e) alert("Delete failed: " + e.message);
+    else {
+      loadHistory();
+      c.reload();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-sm border-2" style={{ borderColor: "#6639a6" }}>
+        <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between" style={{ background: "#f3eefb" }}>
+          <div>
+            <h4 className="text-sm font-medium" style={{ color: "#4d2a7e" }}>
+              {rep}'s commission rate history
+            </h4>
+            <p className="text-xs text-stone-600 mt-0.5">
+              Newest at top. The currently-effective row is whichever has effective_date ≤ today.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-stone-500 hover:text-stone-900 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Add new entry form */}
+          <NewRateEntryForm
+            rep={rep}
+            isAERep={isAERep}
+            onSaved={() => { loadHistory(); c.reload(); }}
+          />
+
+          {/* History */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-2">Rate history</div>
+            {loading ? (
+              <div className="text-center text-xs text-stone-500 py-6"><Loader2 className="w-4 h-4 animate-spin inline mr-1" /> Loading…</div>
+            ) : error ? (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2">{error}</div>
+            ) : history.length === 0 ? (
+              <div className="text-center text-xs text-stone-500 py-6 border border-dashed border-stone-200 rounded-sm">
+                No rate overrides yet. {rep} is using the global defaults from the top of the Settings tab.
+              </div>
+            ) : (
+              <div className="border border-stone-200 overflow-x-auto rounded-sm">
+                <table className="w-full text-xs">
+                  <thead className="bg-stone-50 border-b border-stone-200">
+                    <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+                      <th className="px-2 py-2 font-medium">Effective</th>
+                      {isAERep && <th className="px-2 py-2 font-medium text-right">AE %</th>}
+                      {isAERep && <th className="px-2 py-2 font-medium text-right">Res %</th>}
+                      {isAERep && <th className="px-2 py-2 font-medium text-right">Res Mo</th>}
+                      {!isAERep && <th className="px-2 py-2 font-medium text-right">CSM %</th>}
+                      {!isAERep && <th className="px-2 py-2 font-medium text-right">CSM Mo</th>}
+                      {isAERep && <th className="px-2 py-2 font-medium text-right">Target</th>}
+                      <th className="px-2 py-2 font-medium text-right">TL %</th>
+                      <th className="px-2 py-2 font-medium">Notes</th>
+                      <th className="px-2 py-2 font-medium">Author</th>
+                      <th className="px-2 py-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((h, idx) => {
+                      const isActive = (h.effective_date || "") <= new Date().toISOString().slice(0, 10);
+                      const isNewest = idx === 0;
+                      const isEffective = isActive && (
+                        idx === 0 ||
+                        // OR: it's the first one that's <= today
+                        history.slice(0, idx).every((prev) => (prev.effective_date || "") > new Date().toISOString().slice(0, 10))
+                      );
+                      return (
+                        <tr key={h.id} className="border-b border-stone-100">
+                          <td className="px-2 py-1.5 font-mono tabular-nums text-stone-700">
+                            {h.effective_date}
+                            {isEffective && <span className="ml-1.5 text-[9px] mono-font px-1 py-0.5 rounded text-emerald-800" style={{ background: "#d1fae5" }}>active</span>}
+                            {!isActive && <span className="ml-1.5 text-[9px] mono-font px-1 py-0.5 rounded text-amber-800" style={{ background: "#fef3c7" }}>future</span>}
+                          </td>
+                          {isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.ae_pct != null ? fmtPct(Number(h.ae_pct)) : <span className="text-stone-300">—</span>}</td>}
+                          {isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.ae_residual_pct != null ? fmtPct(Number(h.ae_residual_pct)) : <span className="text-stone-300">—</span>}</td>}
+                          {isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.ae_residual_months ?? <span className="text-stone-300">—</span>}</td>}
+                          {!isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.csm_pct != null ? fmtPct(Number(h.csm_pct)) : <span className="text-stone-300">—</span>}</td>}
+                          {!isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.csm_residual_months ?? <span className="text-stone-300">—</span>}</td>}
+                          {isAERep && <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.accelerator_target != null ? fmtMoney(Number(h.accelerator_target)) : <span className="text-stone-300">—</span>}</td>}
+                          <td className="px-2 py-1.5 text-right font-mono tabular-nums">{h.team_lead_override_pct != null ? fmtPct(Number(h.team_lead_override_pct)) : <span className="text-stone-300">—</span>}</td>
+                          <td className="px-2 py-1.5 text-stone-600 text-[11px]">{h.notes || <span className="text-stone-300">—</span>}</td>
+                          <td className="px-2 py-1.5 text-stone-500 text-[10px]">{h.created_by_name || <span className="text-stone-300">—</span>}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            <button onClick={() => handleDelete(h.id)} title="Delete entry"
+                              className="p-1 text-stone-500 hover:text-red-600 transition-colors">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// NewRateEntryForm — add a new effective-dated rate row for a rep
+// ============================================================
+function NewRateEntryForm({ rep, isAERep, onSaved }) {
+  const [form, setForm] = useState({
+    effective_date: new Date().toISOString().slice(0, 10),
+    ae_pct: "",
+    ae_residual_pct: "",
+    ae_residual_months: "",
+    csm_pct: "",
+    csm_residual_months: "",
+    accelerator_target: "",
+    accel_1_5x_pct: "",
+    accel_2x_pct: "",
+    team_lead_override_pct: "",
+    notes: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [expanded, setExpanded] = useState(false);
+
+  const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = async () => {
+    setBusy(true);
+    setError(null);
+
+    // Build payload — only include non-empty fields
+    const payload = { rep_name: rep, effective_date: form.effective_date };
+    const numFields = [
+      "ae_pct", "ae_residual_pct", "ae_residual_months",
+      "csm_pct", "csm_residual_months",
+      "accelerator_target", "accel_1_5x_pct", "accel_2x_pct",
+      "team_lead_override_pct",
+    ];
+    for (const f of numFields) {
+      if (form[f] !== "" && form[f] != null) {
+        payload[f] = Number(form[f]);
+      }
+    }
+    if (form.notes.trim()) payload.notes = form.notes.trim();
+
+    // Stamp the author
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData?.user?.id) {
+      payload.created_by = userData.user.id;
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("name")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      if (profData?.name) payload.created_by_name = profData.name;
+    }
+
+    const { error: e } = await supabase
+      .from("commission_rep_overrides")
+      .insert(payload);
+
+    setBusy(false);
+    if (e) {
+      if (e.code === "23505") {
+        setError(`${rep} already has a rate entry effective ${form.effective_date}. Delete the existing one first, or pick a different date.`);
+      } else {
+        setError(e.message);
+      }
+    } else {
+      // Reset form and notify parent
+      setForm({
+        effective_date: new Date().toISOString().slice(0, 10),
+        ae_pct: "", ae_residual_pct: "", ae_residual_months: "",
+        csm_pct: "", csm_residual_months: "",
+        accelerator_target: "", accel_1_5x_pct: "", accel_2x_pct: "",
+        team_lead_override_pct: "", notes: "",
+      });
+      setExpanded(false);
+      onSaved();
+    }
+  };
+
+  return (
+    <div className="border border-stone-200 rounded-sm" style={{ background: "#fafafa" }}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-stone-50 transition-colors"
+      >
+        <div>
+          <div className="text-sm font-medium text-stone-900 inline-flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" />
+            Add new effective-dated rate entry
+          </div>
+          <p className="text-[11px] text-stone-500 mt-0.5">
+            Set rates that take effect on a specific date. Leave fields blank to inherit defaults.
+          </p>
+        </div>
+        <ChevronRight className={`w-4 h-4 text-stone-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 pt-1 border-t border-stone-200">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+            <Field label="Effective date" required>
+              <input type="date" value={form.effective_date}
+                onChange={(e) => update("effective_date", e.target.value)}
+                className="w-full border border-stone-300 px-2 py-1.5 text-sm focus:outline-none focus:border-stone-900" />
+            </Field>
+
+            {isAERep && (
+              <>
+                <Field label="AE Voice AI %" hint="e.g. 0.10 = 10%">
+                  <input type="number" step="0.001" value={form.ae_pct}
+                    onChange={(e) => update("ae_pct", e.target.value)}
+                    placeholder="0.10"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="AE Residual %" hint="e.g. 0.03 = 3%">
+                  <input type="number" step="0.001" value={form.ae_residual_pct}
+                    onChange={(e) => update("ae_residual_pct", e.target.value)}
+                    placeholder="0.03"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="AE Residual months" hint="e.g. 12">
+                  <input type="number" step="1" value={form.ae_residual_months}
+                    onChange={(e) => update("ae_residual_months", e.target.value)}
+                    placeholder="12"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="Annual target $">
+                  <input type="number" step="1000" value={form.accelerator_target}
+                    onChange={(e) => update("accelerator_target", e.target.value)}
+                    placeholder="60000"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="Accel 1.5× threshold" hint="e.g. 1.20 = 120% of target">
+                  <input type="number" step="0.01" value={form.accel_1_5x_pct}
+                    onChange={(e) => update("accel_1_5x_pct", e.target.value)}
+                    placeholder="1.20"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="Accel 2× threshold" hint="e.g. 1.50 = 150% of target">
+                  <input type="number" step="0.01" value={form.accel_2x_pct}
+                    onChange={(e) => update("accel_2x_pct", e.target.value)}
+                    placeholder="1.50"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+              </>
+            )}
+
+            {!isAERep && (
+              <>
+                <Field label="CSM monthly residual %" hint="e.g. 0.03 = 3%">
+                  <input type="number" step="0.001" value={form.csm_pct}
+                    onChange={(e) => update("csm_pct", e.target.value)}
+                    placeholder="0.03"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+                <Field label="CSM residual months" hint="blank = no cap">
+                  <input type="number" step="1" value={form.csm_residual_months}
+                    onChange={(e) => update("csm_residual_months", e.target.value)}
+                    placeholder="(unlimited)"
+                    className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+                </Field>
+              </>
+            )}
+
+            <Field label="Team Lead Override %" hint="if this rep is a team lead, % they earn on reports' commissions">
+              <input type="number" step="0.001" value={form.team_lead_override_pct}
+                onChange={(e) => update("team_lead_override_pct", e.target.value)}
+                placeholder="0.02"
+                className="w-full border border-stone-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-stone-900" />
+            </Field>
+
+            <Field label="Notes (optional)" className="col-span-2 md:col-span-3">
+              <textarea rows={1} value={form.notes}
+                onChange={(e) => update("notes", e.target.value)}
+                placeholder="e.g. Mid-year raise · approved by Mark"
+                className="w-full border border-stone-300 px-2 py-1.5 text-sm focus:outline-none focus:border-stone-900 resize-y" />
+            </Field>
+          </div>
+
+          {error && (
+            <div className="mt-3 bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-900">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center gap-2">
+            <button onClick={handleSubmit} disabled={busy}
+              className="px-3 py-2 text-sm font-medium text-white rounded-sm hover:opacity-90 disabled:opacity-40 transition-opacity"
+              style={{ background: "#6639a6" }}>
+              {busy ? <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 inline mr-1" />}
+              Add entry
+            </button>
+            <button onClick={() => setExpanded(false)}
+              className="px-3 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Reporting Structure Panel — executive can set manager_id per profile
+// ============================================================
+function ReportingStructurePanel({ c }) {
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState(null);
+
+  // Filter out executives — they don't need managers
+  const reportableProfiles = useMemo(() => {
+    return (c.profiles || []).filter((p) =>
+      p.role !== "executive" &&
+      !["coo", "ceo", "cto"].includes(p.role_type)
+    );
+  }, [c.profiles]);
+
+  // All profiles that could be a manager (team leads + executives)
+  const potentialManagers = useMemo(() => {
+    return (c.profiles || []).filter((p) =>
+      p.is_team_lead || p.role === "executive" || ["coo", "ceo", "cto"].includes(p.role_type)
+    );
+  }, [c.profiles]);
+
+  const handleChange = async (profileId, newManagerId) => {
+    setBusyId(profileId);
+    setError(null);
+    const { error: e } = await supabase
+      .from("profiles")
+      .update({ manager_id: newManagerId || null })
+      .eq("id", profileId);
+    setBusyId(null);
+    if (e) {
+      setError(e.message);
+    } else {
+      c.reload();
+    }
+  };
+
+  return (
+    <div className="bg-white border border-stone-200">
+      <div className="px-5 py-3 border-b border-stone-200">
+        <h3 className="text-sm font-medium text-stone-900">Reporting Structure</h3>
+        <p className="text-xs text-stone-500 mt-0.5">
+          Set who each rep reports to. Team leads earn the override % (configured above) on their reports' commissions.
+          Leave blank to default by team (everyone on team X rolls up to team X's lead).
+        </p>
+      </div>
+
+      {error && (
+        <div className="mx-5 mt-3 bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-900">
+          {error}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-stone-50/50 border-b border-stone-200">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Team</th>
+              <th className="px-3 py-2 font-medium">Team Lead?</th>
+              <th className="px-3 py-2 font-medium">Reports To</th>
+              <th className="px-3 py-2 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {reportableProfiles.map((p) => (
+              <tr key={p.id} className="border-b border-stone-100">
+                <td className="px-3 py-2 text-stone-900 font-medium">{p.name}</td>
+                <td className="px-3 py-2 text-stone-600 text-[11px] mono-font uppercase tracking-wider">
+                  {p.team || <span className="text-stone-300">—</span>}
+                </td>
+                <td className="px-3 py-2">
+                  {p.is_team_lead ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: "#f3eefb", color: "#4d2a7e" }}>
+                      <Crown className="w-3 h-3" /> Yes
+                    </span>
+                  ) : (
+                    <span className="text-stone-400 text-[10px]">no</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <select
+                    value={p.manager_id || ""}
+                    onChange={(e) => handleChange(p.id, e.target.value)}
+                    disabled={busyId === p.id}
+                    className="border border-stone-300 px-2 py-1 text-xs bg-white focus:outline-none focus:border-stone-900 min-w-[160px]"
+                  >
+                    <option value="">— default (by team) —</option>
+                    {potentialManagers
+                      .filter((m) => m.id !== p.id)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} {m.is_team_lead ? "(TL)" : ""}
+                        </option>
+                      ))}
+                  </select>
+                </td>
+                <td className="px-3 py-2">
+                  {busyId === p.id && <Loader2 className="w-3 h-3 animate-spin text-stone-400" />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
