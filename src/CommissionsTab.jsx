@@ -654,13 +654,14 @@ function PendingStat({ label, value, sub, icon: Icon, iconColor }) {
 // ============================================================
 function EarningsSection({ calc, userIsAE, config }) {
   const ytd = calc.monthly.reduce((a, m) => ({
+    voiceAINetSales:   a.voiceAINetSales + (m.voiceAINetSales || 0),
     voiceAICommission: a.voiceAICommission + m.voiceAICommission,
     aeResidual:        a.aeResidual + m.aeResidual,
     csmResidual:       a.csmResidual + m.csmResidual,
     total:             a.total + m.total,
     newDeals:          a.newDeals + m.newDeals,
     newMRR:            a.newMRR + m.newMRR,
-  }), { voiceAICommission: 0, aeResidual: 0, csmResidual: 0, total: 0, newDeals: 0, newMRR: 0 });
+  }), { voiceAINetSales: 0, voiceAICommission: 0, aeResidual: 0, csmResidual: 0, total: 0, newDeals: 0, newMRR: 0 });
 
   const acc = userIsAE ? calcAccelerator(ytd.total, config) : null;
   const lastMonth = calc.monthly[calc.monthly.length - 1];
@@ -737,6 +738,7 @@ function EarningsSection({ calc, userIsAE, config }) {
                 <>
                   <th className="px-3 py-2 font-medium text-right">Deals</th>
                   <th className="px-3 py-2 font-medium text-right">New MRR</th>
+                  <th className="px-3 py-2 font-medium text-right">Cash Collected</th>
                   <th className="px-3 py-2 font-medium text-right">Voice AI</th>
                   <th className="px-3 py-2 font-medium text-right">Residual</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
@@ -757,6 +759,7 @@ function EarningsSection({ calc, userIsAE, config }) {
                   <>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.newDeals || <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.newMRR > 0 ? fmtMoney(m.newMRR) : <span className="text-stone-300">—</span>}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.voiceAINetSales > 0 ? fmtMoney(m.voiceAINetSales) : <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{m.voiceAICommission > 0 ? fmtMoney(m.voiceAICommission) : <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{m.aeResidual > 0 ? fmtMoney(m.aeResidual) : <span className="text-stone-300">—</span>}</td>
                     <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">{m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}</td>
@@ -775,6 +778,7 @@ function EarningsSection({ calc, userIsAE, config }) {
                 <>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{ytd.newDeals}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{fmtMoney(ytd.newMRR)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{fmtMoney(ytd.voiceAINetSales)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{fmtMoney(ytd.voiceAICommission)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{fmtMoney(ytd.aeResidual)}</td>
                   <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">{fmtMoney(ytd.total)}</td>
