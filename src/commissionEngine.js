@@ -576,9 +576,17 @@ export function parseStripeCSV(rows) {
 // ------------------------------------------------------------
 // Formatters
 // ------------------------------------------------------------
+// fmtMoney displays decimals only when the value has a fractional part:
+//   $1,497      (whole dollar, no decimals shown)
+//   $149.70     (has fractional part, 2 decimals shown)
 export const fmtMoney = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
-  return `$${Math.round(n).toLocaleString("en-US")}`;
+  const num = Number(n);
+  const hasFraction = Math.abs(num - Math.round(num)) > 0.005;
+  const opts = hasFraction
+    ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    : { maximumFractionDigits: 0 };
+  return `$${num.toLocaleString("en-US", opts)}`;
 };
 export const fmtPct = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
