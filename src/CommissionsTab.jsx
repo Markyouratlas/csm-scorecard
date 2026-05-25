@@ -61,7 +61,7 @@ export default function CommissionsTab({ profile }) {
 
   const calc = useMemo(() => {
     if (!repName) return null;
-    return calcRepCommission(repName, c.customers, c.indexedAssignments, c.config, c.monthCols);
+    return calcRepCommission(repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
   }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols]);
 
   if (c.loading) {

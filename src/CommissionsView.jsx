@@ -262,14 +262,14 @@ function OverviewTab({ c, onJumpTo }) {
     });
     let totalThisMonth = 0;
     for (const rep of ALL_REPS) {
-      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols);
+      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
       if (r.monthly.length > 0) totalThisMonth += r.monthly[r.monthly.length - 1].total;
     }
     return { paying, aeEra, needsCSM, needsAE, totalThisMonth };
   }, [c.customers, c.assignments, c.indexedAssignments, c.config, c.monthCols]);
 
   const perRep = useMemo(() => ALL_REPS.map((rep) => {
-    const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols);
+    const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
     const ytd = r.monthly.reduce((s, m) => s + m.total, 0);
     const thisMonth = r.monthly[r.monthly.length - 1]?.total || 0;
     return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth };
@@ -1465,7 +1465,7 @@ function SuggestionPill({ suggestion }) {
 function ByRepTab({ c, initialRep }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const calc = useMemo(
-    () => calcRepCommission(selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols),
+    () => calcRepCommission(selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer),
     [selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols]
   );
   const ytd = useMemo(() => calc.monthly.reduce((a, m) => ({
@@ -1671,7 +1671,7 @@ function WhatIfTab({ c }) {
     const byRep = {};
     let total = 0;
     for (const rep of ALL_REPS) {
-      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, s.config, c.monthCols);
+      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, s.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
       const ytd = r.monthly.reduce((sum, m) => sum + m.total, 0);
       byRep[rep] = ytd;
       total += ytd;
@@ -1808,7 +1808,7 @@ function AnnualizeTab({ c }) {
     const projCustomers = projectCustomers(c.customers, c.monthCols, projMonths, method, growth);
 
     return ALL_REPS.map((rep) => {
-      const r = calcRepCommission(rep, projCustomers, c.indexedAssignments, c.config, allMonths);
+      const r = calcRepCommission(rep, projCustomers, c.indexedAssignments, c.config, allMonths, c.indexedOverrides, c.matchedDealsByCustomer);
       const yearTotal   = r.monthly.reduce((s, m) => s + m.total, 0);
       const actualTotal = r.monthly.filter((m) =>  actualSet.has(m.month)).reduce((s, m) => s + m.total, 0);
       const projTotal   = r.monthly.filter((m) => !actualSet.has(m.month)).reduce((s, m) => s + m.total, 0);

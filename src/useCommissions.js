@@ -7,13 +7,21 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "./supabase";
-import { DEFAULT_CONFIG, indexAssignments } from "./commissionEngine";
+import {
+  DEFAULT_CONFIG,
+  indexAssignments,
+  indexOverrides,
+  indexMatchedDeals,
+} from "./commissionEngine";
 
 export function useCommissions() {
   const [customers, setCustomers] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [unmatched, setUnmatched] = useState([]);
+  const [pendingDeals, setPendingDeals] = useState([]);
+  const [repOverrides, setRepOverrides] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(false);
@@ -32,11 +40,17 @@ export function useCommissions() {
         asgnRes,
         cfgRes,
         unmRes,
+        pendRes,
+        ovrRes,
+        profRes,
       ] = await Promise.all([
         supabase.from("commission_customers").select("*").order("start_date", { ascending: false }),
         supabase.from("commission_assignments").select("*"),
         supabase.from("commission_config").select("*").eq("id", 1).maybeSingle(),
         supabase.from("commission_unmatched").select("*").order("created_at", { ascending: false }),
+        supabase.from("commission_pending_deals").select("*"),
+        supabase.from("commission_rep_overrides").select("*"),
+        supabase.from("profiles").select("id, name, role, role_type, team, is_team_lead, manager_id"),
       ]);
 
       // Log any errors but don't blow up on individual failures
@@ -44,6 +58,9 @@ export function useCommissions() {
       if (asgnRes.error) console.error("assignments query error:", asgnRes.error);
       if (cfgRes.error)  console.error("config query error:", cfgRes.error);
       if (unmRes.error)  console.error("unmatched query error:", unmRes.error);
+      if (pendRes.error) console.error("pending_deals query error:", pendRes.error);
+      if (ovrRes.error)  console.error("rep_overrides query error:", ovrRes.error);
+      if (profRes.error) console.error("profiles query error:", profRes.error);
 
       if (!mountedRef.current) return;
 
@@ -51,6 +68,9 @@ export function useCommissions() {
       setAssignments(asgnRes.data || []);
       setConfig(cfgRes.data?.settings || DEFAULT_CONFIG);
       setUnmatched(unmRes.data || []);
+      setPendingDeals(pendRes.data || []);
+      setRepOverrides(ovrRes.data || []);
+      setProfiles(profRes.data || []);
 
       if (custRes.data?.length) {
         const latest = custRes.data.reduce((max, c) =>
@@ -73,6 +93,13 @@ export function useCommissions() {
 
   // ---- Derived: indexed assignment lookups for the engine ----
   const indexedAssignments = useMemo(() => indexAssignments(assignments), [assignments]);
+
+  // ---- Derived: per-rep override index (rep_name -> sorted array) ----
+  const indexedOverrides = useMemo(() => indexOverrides(repOverrides), [repOverrides]);
+
+  // ---- Derived: matched pending deals -> by stripe customer id ----
+  // The engine uses this to look up actual upfront cash collected.
+  const matchedDealsByCustomer = useMemo(() => indexMatchedDeals(pendingDeals), [pendingDeals]);
 
   // ---- Derived: month columns from data ----
   const monthCols = useMemo(() => {
@@ -208,6 +235,11 @@ export function useCommissions() {
     indexedAssignments,
     config,
     unmatched,
+    pendingDeals,
+    repOverrides,
+    indexedOverrides,
+    matchedDealsByCustomer,
+    profiles,
     monthCols,
     loading,
     error,
