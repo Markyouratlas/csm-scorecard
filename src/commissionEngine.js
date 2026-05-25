@@ -6,13 +6,25 @@
 //
 // Math summary (per rep, per customer, per month):
 //   AE:
-//     Voice AI on the customer's start month:
+//     Voice AI on the customer's start month (diff = 0):
 //        - If a matched pending_deal exists: aeVoiceRate × deal.upfront_amount
 //          (this is the "actual cash collected" path — source of truth)
 //        - Else fallback: aeVoiceRate × (mrr × upfrontMultiplier)
 //          (legacy proxy for customers seeded before pending_deals existed)
-//     Residual months 1..(residualMonths - 1):  aeResidualRate × mrr
-//     Months >= residualMonths:                   0
+//
+//     PREPAY WINDOW: The upfront cash covers `prepayMonths` of MRR.
+//        - prepayMonths = round(upfront / startMRR)  for matched deals
+//        - prepayMonths = upfrontMultiplier (default 3)  for legacy customers
+//        - During the prepay window (1 <= diff < prepayMonths): NO residual.
+//          AE already got paid 10% on the cash for these months via Voice AI.
+//
+//     RESIDUAL: aeResidualRate × mrr for months AFTER the prepay window,
+//     capped at aeResidualMonths months from start_date (12 by default).
+//        - For a 3-month prepay: residual months 4-12.
+//        - For an annual prepay covering 12 months: no residual ever (prepay
+//          covers the full residual window).
+//        - "After the customer has been a customer for 12 months, no more
+//          commission paid on this customer." — measured from start_date.
 //
 //   CSM:
 //     Any month with mrr > 0:    csmRate × mrr
@@ -250,6 +262,19 @@ export function calcRepCommission(
         const effectiveAtDate = (matchedDeal?.closed_date) || c.start_date || m + "-01";
         const effCfg = resolveRepConfig(rep, effectiveAtDate, indexedOverrides, config);
 
+        // Compute the "prepay window" — how many months of MRR were paid for upfront.
+        // For Elizabeth's example: $1,497 / $499 MRR = 3 months covered by the upfront.
+        // Those months do NOT get residual on top of the Voice AI commission already paid.
+        //
+        // Start-month MRR is the reference. If start-month MRR is unknown or 0, fall back
+        // to the legacy upfrontMultiplier as the assumed prepay length (default 3).
+        const startKey = c.start_date ? c.start_date.slice(0, 7) : null;
+        const startMRR = (startKey && c.monthly_mrr && c.monthly_mrr[startKey]) || 0;
+        let prepayMonths = effCfg.upfrontMultiplier || 3;
+        if (matchedDeal && Number(matchedDeal.upfront_amount) > 0 && startMRR > 0) {
+          prepayMonths = Math.max(1, Math.round(Number(matchedDeal.upfront_amount) / startMRR));
+        }
+
         if (diff === 0) {
           // Start month: pay Voice AI on actual cash collected if available
           let cashCollected;
@@ -264,9 +289,14 @@ export function calcRepCommission(
           voiceAI += cashCollected * effCfg.aeVoiceRate;
           newDeals += 1;
           newMRR += mrr;
-        } else if (diff !== null && diff >= 1 && diff < effCfg.aeResidualMonths) {
+        } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
+          // Beyond the prepay window AND before the residual cap.
+          // (Cap is measured from start_date — "12 months after the customer has
+          // been a customer for 12 months there is no more commission paid.")
           aeResidual += mrr * effCfg.aeResidualRate;
         }
+        // else (1 <= diff < prepayMonths): covered by upfront, no residual paid.
+        // else (diff >= aeResidualMonths): customer is past the 12-month residual window.
       } else {
         // CSM
         const effCfg = resolveRepConfig(rep, c.start_date || m + "-01", indexedOverrides, config);
