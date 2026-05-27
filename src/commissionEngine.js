@@ -86,17 +86,7 @@ export const DEFAULT_CONFIG = {
 // ------------------------------------------------------------
 // Override resolution
 // ------------------------------------------------------------
-// Each rep can have an effective-dated history of override rows
-// (commission_rep_overrides). Given the rep + a specific date, return the
-// "effective" config — the most recent override row with effective_date <= date,
-// with any NULL fields falling back to the global DEFAULT_CONFIG.
-//
-// repOverrides: array of override rows from the DB, e.g.:
-//   [{ rep_name: 'Heather', effective_date: '2026-06-01', ae_pct: 0.12, ... }]
-// ------------------------------------------------------------
 export function indexOverrides(repOverrides) {
-  // Group by rep_name, sort each by effective_date descending so the
-  // newest applicable row is at index 0.
   const byRep = {};
   for (const o of (repOverrides || [])) {
     if (!o.rep_name) continue;
@@ -109,9 +99,6 @@ export function indexOverrides(repOverrides) {
   return byRep;
 }
 
-// Resolve the effective configuration for a rep at a specific date.
-// Picks the most-recent override row where effective_date <= date,
-// then layers it on top of the global config with NULLs falling back.
 export function resolveRepConfig(repName, dateISO, indexedOverrides, baseConfig) {
   const base = baseConfig || DEFAULT_CONFIG;
   if (!repName || !indexedOverrides || !indexedOverrides[repName]) {
@@ -121,18 +108,17 @@ export function resolveRepConfig(repName, dateISO, indexedOverrides, baseConfig)
   const applicable = indexedOverrides[repName].find(o => (o.effective_date || "") <= date);
   if (!applicable) return { ...base, _source: "default" };
 
-  // Layer: override field if not null, else default. Map DB column names to engine config keys.
   return {
     aeVoiceRate:       applicable.ae_pct != null ? Number(applicable.ae_pct) : base.aeVoiceRate,
     aeResidualRate:    applicable.ae_residual_pct != null ? Number(applicable.ae_residual_pct) : base.aeResidualRate,
     aeResidualMonths:  applicable.ae_residual_months != null ? Number(applicable.ae_residual_months) : base.aeResidualMonths,
     csmRate:           applicable.csm_pct != null ? Number(applicable.csm_pct) : base.csmRate,
-    csmResidualMonths: applicable.csm_residual_months != null ? Number(applicable.csm_residual_months) : null,  // null = no cap
+    csmResidualMonths: applicable.csm_residual_months != null ? Number(applicable.csm_residual_months) : null,
     acceleratorTarget: applicable.accelerator_target != null ? Number(applicable.accelerator_target) : base.acceleratorTarget,
     accelerator120Multiplier: applicable.accel_1_5x_pct != null ? Number(applicable.accel_1_5x_pct) : base.accelerator120Multiplier,
     accelerator150Multiplier: applicable.accel_2x_pct != null ? Number(applicable.accel_2x_pct) : base.accelerator150Multiplier,
     teamLeadOverridePct: applicable.team_lead_override_pct != null ? Number(applicable.team_lead_override_pct) : 0,
-    upfrontMultiplier: base.upfrontMultiplier,    // these aren't per-rep
+    upfrontMultiplier: base.upfrontMultiplier,
     selfServeMaxMrr:   base.selfServeMaxMrr,
     aeEraStartDate:    base.aeEraStartDate,
     _source: "override",
@@ -141,12 +127,8 @@ export function resolveRepConfig(repName, dateISO, indexedOverrides, baseConfig)
 }
 
 // ------------------------------------------------------------
-// Pending deals lookup (to read the "actual cash collected" upfront)
+// Pending deals lookup
 // ------------------------------------------------------------
-// pendingDeals: array from commission_pending_deals.
-// Returns a map: stripe_customer_id -> the most recent matched deal for that customer.
-// Used by the AE Voice AI calculation to source the actual upfront amount
-// the AE submitted (instead of the MRR×multiplier proxy).
 export function indexMatchedDeals(pendingDeals) {
   const byCustomerId = {};
   for (const d of (pendingDeals || [])) {
@@ -185,10 +167,8 @@ export function addMonths(monthKey, n) {
 }
 
 // ------------------------------------------------------------
-// Resolving "this customer is assigned to which rep"
+// Assignment resolution
 // ------------------------------------------------------------
-// `assignments` is a map keyed by either stripe_customer_id (preferred) or
-// lowercased email (fallback). We try stripe_customer_id first.
 export function resolveAssignment(customer, assignmentsByStripeId, assignmentsByEmail) {
   if (customer.stripe_customer_id && assignmentsByStripeId[customer.stripe_customer_id]) {
     return assignmentsByStripeId[customer.stripe_customer_id];
@@ -199,7 +179,6 @@ export function resolveAssignment(customer, assignmentsByStripeId, assignmentsBy
   return { ae: null, csm: null };
 }
 
-// Pre-bucket assignment list into the two lookup maps.
 export function indexAssignments(assignmentList) {
   const byStripeId = {};
   const byEmail = {};
@@ -213,23 +192,6 @@ export function indexAssignments(assignmentList) {
 // ------------------------------------------------------------
 // Per-rep commission calculation
 // ------------------------------------------------------------
-// Now supports:
-//   - effective-dated rate overrides (via indexedOverrides)
-//   - actual upfront cash from matched pending deals (via matchedDealsByCustomer)
-//
-// Signature is backwards-compatible: if you don't pass the new args,
-// it falls back to the legacy MRR×multiplier behavior.
-//
-// Args:
-//   rep                — rep name string
-//   customers          — array of customers
-//   indexedAssignments — { byStripeId, byEmail } map (from indexAssignments)
-//   config             — global commission_config row (defaults)
-//   monthCols          — array of "YYYY-MM" month keys to compute
-//   indexedOverrides   — optional, from indexOverrides(repOverridesArray)
-//   matchedDealsByCustomer — optional, from indexMatchedDeals(pendingDealsArray)
-//
-// Returns: { rep, isAE, book, monthly: [...perMonth] }
 export function calcRepCommission(
   rep,
   customers,
@@ -241,7 +203,6 @@ export function calcRepCommission(
 ) {
   const ae = isAE(rep);
 
-  // Filter customers in this rep's book.
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
     return ae ? a.ae === rep : a.csm === rep;
@@ -258,9 +219,6 @@ export function calcRepCommission(
 
     for (const c of book) {
       const mrr = (c.monthly_mrr && c.monthly_mrr[m]) || 0;
-      // Cash actually collected this month for this customer. Sourced from
-      // paid Stripe invoices in the sync. Used to gate residual commission
-      // (we only pay residual on months where new cash arrived).
       const cashReceived = (c.monthly_cash_received && c.monthly_cash_received[m]) || 0;
       if (mrr <= 0 && cashReceived <= 0) continue;
       bookMRR += mrr;
@@ -268,18 +226,10 @@ export function calcRepCommission(
       if (ae) {
         const diff = monthDiff(c.start_date, m);
 
-        // Resolve the rep's effective config for THIS deal at the customer's start date.
-        // We pick the deal's close_date if we have a matched pending deal, else customer.start_date.
         const matchedDeal = matchedDealsByCustomer ? matchedDealsByCustomer[c.stripe_customer_id] : null;
         const effectiveAtDate = (matchedDeal?.closed_date) || c.start_date || m + "-01";
         const effCfg = resolveRepConfig(rep, effectiveAtDate, indexedOverrides, config);
 
-        // Compute the "prepay window" — how many months of MRR were paid for upfront.
-        // For Elizabeth's example: $1,497 / $499 MRR = 3 months covered by the upfront.
-        // Those months do NOT get residual on top of the Voice AI commission already paid.
-        //
-        // Start-month MRR is the reference. If start-month MRR is unknown or 0, fall back
-        // to the legacy upfrontMultiplier as the assumed prepay length (default 3).
         const startKey = c.start_date ? c.start_date.slice(0, 7) : null;
         const startMRR = (startKey && c.monthly_mrr && c.monthly_mrr[startKey]) || 0;
         let prepayMonths = effCfg.upfrontMultiplier || 3;
@@ -288,13 +238,10 @@ export function calcRepCommission(
         }
 
         if (diff === 0) {
-          // Start month: pay Voice AI on actual cash collected if available
           let cashCollected;
           if (matchedDeal && Number(matchedDeal.upfront_amount) > 0) {
-            // Use the AE-submitted, manager-confirmed actual upfront amount
             cashCollected = Number(matchedDeal.upfront_amount);
           } else {
-            // Fallback: MRR × multiplier proxy (legacy seed customers)
             cashCollected = mrr * effCfg.upfrontMultiplier;
           }
           voiceAINetSales += cashCollected;
@@ -302,16 +249,6 @@ export function calcRepCommission(
           newDeals += 1;
           newMRR += mrr;
         } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
-          // Beyond the prepay window AND before the residual cap.
-          //
-          // Residual is paid on ACTUAL CASH COLLECTED this month, not on the
-          // subscription MRR. This matches comp policy: "residual on payments
-          // received after the initial." For a customer who paid upfront and
-          // never renewed, cashReceived = 0 in subsequent months → no residual.
-          //
-          // Backward-compat: if monthly_cash_received is empty (sync hasn't run
-          // yet since the column was added), fall back to MRR-based residual
-          // so existing dashboards don't suddenly show $0.
           const cashSourceExists = c.monthly_cash_received &&
             Object.keys(c.monthly_cash_received).length > 0;
           const residualBase = cashSourceExists ? cashReceived : mrr;
@@ -319,10 +256,7 @@ export function calcRepCommission(
             aeResidual += residualBase * effCfg.aeResidualRate;
           }
         }
-        // else (1 <= diff < prepayMonths): covered by upfront, no residual paid.
-        // else (diff >= aeResidualMonths): customer is past the 12-month residual window.
       } else {
-        // CSM
         const effCfg = resolveRepConfig(rep, c.start_date || m + "-01", indexedOverrides, config);
         const csmCap = effCfg.csmResidualMonths;
         let csmEligible = true;
@@ -331,7 +265,6 @@ export function calcRepCommission(
           if (diff != null && diff >= csmCap) csmEligible = false;
         }
         if (csmEligible) {
-          // Same cash-based logic for CSM residuals
           const cashSourceExists = c.monthly_cash_received &&
             Object.keys(c.monthly_cash_received).length > 0;
           const residualBase = cashSourceExists ? cashReceived : mrr;
@@ -359,29 +292,8 @@ export function calcRepCommission(
 }
 
 // ------------------------------------------------------------
-// Per-customer breakdown for one rep
+// Per-customer breakdown for one rep (YTD totals)
 // ------------------------------------------------------------
-// Returns an array of {customer, monthly[], totals} for each customer in
-// the rep's book. The same math as calcRepCommission, but kept per-customer
-// instead of aggregated. Useful for displaying "which customers am I earning
-// from?" in the personal commission tab.
-//
-// Returns:
-//   [
-//     {
-//       customer: { name, email, start_date, stripe_customer_id, ... },
-//       isMatched: boolean,
-//       cashCollected: number,       // total cash collected lifetime (upfront)
-//       voiceAICommission: number,   // YTD Voice AI on this customer
-//       residual: number,            // YTD residual on this customer
-//       total: number,               // sum
-//       latestMRR: number,           // most recent month's MRR (for sorting)
-//       startDate: string,           // for display
-//     },
-//     ...
-//   ]
-//
-// Sorted by total commission descending.
 export function calcRepCommissionByCustomer(
   rep,
   customers,
@@ -393,7 +305,6 @@ export function calcRepCommissionByCustomer(
 ) {
   const ae = isAE(rep);
 
-  // Filter the rep's book
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
     return ae ? a.ae === rep : a.csm === rep;
@@ -434,7 +345,6 @@ export function calcRepCommissionByCustomer(
           voiceAICash += cash;
           voiceAI += cash * effCfg.aeVoiceRate;
         } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
-          // Residual on actual cash received this month (with MRR fallback for legacy)
           const cashSourceExists = c.monthly_cash_received &&
             Object.keys(c.monthly_cash_received).length > 0;
           const residualBase = cashSourceExists ? cashReceived : mrr;
@@ -443,7 +353,6 @@ export function calcRepCommissionByCustomer(
           }
         }
       } else {
-        // CSM
         const effCfg = resolveRepConfig(rep, c.start_date || m + "-01", indexedOverrides, config);
         const csmCap = effCfg.csmResidualMonths;
         let csmEligible = true;
@@ -478,32 +387,192 @@ export function calcRepCommissionByCustomer(
 }
 
 // ------------------------------------------------------------
-// Team Lead Override
+// Per-customer breakdown PER MONTH — Phase 3 (drill-down)
 // ------------------------------------------------------------
-// A team lead earns a configurable percentage of every commission earned
-// by reps who roll up to them. Reporting structure is determined by:
-//   1. profiles.manager_id (explicit) — strongest signal
-//   2. profiles.team (default) — anyone on the same team as the lead, except
-//      executives and the lead themselves
-//
-// Args:
-//   tlProfile           — the team lead's profile row { id, name, team, is_team_lead }
-//   allProfiles         — full profiles list (to resolve reports)
-//   customers           — full customer list
-//   indexedAssignments  — same as calcRepCommission
-//   config              — defaults
-//   monthCols           — months to compute
-//   indexedOverrides    — rep override index
-//   matchedDealsByCustomer — pending deals lookup
+// Returns the same math as calcRepCommission, but instead of collapsing
+// customers into monthly totals, it keeps each customer's contribution
+// per month visible. This is the data layer for the drill-down UI: each
+// month row in the table can expand to show "which customers drove this
+// month's number for this rep."
 //
 // Returns:
 //   {
-//     totalOverride: number,                      // sum of all override across months
-//     byReport: { repName: { perMonth: [...], total: n } },  // per-report breakdown
-//     monthly: [ { month, total } ]               // total per month
+//     rep, isAE, book,
+//     monthly: [
+//       {
+//         month: "2026-02",
+//         total, voiceAICommission, aeResidual, csmResidual,
+//         newDeals, newMRR, voiceAINetSales, bookMRR,
+//         customers: [
+//           {
+//             customer: { ...customer fields including subscriptions, current_period_end },
+//             isMatched: boolean,
+//             voiceAICommission: number,    // this month from this customer
+//             aeResidual: number,            // this month from this customer
+//             csmResidual: number,           // this month from this customer
+//             cashCollected: number,         // upfront cash if start month
+//             mrr: number,                   // MRR this month
+//             cashReceived: number,          // cash received this month
+//             total: number,
+//             isStartMonth: boolean,         // is this customer's first month?
+//             isInPrepayWindow: boolean,     // covered by upfront, no residual
+//             isPastResidualCap: boolean,    // past 12mo cap (or csm cap)
+//           },
+//           ...
+//         ]
+//       },
+//       ...
+//     ]
 //   }
-//
-// Only returns nonzero if the team lead's effective override % > 0 at the deal date.
+// ------------------------------------------------------------
+export function calcRepCommissionByCustomerByMonth(
+  rep,
+  customers,
+  indexedAssignments,
+  config,
+  monthCols,
+  indexedOverrides = null,
+  matchedDealsByCustomer = null,
+) {
+  const ae = isAE(rep);
+
+  const book = customers.filter((c) => {
+    const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
+    return ae ? a.ae === rep : a.csm === rep;
+  });
+
+  const monthly = monthCols.map((m) => {
+    let voiceAI = 0;
+    let voiceAINetSales = 0;
+    let aeResidual = 0;
+    let csmResidual = 0;
+    let newDeals = 0;
+    let newMRR = 0;
+    let bookMRR = 0;
+    const customerLines = [];
+
+    for (const c of book) {
+      const mrr = (c.monthly_mrr && c.monthly_mrr[m]) || 0;
+      const cashReceived = (c.monthly_cash_received && c.monthly_cash_received[m]) || 0;
+      if (mrr <= 0 && cashReceived <= 0) continue;
+      bookMRR += mrr;
+
+      const matchedDeal = matchedDealsByCustomer ? matchedDealsByCustomer[c.stripe_customer_id] : null;
+
+      let cVoiceAI = 0;
+      let cVoiceAICash = 0;
+      let cAeResidual = 0;
+      let cCsmResidual = 0;
+      let isStartMonth = false;
+      let isInPrepayWindow = false;
+      let isPastResidualCap = false;
+
+      if (ae) {
+        const diff = monthDiff(c.start_date, m);
+        const effectiveAtDate = (matchedDeal?.closed_date) || c.start_date || m + "-01";
+        const effCfg = resolveRepConfig(rep, effectiveAtDate, indexedOverrides, config);
+
+        const startKey = c.start_date ? c.start_date.slice(0, 7) : null;
+        const startMRR = (startKey && c.monthly_mrr && c.monthly_mrr[startKey]) || 0;
+        let prepayMonths = effCfg.upfrontMultiplier || 3;
+        if (matchedDeal && Number(matchedDeal.upfront_amount) > 0 && startMRR > 0) {
+          prepayMonths = Math.max(1, Math.round(Number(matchedDeal.upfront_amount) / startMRR));
+        }
+
+        if (diff === 0) {
+          isStartMonth = true;
+          if (matchedDeal && Number(matchedDeal.upfront_amount) > 0) {
+            cVoiceAICash = Number(matchedDeal.upfront_amount);
+          } else {
+            cVoiceAICash = mrr * effCfg.upfrontMultiplier;
+          }
+          cVoiceAI = cVoiceAICash * effCfg.aeVoiceRate;
+          voiceAINetSales += cVoiceAICash;
+          voiceAI += cVoiceAI;
+          newDeals += 1;
+          newMRR += mrr;
+        } else if (diff !== null && diff >= 1 && diff < prepayMonths) {
+          isInPrepayWindow = true;
+        } else if (diff !== null && diff >= prepayMonths && diff < effCfg.aeResidualMonths) {
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            cAeResidual = residualBase * effCfg.aeResidualRate;
+            aeResidual += cAeResidual;
+          }
+        } else if (diff !== null && diff >= effCfg.aeResidualMonths) {
+          isPastResidualCap = true;
+        }
+      } else {
+        // CSM
+        const effCfg = resolveRepConfig(rep, c.start_date || m + "-01", indexedOverrides, config);
+        const csmCap = effCfg.csmResidualMonths;
+        let csmEligible = true;
+        if (csmCap != null && c.start_date) {
+          const diff = monthDiff(c.start_date, m);
+          if (diff != null && diff >= csmCap) {
+            csmEligible = false;
+            isPastResidualCap = true;
+          }
+        }
+        if (csmEligible) {
+          const cashSourceExists = c.monthly_cash_received &&
+            Object.keys(c.monthly_cash_received).length > 0;
+          const residualBase = cashSourceExists ? cashReceived : mrr;
+          if (residualBase > 0) {
+            cCsmResidual = residualBase * effCfg.csmRate;
+            csmResidual += cCsmResidual;
+          }
+        }
+      }
+
+      const cTotal = cVoiceAI + cAeResidual + cCsmResidual;
+
+      // Only include customer line if they contributed something OR they're
+      // relevant context (in prepay window, past cap, start month with $0).
+      // This keeps the drill-down focused on commission-relevant customers.
+      if (cTotal > 0 || isStartMonth || isInPrepayWindow) {
+        customerLines.push({
+          customer: c,
+          isMatched: !!matchedDeal,
+          voiceAICommission: cVoiceAI,
+          aeResidual: cAeResidual,
+          csmResidual: cCsmResidual,
+          cashCollected: cVoiceAICash,
+          mrr,
+          cashReceived,
+          total: cTotal,
+          isStartMonth,
+          isInPrepayWindow,
+          isPastResidualCap,
+        });
+      }
+    }
+
+    // Sort customers within the month by their commission amount, descending.
+    // Customers with $0 (prepay window) sink to the bottom but still visible.
+    customerLines.sort((a, b) => b.total - a.total);
+
+    return {
+      month: m,
+      newDeals,
+      newMRR,
+      voiceAINetSales,
+      voiceAICommission: voiceAI,
+      aeResidual,
+      csmResidual,
+      bookMRR,
+      total: voiceAI + aeResidual + csmResidual,
+      customers: customerLines,
+    };
+  });
+
+  return { rep, isAE: ae, book, monthly };
+}
+
+// ------------------------------------------------------------
+// Team Lead Override
 // ------------------------------------------------------------
 export function calcTeamLeadOverride(
   tlProfile,
@@ -520,15 +589,11 @@ export function calcTeamLeadOverride(
   }
   const tlFirstName = (tlProfile.name || "").split(" ")[0];
 
-  // Find reports
-  // (a) explicit: profiles where manager_id === tlProfile.id
-  // (b) default: profiles where team === tlProfile.team, NOT exec, NOT the team lead themselves,
-  //     AND don't already have a manager_id pointing elsewhere
   const reports = (allProfiles || []).filter((p) => {
     if (p.id === tlProfile.id) return false;
     if (p.role === "executive" || p.role_type === "coo" || p.role_type === "ceo" || p.role_type === "cto") return false;
     if (p.manager_id === tlProfile.id) return true;
-    if (p.manager_id && p.manager_id !== tlProfile.id) return false; // explicitly reports to someone else
+    if (p.manager_id && p.manager_id !== tlProfile.id) return false;
     return tlProfile.team && p.team === tlProfile.team;
   });
 
@@ -543,7 +608,6 @@ export function calcTeamLeadOverride(
     const repFirstName = (r.name || "").split(" ")[0];
     if (!repFirstName) continue;
 
-    // Compute the report's full commission
     const reportCalc = calcRepCommission(
       repFirstName,
       customers,
@@ -564,8 +628,6 @@ export function calcTeamLeadOverride(
         continue;
       }
 
-      // Team lead's effective override % at this month's date
-      // Use first day of month as the effective date
       const effCfg = resolveRepConfig(tlFirstName, m + "-01", indexedOverrides, config);
       const pct = effCfg.teamLeadOverridePct || 0;
       const overrideEarned = reportTotalThisMonth * pct;
@@ -592,19 +654,8 @@ export function calcTeamLeadOverride(
 // ------------------------------------------------------------
 // Accelerator (AE only)
 // ------------------------------------------------------------
-// Computes the accelerator bonus based on yearly variable comp (sum of
-// Voice AI + residuals across the year). Uses effective per-rep target
-// and thresholds if the rep has overrides at the relevant date.
-//
-// `config` may be either the global defaults or a resolved rep config from
-// resolveRepConfig() — both work since the same fields exist on both.
-//
-// Thresholds default to 1.2× (1.5x payout) and 1.5× (2x payout) of target.
-// These can be per-rep overridden via accel_1_5x_pct and accel_2x_pct columns.
 export function calcAccelerator(yearlyVariableComp, config) {
   const target = config.acceleratorTarget;
-  // Use override thresholds if explicitly provided by resolveRepConfig,
-  // otherwise default to the legacy 1.2 / 1.5 multipliers.
   const t120Mult = (config._source === "override" && config.accelerator120Multiplier != null)
     ? Number(config.accelerator120Multiplier) : 1.2;
   const t150Mult = (config._source === "override" && config.accelerator150Multiplier != null)
@@ -626,11 +677,8 @@ export function calcAccelerator(yearlyVariableComp, config) {
 }
 
 // ------------------------------------------------------------
-// Per-customer lifetime AE projection (for book display)
+// Per-customer lifetime AE projection
 // ------------------------------------------------------------
-// Estimates total AE commission the customer will produce over their first
-// `aeResidualMonths` months. Uses matched-deal upfront if available; falls
-// back to MRR × multiplier proxy otherwise.
 export function aeCustomerLifetimeProjection(c, config, matchedDealsByCustomer = null) {
   const start = c.start_date ? c.start_date.slice(0, 7) : null;
   if (!start) return 0;
@@ -647,8 +695,7 @@ export function aeCustomerLifetimeProjection(c, config, matchedDealsByCustomer =
 }
 
 // ------------------------------------------------------------
-// Project future months by extending the last actual MRR forward.
-// Used by the Annualize tab.
+// Project future months
 // ------------------------------------------------------------
 export function projectCustomers(customers, actualMonths, projMonths, method, growthAnnualPct) {
   const lastActual = actualMonths[actualMonths.length - 1];
@@ -669,7 +716,7 @@ export function projectCustomers(customers, actualMonths, projMonths, method, gr
 }
 
 // ------------------------------------------------------------
-// CSV parsing — Stripe MRR exports, flexible column matching
+// CSV parsing
 // ------------------------------------------------------------
 export function parseStripeCSV(rows) {
   if (rows.length === 0) throw new Error("CSV is empty");
@@ -725,9 +772,6 @@ export function parseStripeCSV(rows) {
 // ------------------------------------------------------------
 // Formatters
 // ------------------------------------------------------------
-// fmtMoney displays decimals only when the value has a fractional part:
-//   $1,497      (whole dollar, no decimals shown)
-//   $149.70     (has fractional part, 2 decimals shown)
 export const fmtMoney = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
   const num = Number(n);
@@ -737,11 +781,7 @@ export const fmtMoney = (n) => {
     : { maximumFractionDigits: 0 };
   return `$${num.toLocaleString("en-US", opts)}`;
 };
-// fmtPct displays a 0-1 decimal as a percent. Shows decimals only if the
-// percent value isn't a whole number:
-//   0.10 → "10%"
-//   0.125 → "12.5%"
-//   0.03 → "3%"
+
 export const fmtPct = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "—";
   const pct = Number(n) * 100;

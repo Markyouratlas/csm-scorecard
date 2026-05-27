@@ -1,10 +1,11 @@
 // ============================================================
 // Supabase Edge Function: stripe-sync
 // ============================================================
-// Pulls all Stripe customers + subscriptions, computes month-by-month MRR
-// per customer for the trailing 13 months, and upserts into
-// commission_customers. Preserves commission_assignments via the unique
-// index on stripe_customer_id (assignments survive re-sync).
+// Pulls all Stripe customers + subscriptions + paid invoices, computes
+// month-by-month MRR and cash-received per customer for the trailing
+// 13 months, captures per-sub detail (status, renewal, MRR, product),
+// and upserts into commission_customers. Preserves commission_assignments
+// via the unique index on stripe_customer_id (assignments survive re-sync).
 //
 // Deploy:
 //   supabase functions deploy stripe-sync
@@ -13,8 +14,8 @@
 // Invoke from the frontend:
 //   const { data, error } = await supabase.functions.invoke('stripe-sync')
 //
-// Returns: { customers_upserted: N, months: [...], generated_at: ISO,
-//            duration_ms: N, errors: [...] }
+// Returns: { ok, status: "accepted", ... } immediately. Sync runs in
+// background; check commission_audit_log for completion.
 //
 // Required env vars (auto-injected by Supabase):
 //   SUPABASE_URL
@@ -272,6 +273,11 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         // Cash actually collected per month (sourced from paid invoices, not
         // subscription state). This is the basis for residual commission math.
         monthly_cash_received: Object.fromEntries(monthCols.map((m) => [m, 0])),
+        // Phase 2: per-sub detail for the drill-down UI (status pills, renewal dates).
+        // subscriptions is an array of { id, status, product_label, mrr, current_period_end, ... }
+        // current_period_end is the earliest renewal date across all ACTIVE subs (for sorting).
+        subscriptions: [] as any[],
+        current_period_end: null as string | null,
       };
     }
 
@@ -296,6 +302,44 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
       // latest end (only if all subs ended)
       if (subEnd && (!row.end_date || subEnd > row.end_date)) row.end_date = subEnd;
       if (!subEnd) row.end_date = null; // any active sub clears end_date
+
+      // Phase 2: capture per-sub detail for the drill-down UI.
+      // Build a product label by concatenating each item's price.nickname
+      // (or product id fallback). This gives the UI a human-readable name.
+      const productLabels: string[] = [];
+      for (const item of s.items?.data || []) {
+        const nickname = item.price?.nickname;
+        const productId = item.price?.product;
+        if (nickname) productLabels.push(nickname);
+        else if (productId) productLabels.push(String(productId));
+      }
+      const productLabel = productLabels.length > 0 ? productLabels.join(" + ") : "Subscription";
+
+      // current_period_end is Stripe's "next billing date" (or expiry for canceled).
+      const periodEndIso = s.current_period_end
+        ? new Date(s.current_period_end * 1000).toISOString()
+        : null;
+
+      row.subscriptions.push({
+        id: s.id,
+        status: s.status,                              // active | canceled | past_due | trialing | paused | incomplete | unpaid
+        product_label: productLabel,
+        mrr: subMrr,
+        current_period_end: periodEndIso,
+        cancel_at_period_end: s.cancel_at_period_end || false,
+        created: s.created ? new Date(s.created * 1000).toISOString() : null,
+        canceled_at: s.canceled_at ? new Date(s.canceled_at * 1000).toISOString() : null,
+        ended_at: s.ended_at ? new Date(s.ended_at * 1000).toISOString() : null,
+      });
+
+      // Track the earliest upcoming current_period_end across all ACTIVE subs.
+      // This becomes the customer's "next renewal" scalar for dashboard sorting.
+      const isActiveStatus = ["active", "trialing", "past_due"].includes(s.status);
+      if (isActiveStatus && periodEndIso) {
+        if (!row.current_period_end || periodEndIso < row.current_period_end) {
+          row.current_period_end = periodEndIso;
+        }
+      }
     }
 
     // ---- Aggregate cash received per customer per month from paid invoices ----
@@ -365,6 +409,11 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
     }
 
     // ---- Audit log entry ----
+    // Count customers whose subscriptions array was populated, so we can
+    // verify the Phase 2 code path actually ran (same diagnostic pattern as
+    // invoices_fetched on the Phase 1 fix).
+    const customersWithSubs = upsertRows.filter((r) => r.subscriptions && r.subscriptions.length > 0).length;
+
     await admin.from("commission_audit_log").insert({
       actor_id: actorId,  // null for cron, user id for UI button
       action: "stripe_sync",
@@ -375,6 +424,7 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         customers_fetched: customers.length,
         subscriptions_fetched: subs.length,
         invoices_fetched: invoices.length,
+        customers_with_subs_populated: customersWithSubs,
         months: monthCols,
         duration_ms: Date.now() - t0,
         triggered_by: isServiceRoleCall ? "cron" : "user",

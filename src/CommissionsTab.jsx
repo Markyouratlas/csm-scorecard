@@ -4,32 +4,34 @@
 // Rendered as a tab inside AeView.jsx (for Heather/Mason) and CsmView.jsx
 // (for Matt/Sean/Noah).
 //
-// AE-only features (Phase 2):
+// AE-only features:
 //   - "Submit a deal" form: capture customer name, email, MRR, upfront cash, close date
 //   - "My submitted deals" table: see status (draft/submitted/matched/needs_review),
 //     edit/delete rows while still in pre-match status
-//   - Bulk upload coming in Phase 5
+//   - Bulk upload via CSV/XLSX
 //
-// All AE deal data lives in commission_pending_deals (see migration 03).
-// RLS ensures AEs only see their own rows.
-//
-// CSMs only see the existing read-only earnings view — they don't submit deals.
+// Phase 3 (this revision):
+//   - Monthly Breakdown rows are clickable → expand inline to show
+//     per-customer detail (status pill, next billing date, product, MRR, commission)
+//   - Per-customer rows include a placeholder "Mark Paid" button (Phase 4)
 // ============================================================
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
   DollarSign, TrendingUp, Plus, Trash2, Edit3, Check, X,
   CheckCircle2, Clock, AlertCircle, Search, Loader2,
-  Upload, FileSpreadsheet, Download, ChevronRight,
+  Upload, FileSpreadsheet, Download, ChevronRight, ChevronDown,
 } from "lucide-react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
 import { useCommissions } from "./useCommissions";
 import {
-  calcRepCommission, calcAccelerator, calcTeamLeadOverride, calcRepCommissionByCustomer,
+  calcRepCommission, calcAccelerator, calcTeamLeadOverride,
+  calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
   monthLabel, fmtMoney, fmtPct, isAE,
 } from "./commissionEngine";
+import { CustomerDrilldownRow } from "./CommissionsView";
 
 const BRAND = {
   purple: "#6639a6",
@@ -56,7 +58,6 @@ export default function CommissionsTab({ profile }) {
   const c = useCommissions();
 
   // Resolve "this user" to a rep name by first token of profile.name.
-  // Matches the current_user_rep_name() server function.
   const repName = (profile?.name || "").split(" ")[0];
   const userIsAE = isAE(repName);
 
@@ -64,6 +65,15 @@ export default function CommissionsTab({ profile }) {
     if (!repName) return null;
     return calcRepCommission(repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer);
   }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols]);
+
+  // Phase 3: per-customer-per-month breakdown for the drill-down
+  const calcByMonth = useMemo(() => {
+    if (!repName) return null;
+    return calcRepCommissionByCustomerByMonth(
+      repName, c.customers, c.indexedAssignments, c.config, c.monthCols,
+      c.indexedOverrides, c.matchedDealsByCustomer,
+    );
+  }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
 
   // If the current user is a team lead, compute their TL override earnings
   const tlOverrideCalc = useMemo(() => {
@@ -126,7 +136,7 @@ export default function CommissionsTab({ profile }) {
         <AEDealSubmissionSection profile={profile} repName={repName} />
       )}
 
-      {/* Empty-state guard: only show earnings table if the user actually has attribution */}
+      {/* Empty-state guard */}
       {(!calc || calc.book.length === 0) ? (
         <div className="bg-white border border-stone-200 px-6 py-12 text-center">
           <DollarSign size={32} className="mx-auto text-stone-300 mb-3" />
@@ -142,18 +152,22 @@ export default function CommissionsTab({ profile }) {
           </div>
         </div>
       ) : (
-        <EarningsSection calc={calc} userIsAE={userIsAE} config={c.config} tlOverrideCalc={tlOverrideCalc} byCustomer={byCustomer} repName={repName} />
+        <EarningsSection
+          calc={calc}
+          calcByMonth={calcByMonth}
+          userIsAE={userIsAE}
+          config={c.config}
+          tlOverrideCalc={tlOverrideCalc}
+          byCustomer={byCustomer}
+          repName={repName}
+        />
       )}
     </div>
   );
 }
 
 // ============================================================
-// AE deal-submission section
-// ============================================================
-// Renders:
-//   - "Add deal" form (collapsed by default; expands when AE clicks)
-//   - List of the AE's own pending deals with status + edit/delete actions
+// AE deal-submission section (unchanged from main)
 // ============================================================
 function AEDealSubmissionSection({ profile, repName }) {
   const [deals, setDeals] = useState([]);
@@ -163,7 +177,6 @@ function AEDealSubmissionSection({ profile, repName }) {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Load this AE's pending deals (RLS scopes to ae_id = auth.uid())
   const loadDeals = async () => {
     setLoading(true);
     setError(null);
@@ -185,7 +198,6 @@ function AEDealSubmissionSection({ profile, repName }) {
     if (profile?.id) loadDeals();
   }, [profile?.id]);
 
-  // Stats
   const stats = useMemo(() => {
     const byStatus = { draft: 0, submitted: 0, matched: 0, needs_review: 0 };
     let pendingMRR = 0;
@@ -207,7 +219,6 @@ function AEDealSubmissionSection({ profile, repName }) {
 
   return (
     <section className="space-y-4">
-      {/* Section header */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <div className="text-[10px] uppercase tracking-[0.15em] text-stone-500 font-medium">Deal submissions</div>
@@ -233,7 +244,6 @@ function AEDealSubmissionSection({ profile, repName }) {
         </div>
       </div>
 
-      {/* Stats strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-200">
         <PendingStat
           label="Pending match"
@@ -262,7 +272,6 @@ function AEDealSubmissionSection({ profile, repName }) {
         />
       </div>
 
-      {/* Inline add/edit form */}
       {(showAddForm || editingId) && (
         <DealForm
           profile={profile}
@@ -273,7 +282,6 @@ function AEDealSubmissionSection({ profile, repName }) {
         />
       )}
 
-      {/* Bulk upload modal */}
       {showBulkUpload && (
         <BulkUploadModal
           profile={profile}
@@ -284,7 +292,6 @@ function AEDealSubmissionSection({ profile, repName }) {
         />
       )}
 
-      {/* Deals table */}
       <div className="bg-white border border-stone-200 overflow-x-auto">
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
           <h4 className="text-sm font-medium text-stone-900">My deals</h4>
@@ -337,7 +344,7 @@ function AEDealSubmissionSection({ profile, repName }) {
 }
 
 // ============================================================
-// Deal row
+// Deal row (unchanged from main)
 // ============================================================
 function DealRow({ deal, onEdit, onDeleted, onSubmitted }) {
   const [busy, setBusy] = useState(false);
@@ -436,7 +443,7 @@ function DealRow({ deal, onEdit, onDeleted, onSubmitted }) {
 }
 
 // ============================================================
-// Deal form (used for both Add and Edit)
+// Deal form (unchanged from main)
 // ============================================================
 function DealForm({ profile, repName, existingDeal, onClose, onSaved }) {
   const isEditing = !!existingDeal;
@@ -490,14 +497,11 @@ function DealForm({ profile, repName, existingDeal, onClose, onSaved }) {
 
     let result;
     if (isEditing) {
-      // Edit existing — don't change ae_id, ae_name, or status here
-      // (status changes happen via dedicated Submit button)
       result = await supabase
         .from("commission_pending_deals")
         .update(payload)
         .eq("id", existingDeal.id);
     } else {
-      // New deal — start as draft unless user clicked "Save & submit"
       result = await supabase
         .from("commission_pending_deals")
         .insert({
@@ -510,7 +514,6 @@ function DealForm({ profile, repName, existingDeal, onClose, onSaved }) {
 
     setBusy(false);
     if (result.error) {
-      // Handle the unique constraint violation gracefully
       if (result.error.code === "23505") {
         setError("You've already submitted a deal with this email on this close date. Edit the existing one instead.");
       } else {
@@ -534,82 +537,51 @@ function DealForm({ profile, repName, existingDeal, onClose, onSaved }) {
 
       <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Customer name" required>
-          <input
-            type="text"
-            value={form.customer_name}
+          <input type="text" value={form.customer_name}
             onChange={(e) => update("customer_name", e.target.value)}
             placeholder="Acme Roofing Co."
-            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900"
-          />
+            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900" />
         </Field>
-
         <Field label="Customer email" required hint="Primary email you communicate with — may differ from Stripe billing email">
-          <input
-            type="email"
-            value={form.customer_email}
+          <input type="email" value={form.customer_email}
             onChange={(e) => update("customer_email", e.target.value)}
             placeholder="owner@acmeroofing.com"
-            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900"
-          />
+            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900" />
         </Field>
-
         <Field label="Close date" required>
-          <input
-            type="date"
-            value={form.closed_date}
+          <input type="date" value={form.closed_date}
             onChange={(e) => update("closed_date", e.target.value)}
-            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900"
-          />
+            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900" />
         </Field>
-
         <Field label="Phone (optional)">
-          <input
-            type="tel"
-            value={form.customer_phone}
+          <input type="tel" value={form.customer_phone}
             onChange={(e) => update("customer_phone", e.target.value)}
             placeholder="(555) 123-4567"
-            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900"
-          />
+            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900" />
         </Field>
-
         <Field label="MRR amount" hint="Monthly recurring revenue ($)">
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.mrr_amount}
+            <input type="number" step="0.01" min="0" value={form.mrr_amount}
               onChange={(e) => update("mrr_amount", e.target.value)}
               placeholder="0.00"
-              className="w-full border border-stone-300 pl-7 pr-3 py-2 text-sm font-mono tabular-nums focus:outline-none focus:border-stone-900"
-            />
+              className="w-full border border-stone-300 pl-7 pr-3 py-2 text-sm font-mono tabular-nums focus:outline-none focus:border-stone-900" />
           </div>
         </Field>
-
         <Field label="Upfront cash" hint="One-time / months prepaid ($)">
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">$</span>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.upfront_amount}
+            <input type="number" step="0.01" min="0" value={form.upfront_amount}
               onChange={(e) => update("upfront_amount", e.target.value)}
               placeholder="0.00"
-              className="w-full border border-stone-300 pl-7 pr-3 py-2 text-sm font-mono tabular-nums focus:outline-none focus:border-stone-900"
-            />
+              className="w-full border border-stone-300 pl-7 pr-3 py-2 text-sm font-mono tabular-nums focus:outline-none focus:border-stone-900" />
           </div>
         </Field>
-
         <Field label="Notes (optional)" className="md:col-span-2">
-          <textarea
-            rows={2}
-            value={form.notes}
+          <textarea rows={2} value={form.notes}
             onChange={(e) => update("notes", e.target.value)}
             placeholder="Anything your manager should know — e.g. annual prepay, special discount, source"
-            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900 resize-y"
-          />
+            className="w-full border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-900 resize-y" />
         </Field>
       </div>
 
@@ -623,29 +595,20 @@ function DealForm({ profile, repName, existingDeal, onClose, onSaved }) {
       )}
 
       <div className="px-5 py-3 border-t border-stone-200 bg-stone-50 flex items-center justify-end gap-2 flex-wrap">
-        <button
-          onClick={onClose}
-          disabled={busy}
-          className="px-3 py-2 text-sm text-stone-700 hover:bg-stone-100 transition-colors rounded-sm"
-        >
+        <button onClick={onClose} disabled={busy}
+          className="px-3 py-2 text-sm text-stone-700 hover:bg-stone-100 transition-colors rounded-sm">
           Cancel
         </button>
         {!isEditing && (
-          <button
-            onClick={() => { setSubmitAfterSave(false); handleSave(); }}
-            disabled={busy || !isValid}
-            className="px-3 py-2 text-sm font-medium border border-stone-300 hover:bg-stone-100 transition-colors rounded-sm disabled:opacity-40 disabled:cursor-not-allowed"
-          >
+          <button onClick={() => { setSubmitAfterSave(false); handleSave(); }} disabled={busy || !isValid}
+            className="px-3 py-2 text-sm font-medium border border-stone-300 hover:bg-stone-100 transition-colors rounded-sm disabled:opacity-40 disabled:cursor-not-allowed">
             {busy ? <Loader2 size={14} className="inline animate-spin mr-1" /> : null}
             Save as draft
           </button>
         )}
-        <button
-          onClick={() => { setSubmitAfterSave(true); handleSave(); }}
-          disabled={busy || !isValid}
+        <button onClick={() => { setSubmitAfterSave(true); handleSave(); }} disabled={busy || !isValid}
           className="px-3 py-2 text-sm font-medium text-white rounded-sm transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: BRAND.purple }}
-        >
+          style={{ background: BRAND.purple }}>
           {busy ? <Loader2 size={14} className="inline animate-spin mr-1" /> : <Check size={14} className="inline mr-1" />}
           {isEditing ? "Save changes" : "Save & submit"}
         </button>
@@ -681,9 +644,11 @@ function PendingStat({ label, value, sub, icon: Icon, iconColor }) {
 }
 
 // ============================================================
-// Earnings section (existing functionality — preserved)
+// Earnings section (Phase 3: drill-down on monthly breakdown)
 // ============================================================
-function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, byCustomer, repName }) {
+function EarningsSection({ calc, calcByMonth, userIsAE, config, tlOverrideCalc, byCustomer, repName }) {
+  const [expandedMonth, setExpandedMonth] = useState(null);
+
   const ytd = calc.monthly.reduce((a, m) => ({
     voiceAINetSales:   a.voiceAINetSales + (m.voiceAINetSales || 0),
     voiceAICommission: a.voiceAICommission + m.voiceAICommission,
@@ -811,7 +776,7 @@ function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, byCustomer, r
         </div>
       )}
 
-      {/* My Customers — per-customer earnings breakdown */}
+      {/* My Customers — per-customer earnings breakdown (unchanged) */}
       {byCustomer && byCustomer.length > 0 && (
         <div className="bg-white border border-stone-200 overflow-x-auto">
           <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
@@ -900,10 +865,11 @@ function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, byCustomer, r
         </div>
       )}
 
+      {/* My Monthly Breakdown — Phase 3: now with drill-down */}
       <div className="bg-white border border-stone-200 overflow-x-auto">
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
           <h3 className="text-sm font-medium text-stone-900">My Monthly Breakdown</h3>
-          <TrendingUp size={14} className="text-stone-400" />
+          <span className="text-[10px] uppercase tracking-wider text-stone-400">Click a month to see customer detail</span>
         </div>
         <table className="w-full text-sm">
           <thead className="border-b border-stone-200 bg-stone-50/50">
@@ -927,26 +893,97 @@ function EarningsSection({ calc, userIsAE, config, tlOverrideCalc, byCustomer, r
             </tr>
           </thead>
           <tbody>
-            {calc.monthly.map((m) => (
-              <tr key={m.month} className="border-b border-stone-100">
-                <td className="px-4 py-2 text-stone-700 font-mono tabular-nums text-xs">{monthLabel(m.month)}</td>
-                {userIsAE ? (
-                  <>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.newDeals || <span className="text-stone-300">—</span>}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.newMRR > 0 ? fmtMoney(m.newMRR) : <span className="text-stone-300">—</span>}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.voiceAINetSales > 0 ? fmtMoney(m.voiceAINetSales) : <span className="text-stone-300">—</span>}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{m.voiceAICommission > 0 ? fmtMoney(m.voiceAICommission) : <span className="text-stone-300">—</span>}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{m.aeResidual > 0 ? fmtMoney(m.aeResidual) : <span className="text-stone-300">—</span>}</td>
-                    <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">{m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}</td>
-                  </>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">{m.bookMRR > 0 ? fmtMoney(m.bookMRR) : <span className="text-stone-300">—</span>}</td>
-                    <td className="px-4 py-2 text-right font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>{m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}</td>
-                  </>
-                )}
-              </tr>
-            ))}
+            {(calcByMonth?.monthly || calc.monthly).map((m) => {
+              const customerCount = m.customers?.length || 0;
+              const expandable = customerCount > 0;
+              const isExpanded = expandedMonth === m.month;
+              return (
+                <React.Fragment key={m.month}>
+                  <tr
+                    className={`border-b border-stone-100 ${expandable ? "cursor-pointer hover:bg-stone-50" : ""}`}
+                    onClick={expandable ? () => setExpandedMonth(isExpanded ? null : m.month) : undefined}
+                  >
+                    <td className="px-4 py-2 text-stone-700 font-mono tabular-nums text-xs">
+                      <div className="flex items-center gap-1.5">
+                        {expandable ? (
+                          isExpanded
+                            ? <ChevronDown size={12} className="text-stone-400" />
+                            : <ChevronRight size={12} className="text-stone-400" />
+                        ) : <span className="inline-block w-3" />}
+                        {monthLabel(m.month)}
+                        {customerCount > 0 && (
+                          <span className="text-[10px] text-stone-400 ml-1 font-sans">
+                            ({customerCount})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    {userIsAE ? (
+                      <>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                          {m.newDeals || <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                          {m.newMRR > 0 ? fmtMoney(m.newMRR) : <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                          {m.voiceAINetSales > 0 ? fmtMoney(m.voiceAINetSales) : <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                          {m.voiceAICommission > 0 ? fmtMoney(m.voiceAICommission) : <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                          {m.aeResidual > 0 ? fmtMoney(m.aeResidual) : <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
+                          {m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                          {m.bookMRR > 0 ? fmtMoney(m.bookMRR) : <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>
+                          {m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {isExpanded && customerCount > 0 && (
+                    <tr className="bg-stone-100/70 border-b border-stone-200">
+                      <td colSpan={userIsAE ? 7 : 3} className="px-0 py-0">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-[9px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+                              <th className="px-4 py-1.5 pl-12 font-medium">Customer</th>
+                              <th className="px-3 py-1.5 font-medium">Status</th>
+                              <th className="px-3 py-1.5 font-medium">Product</th>
+                              <th className="px-3 py-1.5 font-medium">Next Bill</th>
+                              <th className="px-3 py-1.5 font-medium text-right">MRR</th>
+                              {userIsAE && <th className="px-3 py-1.5 font-medium text-right">Voice AI</th>}
+                              <th className="px-3 py-1.5 font-medium text-right">Residual</th>
+                              <th className="px-4 py-1.5 font-medium text-right">Total</th>
+                              <th className="px-3 py-1.5 font-medium text-right"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {m.customers.map((line) => (
+                              <CustomerDrilldownRow
+                                key={(line.customer.stripe_customer_id || line.customer.email) + ":" + m.month}
+                                line={line}
+                                isAE={userIsAE}
+                                onMarkPaid={() => { /* Phase 4 wires this up */ }}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
             <tr className="border-t-2 border-stone-300 bg-stone-50/50 font-medium">
               <td className="px-4 py-2 text-xs uppercase tracking-wider">YTD</td>
               {userIsAE ? (
@@ -985,16 +1022,7 @@ function PersonalStat({ label, value, sub, accent }) {
 // ============================================================
 // BulkUploadModal — drag/drop CSV or XLSX of closed deals
 // ============================================================
-// User flow:
-//   1. Drop a file or click to browse
-//   2. We parse it client-side and try to auto-detect which column
-//      maps to which deal field (customer_name, customer_email, mrr_amount,
-//      upfront_amount, closed_date, customer_phone, notes)
-//   3. AE can override the mapping if auto-detect was wrong
-//   4. Preview table shows each row with validation status
-//   5. AE can uncheck rows they don't want to import, edit cells inline
-//   6. Click Import → batch insert into commission_pending_deals
-// ============================================================
+// (Unchanged from main — included verbatim so the file is complete.)
 
 const FIELD_DEFINITIONS = [
   { key: "customer_name",  label: "Customer name",  required: true,  type: "string" },
@@ -1006,7 +1034,6 @@ const FIELD_DEFINITIONS = [
   { key: "notes",          label: "Notes",          required: false, type: "string" },
 ];
 
-// Header-to-field auto-detection. Tested against common spreadsheet conventions.
 const HEADER_ALIASES = {
   customer_name:  ["customer", "customer name", "company", "company name", "client", "client name", "name", "account", "account name", "business", "business name"],
   customer_email: ["email", "customer email", "email address", "client email", "billing email", "e-mail", "contact email"],
@@ -1036,12 +1063,10 @@ function autoDetectMapping(headers) {
   return mapping;
 }
 
-// Parse a money string: "$1,500.00", "1500", "$1.5k" → number
 function parseMoney(v) {
   if (v == null || v === "") return 0;
   if (typeof v === "number") return v;
   const s = String(v).trim().replace(/[$,\s]/g, "");
-  // handle "1.5k" or "1k" suffix
   const m = s.match(/^([\d.]+)\s*([km]?)$/i);
   if (m) {
     const n = parseFloat(m[1]);
@@ -1053,20 +1078,15 @@ function parseMoney(v) {
   return isNaN(n) ? 0 : n;
 }
 
-// Parse a date string into ISO YYYY-MM-DD. Accepts many common formats.
 function parseDate(v) {
   if (!v) return null;
-  // Excel date serial number
   if (typeof v === "number") {
-    // Excel epoch is 1899-12-30
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
     if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
   if (!s) return null;
-  // ISO already
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // Try Date.parse fallback
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return null;
@@ -1083,17 +1103,16 @@ function validateRow(row) {
 }
 
 function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported }) {
-  const [stage, setStage] = useState("upload");  // upload | mapping | preview | importing | done
+  const [stage, setStage] = useState("upload");
   const [fileName, setFileName] = useState("");
-  const [rawRows, setRawRows] = useState([]);  // array of objects from the parser
+  const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
-  const [mapping, setMapping] = useState({});  // { field: headerName }
-  const [previewRows, setPreviewRows] = useState([]);  // [{ checked, ...fields, errors }]
+  const [mapping, setMapping] = useState({});
+  const [previewRows, setPreviewRows] = useState([]);
   const [error, setError] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
-  // ===== File parsing =====
   const handleFile = async (file) => {
     setError(null);
     setFileName(file.name);
@@ -1103,20 +1122,15 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
       let rows = [];
 
       if (ext === "csv" || ext === "tsv" || ext === "txt") {
-        // Use papaparse for CSV
         await new Promise((resolve, reject) => {
           Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
-            complete: (results) => {
-              rows = results.data;
-              resolve();
-            },
+            complete: (results) => { rows = results.data; resolve(); },
             error: reject,
           });
         });
       } else if (ext === "xlsx" || ext === "xls") {
-        // Use SheetJS for Excel
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -1143,7 +1157,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
     }
   };
 
-  // ===== Mapping → Preview =====
   const buildPreview = () => {
     const existingKeys = new Set(
       existingDeals.map(d => `${(d.customer_email || "").toLowerCase()}::${d.closed_date}`)
@@ -1151,7 +1164,7 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
 
     const newRows = rawRows.map((raw, i) => {
       const row = {
-        _rowNum: i + 2,  // +2: header is row 1, data starts at row 2
+        _rowNum: i + 2,
         checked: true,
         customer_name:  mapping.customer_name  ? raw[mapping.customer_name]  : "",
         customer_email: mapping.customer_email ? raw[mapping.customer_email] : "",
@@ -1161,7 +1174,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
         closed_date:    mapping.closed_date    ? parseDate(raw[mapping.closed_date])     : null,
         notes:          mapping.notes          ? raw[mapping.notes]          : "",
       };
-      // Trim string fields
       row.customer_name = String(row.customer_name || "").trim();
       row.customer_email = String(row.customer_email || "").trim().toLowerCase();
       row.customer_phone = String(row.customer_phone || "").trim();
@@ -1171,7 +1183,7 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
       const key = `${row.customer_email}::${row.closed_date}`;
       if (existingKeys.has(key)) {
         row.errors = [...row.errors, "Duplicate (already submitted)"];
-        row.checked = false;  // unchecked by default
+        row.checked = false;
       }
       return row;
     });
@@ -1184,7 +1196,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
     setPreviewRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], ...updates };
-      // Re-validate
       const errors = validateRow(next[rowIdx]);
       const existingKeys = new Set(
         existingDeals.map(d => `${(d.customer_email || "").toLowerCase()}::${d.closed_date}`)
@@ -1198,7 +1209,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
     });
   };
 
-  // ===== Submit batch =====
   const handleImport = async () => {
     setStage("importing");
     setError(null);
@@ -1241,7 +1251,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
     setStage("done");
   };
 
-  // ===== Template download =====
   const downloadTemplate = () => {
     const csv = "Customer Name,Email,MRR,Upfront,Close Date,Phone,Notes\n" +
                 "Acme Roofing,owner@acmeroofing.com,500,1500,2026-05-20,(555) 123-4567,3-month prepay\n" +
@@ -1257,11 +1266,9 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
     URL.revokeObjectURL(url);
   };
 
-  // ===== Render =====
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white max-w-5xl w-full max-h-[90vh] overflow-y-auto rounded-sm border-2" style={{ borderColor: BRAND.purple }}>
-        {/* Header */}
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between" style={{ background: BRAND.purpleTint }}>
           <div className="flex items-center gap-2">
             <Upload size={16} style={{ color: BRAND.purpleDeep }} />
@@ -1275,7 +1282,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
           </button>
         </div>
 
-        {/* Stage indicator */}
         <div className="px-5 py-2 border-b border-stone-200 bg-stone-50/60 flex items-center gap-2 text-[10px] uppercase tracking-wider font-medium">
           <StageStep label="Upload"  active={stage === "upload"}  done={["mapping", "preview", "importing", "done"].includes(stage)} />
           <ChevronRight size={11} className="text-stone-300" />
@@ -1286,7 +1292,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
           <StageStep label="Import"  active={stage === "importing" || stage === "done"} done={stage === "done"} />
         </div>
 
-        {/* Body */}
         <div className="p-5">
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-900 flex items-start gap-2">
@@ -1295,7 +1300,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
             </div>
           )}
 
-          {/* STAGE 1: UPLOAD */}
           {stage === "upload" && (
             <div>
               <label
@@ -1328,7 +1332,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
             </div>
           )}
 
-          {/* STAGE 2: MAPPING */}
           {stage === "mapping" && (
             <div>
               <p className="text-sm text-stone-700 mb-3">
@@ -1373,7 +1376,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
             </div>
           )}
 
-          {/* STAGE 3: PREVIEW */}
           {stage === "preview" && (
             <div>
               <PreviewSummary previewRows={previewRows} />
@@ -1415,7 +1417,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
             </div>
           )}
 
-          {/* STAGE 4: IMPORTING */}
           {stage === "importing" && (
             <div className="py-12 text-center">
               <Loader2 size={32} className="mx-auto animate-spin text-stone-400 mb-3" />
@@ -1423,7 +1424,6 @@ function BulkUploadModal({ profile, repName, existingDeals, onClose, onImported 
             </div>
           )}
 
-          {/* STAGE 5: DONE */}
           {stage === "done" && importResult && (
             <div className="py-8 text-center">
               <CheckCircle2 size={40} className="mx-auto mb-3" style={{ color: BRAND.purple }} />
@@ -1461,7 +1461,6 @@ function StageStep({ label, active, done }) {
 function PreviewSummary({ previewRows }) {
   const ok = previewRows.filter(r => r.checked && (r.errors?.length || 0) === 0).length;
   const errs = previewRows.filter(r => r.errors?.length > 0).length;
-  const unchecked = previewRows.filter(r => !r.checked).length - previewRows.filter(r => !r.checked && r.errors?.includes("Duplicate (already submitted)")).length;
   const dupes = previewRows.filter(r => r.errors?.includes("Duplicate (already submitted)")).length;
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-200">
