@@ -1,24 +1,11 @@
 // ============================================================
 // CommissionsView — top-level view for the Commission Tracker
 // ============================================================
-// Rendered when viewMode === 'commissions'. Wrapped in ScorecardShell so
-// it inherits the Atlas logo, glass nav, fonts, view-switcher.
-//
-// Sub-tabs:
-//   overview — KPIs, per-rep table (expandable rows for drill-down), alerts
-//   customers — assignment workspace
-//   byRep — drill-in per rep, monthly breakdown (expandable rows), accelerator
-//   whatif — scenario simulator
-//   annualize — full-year projection
-//   data — Stripe sync + CSV import
-//   settings — comp config (executive-only)
-//
-// Phase 3 (this revision):
-//   - Monthly Breakdown rows in ByRep are clickable → expand inline to show
-//     per-customer detail (status pill from subscriptions[], next billing
-//     date, product label, MRR, commission contribution).
-//   - Overview "Commission by Rep" rows expandable to show per-customer YTD.
-//   - Per-customer rows include a placeholder "Mark Paid" button (Phase 4).
+// Phase 3.5 (this revision):
+//   - Status pill area in CustomerDrilldownRow has a hover tooltip showing
+//     ALL subscriptions in detail (status, product, MRR, next billing).
+//   - Clicking anywhere on a customer drill-down row expands a second level
+//     showing each subscription as its own detail row.
 // ============================================================
 
 import React, { useState, useMemo } from "react";
@@ -51,7 +38,6 @@ const BRAND = {
 // ============================================================
 // SUBSCRIPTION STATUS VISUAL METADATA
 // ============================================================
-// Maps a Stripe subscription status to a colored pill.
 const SUB_STATUS_META = {
   active:        { label: "Active",      bg: "#d1fae5", color: "#065f46" },
   trialing:      { label: "Trial",       bg: "#dbeafe", color: "#1d4ed8" },
@@ -62,10 +48,13 @@ const SUB_STATUS_META = {
   unpaid:        { label: "Unpaid",      bg: "#fee2e2", color: "#b91c1c" },
 };
 
-function SubscriptionPill({ status }) {
+function SubscriptionPill({ status, size = "sm" }) {
   const meta = SUB_STATUS_META[status] || { label: status || "Unknown", bg: "#f5f5f4", color: "#57534e" };
+  const sizeClasses = size === "xs"
+    ? "text-[9px] px-1 py-0"
+    : "text-[10px] px-1.5 py-0.5";
   return (
-    <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-sm font-medium"
+    <span className={`inline-flex items-center rounded-sm font-medium ${sizeClasses}`}
           style={{ background: meta.bg, color: meta.color }}>
       {meta.label}
     </span>
@@ -211,10 +200,131 @@ function Btn({ onClick, variant = "secondary", children, className = "", disable
 }
 
 // ============================================================
+// SUBSCRIPTIONS TOOLTIP (Phase 3.5)
+// ============================================================
+// CSS-only hover tooltip listing every sub in detail. Anchored above the
+// trigger via Tailwind's group/group-hover pattern. Pointer-events: none on
+// the tooltip itself so it doesn't block clicks on the underlying row.
+// ============================================================
+function SubscriptionsTooltip({ subscriptions, children }) {
+  if (!subscriptions || subscriptions.length === 0) return children;
+
+  return (
+    <span className="relative inline-block group">
+      {children}
+      <span
+        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none"
+        style={{ minWidth: "260px", maxWidth: "340px" }}
+      >
+        <span className="block bg-stone-900 text-white text-[10px] rounded-sm px-3 py-2 shadow-lg text-left">
+          <span className="block text-[9px] uppercase tracking-wider opacity-70 mb-1.5 font-medium">
+            {subscriptions.length} subscription{subscriptions.length === 1 ? "" : "s"}
+          </span>
+          <span className="block max-h-[180px] overflow-y-auto">
+            {subscriptions.map((s, i) => (
+              <span key={s.id || i} className="block py-1 border-t border-stone-700 first:border-t-0">
+                <span className="flex items-center justify-between gap-2 mb-0.5">
+                  <SubscriptionPill status={s.status} size="xs" />
+                  <span className="font-mono tabular-nums text-[10px] opacity-80">
+                    {s.mrr > 0 ? `${fmtMoney(s.mrr)}/mo` : "—"}
+                  </span>
+                </span>
+                <span className="block text-[10px] opacity-90 truncate" title={s.product_label}>
+                  {s.product_label || "Subscription"}
+                </span>
+                <span className="block text-[9px] opacity-60 font-mono tabular-nums">
+                  {s.status === "canceled" || s.status === "unpaid"
+                    ? `Ended: ${fmtDate(s.canceled_at || s.ended_at)}`
+                    : `Next bill: ${fmtDate(s.current_period_end)}`}
+                </span>
+              </span>
+            ))}
+          </span>
+        </span>
+        {/* Tooltip arrow */}
+        <span
+          className="absolute left-1/2 -translate-x-1/2 top-full block w-0 h-0"
+          style={{
+            borderLeft: "5px solid transparent",
+            borderRight: "5px solid transparent",
+            borderTop: "5px solid #1c1917",
+          }}
+        />
+      </span>
+    </span>
+  );
+}
+
+// ============================================================
+// SUBSCRIPTIONS INNER TABLE (Phase 3.5)
+// ============================================================
+// Renders inside the customer-level expansion. Each sub gets its own row,
+// more detail than the tooltip (sub ID, started, canceling flag).
+// ============================================================
+function SubscriptionsInnerTable({ subscriptions }) {
+  if (!subscriptions || subscriptions.length === 0) {
+    return (
+      <div className="px-20 py-3 text-[10px] text-stone-500 italic">
+        No subscriptions on file for this customer.
+      </div>
+    );
+  }
+  return (
+    <table className="w-full text-[11px]">
+      <thead>
+        <tr className="text-left text-[9px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
+          <th className="px-4 py-1 pl-20 font-medium">Subscription ID</th>
+          <th className="px-3 py-1 font-medium">Status</th>
+          <th className="px-3 py-1 font-medium">Product</th>
+          <th className="px-3 py-1 font-medium">Started</th>
+          <th className="px-3 py-1 font-medium">Next Bill / Ended</th>
+          <th className="px-3 py-1 font-medium text-right">MRR</th>
+        </tr>
+      </thead>
+      <tbody>
+        {subscriptions.map((s, i) => (
+          <tr key={s.id || i} className="border-b border-stone-100 last:border-b-0">
+            <td className="px-4 py-1.5 pl-20 text-stone-500 font-mono text-[10px] truncate max-w-[160px]" title={s.id}>
+              {s.id || "—"}
+            </td>
+            <td className="px-3 py-1.5">
+              <SubscriptionPill status={s.status} size="xs" />
+              {s.cancel_at_period_end && (
+                <span className="ml-1 text-[9px] text-amber-700 italic" title="Subscription will cancel at period end">
+                  (canceling)
+                </span>
+              )}
+            </td>
+            <td className="px-3 py-1.5 text-stone-700">
+              <div className="truncate max-w-[200px]" title={s.product_label}>
+                {s.product_label || "—"}
+              </div>
+            </td>
+            <td className="px-3 py-1.5 text-stone-600 font-mono tabular-nums whitespace-nowrap">
+              {fmtDate(s.created)}
+            </td>
+            <td className="px-3 py-1.5 text-stone-600 font-mono tabular-nums whitespace-nowrap">
+              {s.status === "canceled" || s.status === "unpaid"
+                ? fmtDate(s.canceled_at || s.ended_at)
+                : fmtDate(s.current_period_end)}
+            </td>
+            <td className="px-3 py-1.5 text-right font-mono tabular-nums text-stone-700">
+              {s.mrr > 0 ? fmtMoney(s.mrr) : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ============================================================
 // PER-CUSTOMER DRILL-DOWN ROW (shared by ByRep + Personal tab)
 // ============================================================
 // One row per customer contribution to a specific month.
-// Used inside MonthDrilldown (below) and from CommissionsTab.jsx.
+//
+// Phase 3.5: hover tooltip on the status area + click anywhere on the row
+// expands a second level showing each subscription in detail.
 //
 // Props:
 //   line          — one entry from monthly[m].customers
@@ -222,11 +332,13 @@ function Btn({ onClick, variant = "secondary", children, className = "", disable
 //   onMarkPaid    — Phase 4 callback (Phase 3: stub, button disabled)
 // ============================================================
 export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
+  const [expanded, setExpanded] = useState(false);
   const c = line.customer;
   const subs = c.subscriptions || [];
+  const hasMultipleSubs = subs.length > 1;
+
   // Primary subscription for status display:
-  // 1) If any active/trialing/past_due sub exists, use the first one (already
-  //    sorted by creation when sync built the array — we trust that order).
+  // 1) If any active/trialing/past_due sub exists, use the first one.
   // 2) Otherwise, use the most-recent sub (regardless of status), so canceled
   //    customers still show a "Canceled" pill rather than nothing.
   let primarySub = subs.find(s => ["active", "trialing", "past_due"].includes(s.status));
@@ -234,82 +346,112 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
     primarySub = subs[subs.length - 1];
   }
 
-  // Product label across all subs (e.g. "Voice AI + Roofing Pro")
+  // Product label across all subs (e.g. "Voice AI · Roofing Pro")
   const productLabel = subs.length > 0
     ? subs.map(s => s.product_label).filter(Boolean).join(" · ")
     : "—";
 
+  // Total column count for the inner expansion row's colSpan
+  const totalCols = isAE ? 9 : 8;
+
+  const handleRowClick = () => setExpanded((e) => !e);
+
+  // Prevent Mark Paid (Phase 4) from triggering the expand toggle
+  const handleMarkPaidClick = (e) => {
+    e.stopPropagation();
+    if (onMarkPaid) onMarkPaid();
+  };
+
   return (
-    <tr className="border-b border-stone-100 bg-stone-50/30 hover:bg-stone-50/70">
-      <td className="px-4 py-2 pl-12 text-stone-700">
-        <div className="font-medium text-sm">
-          {c.name || <span className="text-stone-400 italic">{c.email}</span>}
-        </div>
-        <div className="text-[11px] text-stone-500 font-mono truncate max-w-[280px]">{c.email}</div>
-      </td>
-      <td className="px-3 py-2">
-        {primarySub ? (
-          <SubscriptionPill status={primarySub.status} />
-        ) : (
-          <span className="text-[10px] text-stone-400 italic">no sub</span>
-        )}
-        {subs.length > 1 && (
-          <span className="ml-1 text-[10px] text-stone-400">+{subs.length - 1}</span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-xs text-stone-600">
-        <div className="truncate max-w-[180px]" title={productLabel}>{productLabel}</div>
-      </td>
-      <td className="px-3 py-2 text-xs text-stone-600 font-mono tabular-nums whitespace-nowrap">
-        {fmtDate(c.current_period_end)}
-      </td>
-      <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700 text-xs">
-        {line.mrr > 0 ? fmtMoney(line.mrr) : <span className="text-stone-300">—</span>}
-      </td>
-      {isAE && (
-        <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
-          {line.voiceAICommission > 0 ? fmtMoney(line.voiceAICommission) : <span className="text-stone-300">—</span>}
+    <>
+      <tr
+        className="border-b border-stone-100 bg-stone-50/30 hover:bg-stone-100/60 cursor-pointer transition-colors"
+        onClick={handleRowClick}
+        title={subs.length > 0 ? `Click to see all ${subs.length} subscription${subs.length === 1 ? "" : "s"}` : "Click for details"}
+      >
+        <td className="px-4 py-2 pl-12 text-stone-700">
+          <div className="flex items-center gap-1.5">
+            {expanded
+              ? <ChevronDown size={11} className="text-stone-400 shrink-0" />
+              : <ChevronRight size={11} className="text-stone-400 shrink-0" />}
+            <div>
+              <div className="font-medium text-sm">
+                {c.name || <span className="text-stone-400 italic">{c.email}</span>}
+              </div>
+              <div className="text-[11px] text-stone-500 font-mono truncate max-w-[280px]">{c.email}</div>
+            </div>
+          </div>
         </td>
+        <td className="px-3 py-2">
+          {primarySub ? (
+            <SubscriptionsTooltip subscriptions={subs}>
+              <span className="inline-flex items-center gap-1">
+                <SubscriptionPill status={primarySub.status} />
+                {hasMultipleSubs && (
+                  <span
+                    className="text-[10px] px-1 py-0 rounded-sm font-medium border"
+                    style={{ background: BRAND.purpleTint, color: BRAND.purpleDeep, borderColor: BRAND.purpleTintMid }}
+                  >
+                    +{subs.length - 1}
+                  </span>
+                )}
+              </span>
+            </SubscriptionsTooltip>
+          ) : (
+            <span className="text-[10px] text-stone-400 italic">no sub</span>
+          )}
+        </td>
+        <td className="px-3 py-2 text-xs text-stone-600">
+          <div className="truncate max-w-[180px]" title={productLabel}>{productLabel}</div>
+        </td>
+        <td className="px-3 py-2 text-xs text-stone-600 font-mono tabular-nums whitespace-nowrap">
+          {fmtDate(c.current_period_end)}
+        </td>
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700 text-xs">
+          {line.mrr > 0 ? fmtMoney(line.mrr) : <span className="text-stone-300">—</span>}
+        </td>
+        {isAE && (
+          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
+            {line.voiceAICommission > 0 ? fmtMoney(line.voiceAICommission) : <span className="text-stone-300">—</span>}
+          </td>
+        )}
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
+          {(line.aeResidual + line.csmResidual) > 0
+            ? fmtMoney(line.aeResidual + line.csmResidual)
+            : line.isInPrepayWindow
+              ? <span className="text-stone-400 text-[10px] italic" title="In prepay window — covered by upfront cash">prepay</span>
+              : line.isPastResidualCap
+                ? <span className="text-stone-400 text-[10px] italic" title="Past 12-month residual cap">capped</span>
+                : <span className="text-stone-300">—</span>}
+        </td>
+        <td className="px-4 py-2 text-right font-mono tabular-nums text-sm font-medium text-stone-900">
+          {line.total > 0 ? fmtMoney(line.total) : <span className="text-stone-300">—</span>}
+        </td>
+        <td className="px-3 py-2 text-right">
+          <button
+            onClick={handleMarkPaidClick}
+            disabled={true}
+            title="Mark Paid (coming in Phase 4)"
+            className="text-[10px] px-2 py-0.5 border rounded-sm font-medium cursor-not-allowed"
+            style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purpleLight, background: BRAND.purpleTint }}
+          >
+            Mark Paid
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-white border-b-2 border-stone-200">
+          <td colSpan={totalCols} className="px-0 py-2">
+            <SubscriptionsInnerTable subscriptions={subs} />
+          </td>
+        </tr>
       )}
-      <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
-        {(line.aeResidual + line.csmResidual) > 0
-          ? fmtMoney(line.aeResidual + line.csmResidual)
-          : line.isInPrepayWindow
-            ? <span className="text-stone-400 text-[10px] italic" title="In prepay window — covered by upfront cash">prepay</span>
-            : line.isPastResidualCap
-              ? <span className="text-stone-400 text-[10px] italic" title="Past 12-month residual cap">capped</span>
-              : <span className="text-stone-300">—</span>}
-      </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums text-sm font-medium text-stone-900">
-        {line.total > 0 ? fmtMoney(line.total) : <span className="text-stone-300">—</span>}
-      </td>
-      <td className="px-3 py-2 text-right">
-        <button
-          onClick={onMarkPaid}
-          disabled={true}
-          title="Mark Paid (coming in Phase 4)"
-          className="text-[10px] px-2 py-0.5 border rounded-sm font-medium cursor-not-allowed"
-          style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purpleLight, background: BRAND.purpleTint }}
-        >
-          Mark Paid
-        </button>
-      </td>
-    </tr>
+    </>
   );
 }
 
 // ============================================================
 // MONTH DRILLDOWN ROW (shared)
-// ============================================================
-// A clickable month row that expands inline to show per-customer detail.
-// Used by ByRep tab. Personal tab uses a slightly different invocation
-// directly in CommissionsTab.jsx (because of column-shape differences).
-//
-// Props:
-//   monthData — one entry from byMonth.monthly (has customers array)
-//   isAE      — controls column shape
-//   expanded  — boolean controlled by parent
-//   onToggle  — () => void to flip expanded
 // ============================================================
 function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
   const m = monthData;
@@ -374,7 +516,6 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
       </tr>
       {expanded && customerCount > 0 && (
         <>
-          {/* Sub-header inside the expansion */}
           <tr className="bg-stone-100/70 border-b border-stone-200">
             <td colSpan={isAE ? 7 : 4} className="px-0 py-0">
               <table className="w-full text-xs">
@@ -446,8 +587,6 @@ function OverviewTab({ c, onJumpTo }) {
     return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth };
   }), [c.customers, c.indexedAssignments, c.config, c.monthCols]);
 
-  // Per-customer YTD for whichever rep is currently expanded.
-  // We compute on-demand to avoid running for all reps up front.
   const expandedRepCustomers = useMemo(() => {
     if (!expandedRep) return null;
     return calcRepCommissionByCustomer(
@@ -577,12 +716,10 @@ function OverviewTab({ c, onJumpTo }) {
 }
 
 // ============================================================
-// REP-CUSTOMER YTD TABLE
+// REP-CUSTOMER YTD TABLE (Overview drill-down)
 // ============================================================
-// Used by the Overview tab when a rep row is expanded. Shows the per-customer
-// YTD commission breakdown for that rep — like the "My Customers" table from
-// the Personal tab, but in manager-readable form (no "matched" badges,
-// includes status pills from subscriptions[]).
+// Phase 3.5: status pills now wrapped in SubscriptionsTooltip so manager
+// can hover to see full sub list without leaving the Overview tab.
 // ============================================================
 function RepCustomerYTDTable({ rows, isAE }) {
   if (!rows || rows.length === 0) {
@@ -619,10 +756,23 @@ function RepCustomerYTDTable({ rows, isAE }) {
                 <div className="text-[10px] text-stone-500 font-mono truncate max-w-[260px]">{c.email}</div>
               </td>
               <td className="px-3 py-1.5">
-                {primarySub
-                  ? <SubscriptionPill status={primarySub.status} />
-                  : <span className="text-[10px] text-stone-400 italic">no sub</span>}
-                {subs.length > 1 && <span className="ml-1 text-[10px] text-stone-400">+{subs.length - 1}</span>}
+                {primarySub ? (
+                  <SubscriptionsTooltip subscriptions={subs}>
+                    <span className="inline-flex items-center gap-1">
+                      <SubscriptionPill status={primarySub.status} />
+                      {subs.length > 1 && (
+                        <span
+                          className="text-[10px] px-1 py-0 rounded-sm font-medium border"
+                          style={{ background: BRAND.purpleTint, color: BRAND.purpleDeep, borderColor: BRAND.purpleTintMid }}
+                        >
+                          +{subs.length - 1}
+                        </span>
+                      )}
+                    </span>
+                  </SubscriptionsTooltip>
+                ) : (
+                  <span className="text-[10px] text-stone-400 italic">no sub</span>
+                )}
               </td>
               <td className="px-3 py-1.5 text-[11px] text-stone-600 font-mono tabular-nums whitespace-nowrap">
                 {fmtDate(c.current_period_end)}
@@ -655,7 +805,7 @@ function RepCustomerYTDTable({ rows, isAE }) {
 }
 
 // ============================================================
-// CUSTOMERS TAB (unchanged from main)
+// CUSTOMERS TAB (unchanged)
 // ============================================================
 function CustomersTab({ c, initialFilter }) {
   const [search, setSearch] = useState("");
@@ -790,8 +940,6 @@ function ByRepTab({ c, initialRep }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const [expandedMonth, setExpandedMonth] = useState(null);
 
-  // Use the new per-customer-per-month calc so we have drill-down data.
-  // Returns { rep, isAE, book, monthly: [...with customers[]] }.
   const calc = useMemo(
     () => calcRepCommissionByCustomerByMonth(
       selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols,
@@ -904,7 +1052,7 @@ function ByRepTab({ c, initialRep }) {
       <div className="bg-white border border-stone-200 overflow-x-auto">
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
           <h3 className="text-sm font-medium text-stone-900">Monthly Breakdown</h3>
-          <span className="text-[10px] uppercase tracking-wider text-stone-400">Click a month to see customer detail</span>
+          <span className="text-[10px] uppercase tracking-wider text-stone-400">Click a month to see customers · Click a customer to see all their subscriptions</span>
         </div>
         <table className="w-full text-sm">
           <thead className="border-b border-stone-200 bg-stone-50/50">
@@ -965,7 +1113,7 @@ function ByRepTab({ c, initialRep }) {
 }
 
 // ============================================================
-// WHAT-IF TAB (unchanged from main)
+// WHAT-IF TAB (unchanged)
 // ============================================================
 function WhatIfTab({ c }) {
   const [scenarios, setScenarios] = useState([
@@ -1113,7 +1261,7 @@ function WhatIfTab({ c }) {
 }
 
 // ============================================================
-// ANNUALIZE TAB (unchanged from main)
+// ANNUALIZE TAB (unchanged)
 // ============================================================
 function AnnualizeTab({ c }) {
   const [method, setMethod] = useState("hold");
@@ -1226,7 +1374,7 @@ function AnnualizeTab({ c }) {
 }
 
 // ============================================================
-// DATA TAB (unchanged from main)
+// DATA TAB (unchanged)
 // ============================================================
 function DataTab({ c, isExecutive }) {
   const [syncMsg, setSyncMsg] = useState(null);
@@ -1348,7 +1496,7 @@ function DataTab({ c, isExecutive }) {
 }
 
 // ============================================================
-// SETTINGS TAB (unchanged from main)
+// SETTINGS TAB (unchanged)
 // ============================================================
 function SettingsTab({ c }) {
   const [draft, setDraft] = useState(c.config);
