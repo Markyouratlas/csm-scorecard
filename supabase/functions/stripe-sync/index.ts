@@ -1,11 +1,12 @@
 // ============================================================
 // Supabase Edge Function: stripe-sync
 // ============================================================
-// Pulls all Stripe customers + subscriptions + paid invoices, computes
-// month-by-month MRR and cash-received per customer for the trailing
-// 13 months, captures per-sub detail (status, renewal, MRR, product),
-// and upserts into commission_customers. Preserves commission_assignments
-// via the unique index on stripe_customer_id (assignments survive re-sync).
+// Pulls all Stripe customers + subscriptions + paid invoices + products,
+// computes month-by-month MRR and cash-received per customer for the
+// trailing 13 months, captures per-sub detail (status, renewal, MRR,
+// product), and upserts into commission_customers. Preserves
+// commission_assignments via the unique index on stripe_customer_id
+// (assignments survive re-sync).
 //
 // Deploy:
 //   supabase functions deploy stripe-sync
@@ -21,6 +22,15 @@
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 //   STRIPE_SECRET_KEY     <-- set via `supabase secrets set`
+//
+// Phase 3.6.1 (this revision):
+//   - Fetch /v1/products separately and build a productNamesById map.
+//   - product_label is built using product.name + price.nickname:
+//       "Atlas Growth (Monthly)"  if both exist
+//       "Atlas Growth"            if only the product name exists
+//       "prod_xxx"                last-ditch fallback (shouldn't happen)
+//   - Reverted Phase 3.6 deep expansion (hit Stripe's 4-level depth limit).
+//     Subscription fetch keeps the original expand[]=data.items.data.price.
 // ============================================================
 
 // deno-lint-ignore-file no-explicit-any
@@ -249,11 +259,23 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
     const invoiceCutoffTs = Math.floor(new Date(earliestMonth + "-01T00:00:00Z").getTime() / 1000);
     const invoiceQuery = `status=paid&created[gte]=${invoiceCutoffTs}`;
 
-    const [customers, subs, invoices] = await Promise.all([
+    // Phase 3.6.1: fetch products in parallel with the other resources so we
+    // can resolve product.name from item.price.product (which is just an ID
+    // string by default — we don't expand it inline since that crosses
+    // Stripe's 4-level expansion depth limit).
+    const [customers, subs, invoices, products] = await Promise.all([
       stripePaginate("customers", sk),
       stripePaginate("subscriptions", sk, "status=all&expand[]=data.items.data.price"),
       stripePaginate("invoices", sk, invoiceQuery),
+      stripePaginate("products", sk),
     ]);
+
+    // Build a lookup map: product ID → product name. Used during the sub
+    // loop to populate human-readable product labels.
+    const productNamesById: Record<string, string> = {};
+    for (const p of products) {
+      if (p.id && p.name) productNamesById[p.id] = p.name;
+    }
 
     // ---- Build per-customer monthly MRR ----
     const byId: Record<string, any> = {};
@@ -303,15 +325,29 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
       if (subEnd && (!row.end_date || subEnd > row.end_date)) row.end_date = subEnd;
       if (!subEnd) row.end_date = null; // any active sub clears end_date
 
-      // Phase 2: capture per-sub detail for the drill-down UI.
-      // Build a product label by concatenating each item's price.nickname
-      // (or product id fallback). This gives the UI a human-readable name.
+      // Phase 3.6.1: build product_label using the products lookup map.
+      // item.price.product is a Stripe product ID string (we don't expand
+      // the product inline since that crosses Stripe's 4-level depth limit).
+      // Combine the product's name with the price's nickname:
+      //   "Atlas Growth (Monthly)"  if both exist
+      //   "Atlas Growth"            if only product name exists
+      //   "Monthly"                 if only nickname exists (no name lookup)
+      //   prod_xxx                  last-ditch fallback (shouldn't happen)
+      // Multi-item subs (bundles) join with " + ".
       const productLabels: string[] = [];
       for (const item of s.items?.data || []) {
-        const nickname = item.price?.nickname;
-        const productId = item.price?.product;
-        if (nickname) productLabels.push(nickname);
-        else if (productId) productLabels.push(String(productId));
+        const price = item.price;
+        if (!price) continue;
+        const nickname = price.nickname || null;
+        const productId = typeof price.product === "string" ? price.product : null;
+        const productName = productId ? (productNamesById[productId] || null) : null;
+        // Compose the label for this item
+        let label: string | null = null;
+        if (productName && nickname) label = `${productName} (${nickname})`;
+        else if (productName)        label = productName;
+        else if (nickname)           label = nickname;
+        else if (productId)          label = productId;
+        if (label) productLabels.push(label);
       }
       const productLabel = productLabels.length > 0 ? productLabels.join(" + ") : "Subscription";
 
@@ -411,7 +447,8 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
     // ---- Audit log entry ----
     // Count customers whose subscriptions array was populated, so we can
     // verify the Phase 2 code path actually ran (same diagnostic pattern as
-    // invoices_fetched on the Phase 1 fix).
+    // invoices_fetched on the Phase 1 fix). Also log products_fetched so we
+    // can verify the new Phase 3.6.1 product lookup is firing.
     const customersWithSubs = upsertRows.filter((r) => r.subscriptions && r.subscriptions.length > 0).length;
 
     await admin.from("commission_audit_log").insert({
@@ -424,6 +461,7 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         customers_fetched: customers.length,
         subscriptions_fetched: subs.length,
         invoices_fetched: invoices.length,
+        products_fetched: products.length,
         customers_with_subs_populated: customersWithSubs,
         months: monthCols,
         duration_ms: Date.now() - t0,
