@@ -1,5 +1,6 @@
 // ============================================================
 // Commission Engine — pure cash-based commission math (Phase 4)
+// Phase 4.2 base fix (2026-05-29): CSM earns nothing on the first cash month.
 // ============================================================
 // No React, no Supabase. All functions are deterministic and side-effect free.
 //
@@ -16,7 +17,8 @@
 //     - Capped at 12 months from start_date (configurable via aeResidualMonths)
 //
 //   CSM earns:
-//     - 3% on every month with cash (rate = csmRate)
+//     - 3% on every cash month EXCEPT the first cash month (rate = csmRate).
+//       The first/initial cash month is AE-only (Initial CC). Phase 4.2 base fix.
 //     - Capped at 12 months from start_date (configurable via csmResidualMonths,
 //       defaulting to 12 if not set on the rep override or global config)
 //
@@ -233,7 +235,8 @@ export function indexAssignments(assignmentList) {
 //         if m === firstCashMonth → voiceAI += cash × aeVoiceRate (10%)
 //         else                    → aeResidual += cash × aeResidualRate (3%)
 //       if CSM:
-//         csmResidual += cash × csmRate (3%)
+//         if m === firstCashMonth → (nothing; initial CC is AE-only)
+//         else                    → csmResidual += cash × csmRate (3%)
 // ============================================================
 export function calcRepCommission(
   rep,
@@ -296,7 +299,10 @@ export function calcRepCommission(
           aeResidual += cash * effCfg.aeResidualRate;
         }
       } else {
-        csmResidual += cash * effCfg.csmRate;
+        // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
+        if (m !== firstCashMonth) {
+          csmResidual += cash * effCfg.csmRate;
+        }
       }
     }
 
@@ -365,7 +371,10 @@ export function calcRepCommissionByCustomer(
           residual += cash * effCfg.aeResidualRate;
         }
       } else {
-        residual += cash * effCfg.csmRate;
+        // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
+        if (m !== firstCashMonth) {
+          residual += cash * effCfg.csmRate;
+        }
       }
     }
 
@@ -461,8 +470,11 @@ export function calcRepCommissionByCustomerByMonth(
             aeResidual += cAeResidual;
           }
         } else {
-          cCsmResidual = cash * effCfg.csmRate;
-          csmResidual += cCsmResidual;
+          // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
+          if (!isFirstCashMonth) {
+            cCsmResidual = cash * effCfg.csmRate;
+            csmResidual += cCsmResidual;
+          }
         }
       }
 
