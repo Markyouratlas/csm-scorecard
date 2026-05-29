@@ -1,18 +1,29 @@
 // ============================================================
 // CommissionsView — top-level view for the Commission Tracker
 // ============================================================
-// Phase 3.5 (this revision):
-//   - Status pill area in CustomerDrilldownRow has a hover tooltip showing
-//     ALL subscriptions in detail (status, product, MRR, next billing).
-//   - Clicking anywhere on a customer drill-down row expands a second level
-//     showing each subscription as its own detail row.
+// Phase 4.1 (this revision):
+//   - New "Cash" column on CustomerDrilldownRow shows the actual cash that
+//     arrived this month (including initial_cash_override on the first
+//     cash month). Makes the commission math transparent: cash × rate =
+//     payout, both visible side by side.
+//   - Subscription IDs in the inner expansion are now hyperlinks to the
+//     customer's profile in Stripe Dashboard (opens in new tab).
+//
+// Phase 4 (math layer):
+//   - All commission calc is now pure cash-based, computed in
+//     commissionEngine.js. UI just displays what the engine returns.
+//
+// Phase 3.5 / 3 (UX foundations):
+//   - Hover tooltip on status pills (lists all subscriptions)
+//   - Click-to-expand customer rows (shows each sub in detail)
+//   - Month-level drill-down (per-rep monthly breakdown)
 // ============================================================
 
 import React, { useState, useMemo } from "react";
 import {
   TrendingUp, Users, DollarSign, AlertCircle, Settings, Download,
   GitCompare, Calendar, Zap, FileText, Check, X, Plus,
-  RefreshCw, Search, Inbox, ChevronRight, ChevronDown,
+  RefreshCw, Search, Inbox, ChevronRight, ChevronDown, ExternalLink,
 } from "lucide-react";
 import Papa from "papaparse";
 
@@ -34,6 +45,13 @@ const BRAND = {
   purpleTint: "#f3eefb",
   purpleTintMid: "#e4d8f4",
 };
+
+// Stripe Dashboard customer URL builder. Returns null when there's no Stripe
+// customer ID (e.g., a record created from CSV import that never matched).
+function stripeCustomerUrl(stripeCustomerId) {
+  if (!stripeCustomerId) return null;
+  return `https://dashboard.stripe.com/customers/${stripeCustomerId}`;
+}
 
 // ============================================================
 // SUBSCRIPTION STATUS VISUAL METADATA
@@ -202,10 +220,6 @@ function Btn({ onClick, variant = "secondary", children, className = "", disable
 // ============================================================
 // SUBSCRIPTIONS TOOLTIP (Phase 3.5)
 // ============================================================
-// CSS-only hover tooltip listing every sub in detail. Anchored above the
-// trigger via Tailwind's group/group-hover pattern. Pointer-events: none on
-// the tooltip itself so it doesn't block clicks on the underlying row.
-// ============================================================
 function SubscriptionsTooltip({ subscriptions, children }) {
   if (!subscriptions || subscriptions.length === 0) return children;
 
@@ -241,7 +255,6 @@ function SubscriptionsTooltip({ subscriptions, children }) {
             ))}
           </span>
         </span>
-        {/* Tooltip arrow */}
         <span
           className="absolute left-1/2 -translate-x-1/2 top-full block w-0 h-0"
           style={{
@@ -256,12 +269,15 @@ function SubscriptionsTooltip({ subscriptions, children }) {
 }
 
 // ============================================================
-// SUBSCRIPTIONS INNER TABLE (Phase 3.5)
+// SUBSCRIPTIONS INNER TABLE (Phase 3.5 + Phase 4.1)
 // ============================================================
-// Renders inside the customer-level expansion. Each sub gets its own row,
-// more detail than the tooltip (sub ID, started, canceling flag).
+// Renders inside the customer-level expansion. Each sub gets its own row.
+// Phase 4.1: subscription IDs are now clickable links to Stripe's customer
+// profile (where the sub is visible). Uses stripe_customer_id from the
+// PARENT customer record because Stripe routes per-customer rather than
+// per-subscription for the most useful view.
 // ============================================================
-function SubscriptionsInnerTable({ subscriptions }) {
+function SubscriptionsInnerTable({ subscriptions, stripeCustomerId }) {
   if (!subscriptions || subscriptions.length === 0) {
     return (
       <div className="px-20 py-3 text-[10px] text-stone-500 italic">
@@ -269,6 +285,8 @@ function SubscriptionsInnerTable({ subscriptions }) {
       </div>
     );
   }
+  const stripeUrl = stripeCustomerUrl(stripeCustomerId);
+
   return (
     <table className="w-full text-[11px]">
       <thead>
@@ -284,8 +302,27 @@ function SubscriptionsInnerTable({ subscriptions }) {
       <tbody>
         {subscriptions.map((s, i) => (
           <tr key={s.id || i} className="border-b border-stone-100 last:border-b-0">
-            <td className="px-4 py-1.5 pl-20 text-stone-500 font-mono text-[10px] truncate max-w-[160px]" title={s.id}>
-              {s.id || "—"}
+            <td className="px-4 py-1.5 pl-20 font-mono text-[10px] truncate max-w-[180px]" title={s.id}>
+              {s.id ? (
+                stripeUrl ? (
+                  <a
+                    href={stripeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 transition-colors hover:underline"
+                    style={{ color: BRAND.purple }}
+                    title="Open this customer's profile in Stripe Dashboard"
+                  >
+                    {s.id}
+                    <ExternalLink size={9} className="shrink-0 opacity-60" />
+                  </a>
+                ) : (
+                  <span className="text-stone-500">{s.id}</span>
+                )
+              ) : (
+                <span className="text-stone-400">—</span>
+              )}
             </td>
             <td className="px-3 py-1.5">
               <SubscriptionPill status={s.status} size="xs" />
@@ -323,8 +360,11 @@ function SubscriptionsInnerTable({ subscriptions }) {
 // ============================================================
 // One row per customer contribution to a specific month.
 //
-// Phase 3.5: hover tooltip on the status area + click anywhere on the row
-// expands a second level showing each subscription in detail.
+// Phase 4.1: new "Cash" column between MRR and Voice AI, showing the actual
+// cash that arrived this month (line.cashReceived). Makes the math
+// transparent — viewers see cash × rate = commission, not just commission.
+//
+// Phase 3.5: hover tooltip on status + click-row-to-expand subscription list.
 //
 // Props:
 //   line          — one entry from monthly[m].customers
@@ -337,26 +377,22 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
   const subs = c.subscriptions || [];
   const hasMultipleSubs = subs.length > 1;
 
-  // Primary subscription for status display:
-  // 1) If any active/trialing/past_due sub exists, use the first one.
-  // 2) Otherwise, use the most-recent sub (regardless of status), so canceled
-  //    customers still show a "Canceled" pill rather than nothing.
   let primarySub = subs.find(s => ["active", "trialing", "past_due"].includes(s.status));
   if (!primarySub && subs.length > 0) {
     primarySub = subs[subs.length - 1];
   }
 
-  // Product label across all subs (e.g. "Voice AI · Roofing Pro")
   const productLabel = subs.length > 0
     ? subs.map(s => s.product_label).filter(Boolean).join(" · ")
     : "—";
 
-  // Total column count for the inner expansion row's colSpan
-  const totalCols = isAE ? 9 : 8;
+  // colSpan for the inner expansion row.
+  // AE: 10 cols (Customer, Status, Product, Next Bill, MRR, Cash, Voice AI, Residual, Total, Mark Paid)
+  // CSM: 9 cols (no Voice AI column)
+  const totalCols = isAE ? 10 : 9;
 
   const handleRowClick = () => setExpanded((e) => !e);
 
-  // Prevent Mark Paid (Phase 4) from triggering the expand toggle
   const handleMarkPaidClick = (e) => {
     e.stopPropagation();
     if (onMarkPaid) onMarkPaid();
@@ -410,6 +446,10 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
         <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700 text-xs">
           {line.mrr > 0 ? fmtMoney(line.mrr) : <span className="text-stone-300">—</span>}
         </td>
+        {/* Phase 4.1: Cash column — what actually arrived this month */}
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-900 text-xs font-medium">
+          {line.cashReceived > 0 ? fmtMoney(line.cashReceived) : <span className="text-stone-300">—</span>}
+        </td>
         {isAE && (
           <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
             {line.voiceAICommission > 0 ? fmtMoney(line.voiceAICommission) : <span className="text-stone-300">—</span>}
@@ -418,11 +458,9 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
         <td className="px-3 py-2 text-right font-mono tabular-nums text-xs" style={{ color: BRAND.purple }}>
           {(line.aeResidual + line.csmResidual) > 0
             ? fmtMoney(line.aeResidual + line.csmResidual)
-            : line.isInPrepayWindow
-              ? <span className="text-stone-400 text-[10px] italic" title="In prepay window — covered by upfront cash">prepay</span>
-              : line.isPastResidualCap
-                ? <span className="text-stone-400 text-[10px] italic" title="Past 12-month residual cap">capped</span>
-                : <span className="text-stone-300">—</span>}
+            : line.isPastResidualCap
+              ? <span className="text-stone-400 text-[10px] italic" title="Past 12-month residual cap">capped</span>
+              : <span className="text-stone-300">—</span>}
         </td>
         <td className="px-4 py-2 text-right font-mono tabular-nums text-sm font-medium text-stone-900">
           {line.total > 0 ? fmtMoney(line.total) : <span className="text-stone-300">—</span>}
@@ -442,7 +480,10 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
       {expanded && (
         <tr className="bg-white border-b-2 border-stone-200">
           <td colSpan={totalCols} className="px-0 py-2">
-            <SubscriptionsInnerTable subscriptions={subs} />
+            <SubscriptionsInnerTable
+              subscriptions={subs}
+              stripeCustomerId={c.stripe_customer_id}
+            />
           </td>
         </tr>
       )}
@@ -452,6 +493,8 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
 
 // ============================================================
 // MONTH DRILLDOWN ROW (shared)
+// ============================================================
+// Phase 4.1: inner sub-header gains a "Cash" column to match CustomerDrilldownRow.
 // ============================================================
 function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
   const m = monthData;
@@ -526,6 +569,7 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
                     <th className="px-3 py-1.5 font-medium">Product</th>
                     <th className="px-3 py-1.5 font-medium">Next Bill</th>
                     <th className="px-3 py-1.5 font-medium text-right">MRR</th>
+                    <th className="px-3 py-1.5 font-medium text-right">Cash</th>
                     {isAE && <th className="px-3 py-1.5 font-medium text-right">Voice AI</th>}
                     <th className="px-3 py-1.5 font-medium text-right">Residual</th>
                     <th className="px-4 py-1.5 font-medium text-right">Total</th>
@@ -717,9 +761,6 @@ function OverviewTab({ c, onJumpTo }) {
 
 // ============================================================
 // REP-CUSTOMER YTD TABLE (Overview drill-down)
-// ============================================================
-// Phase 3.5: status pills now wrapped in SubscriptionsTooltip so manager
-// can hover to see full sub list without leaving the Overview tab.
 // ============================================================
 function RepCustomerYTDTable({ rows, isAE }) {
   if (!rows || rows.length === 0) {
@@ -1177,14 +1218,14 @@ function WhatIfTab({ c }) {
             <div className="space-y-2 text-xs">
               {[
                 ["aeVoiceRate",        "AE Voice AI %", 0.01],
-                ["upfrontMultiplier",  "Upfront mult.", 0.1],
                 ["aeResidualRate",     "AE Residual %", 0.01],
-                ["aeResidualMonths",   "Residual mo.",  1],
+                ["aeResidualMonths",   "AE Cap (mo.)",  1],
                 ["csmRate",            "CSM rate %",    0.01],
+                ["csmResidualMonths",  "CSM Cap (mo.)", 1],
               ].map(([k, label, step]) => (
                 <div key={k} className="flex items-center justify-between gap-2">
                   <span className="text-stone-600">{label}</span>
-                  <input type="number" step={step} value={s.config[k]} disabled={s.locked}
+                  <input type="number" step={step} value={s.config[k] ?? ""} disabled={s.locked}
                     onChange={(e) => updateScenario(i, k, e.target.value)}
                     className="w-20 text-right font-mono tabular-nums border border-stone-200 px-1.5 py-0.5 focus:outline-none disabled:bg-stone-50 disabled:text-stone-500" />
                 </div>
@@ -1526,15 +1567,14 @@ function SettingsTab({ c }) {
         </div>
         <div className="p-5 grid grid-cols-2 gap-4 text-sm">
           {[
-            ["aeVoiceRate",        "Voice AI rate (initial cash)", 0.01],
-            ["upfrontMultiplier",  "Upfront multiplier (mo. prepaid)", 0.1],
-            ["aeResidualRate",     "AE residual rate (months 2+)", 0.01],
-            ["aeResidualMonths",   "Residual cap (months)", 1],
+            ["aeVoiceRate",        "Voice AI rate (first-cash-month)", 0.01],
+            ["aeResidualRate",     "AE residual rate (subsequent months)", 0.01],
+            ["aeResidualMonths",   "AE cap (months from start)", 1],
             ["acceleratorTarget",  "Annual variable target ($)", 1000],
           ].map(([k, label, step]) => (
             <label key={k} className="flex flex-col">
               <span className="text-xs text-stone-600 mb-1">{label}</span>
-              <input type="number" step={step} value={draft[k]} onChange={(e) => update(k, e.target.value)}
+              <input type="number" step={step} value={draft[k] ?? ""} onChange={(e) => update(k, e.target.value)}
                 className="border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none" />
             </label>
           ))}
@@ -1548,8 +1588,14 @@ function SettingsTab({ c }) {
         <div className="p-5 grid grid-cols-2 gap-4 text-sm">
           <label className="flex flex-col">
             <span className="text-xs text-stone-600 mb-1">Monthly residual rate</span>
-            <input type="number" step="0.01" value={draft.csmRate}
+            <input type="number" step="0.01" value={draft.csmRate ?? ""}
               onChange={(e) => update("csmRate", e.target.value)}
+              className="border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none" />
+          </label>
+          <label className="flex flex-col">
+            <span className="text-xs text-stone-600 mb-1">CSM cap (months from start)</span>
+            <input type="number" step="1" value={draft.csmResidualMonths ?? ""}
+              onChange={(e) => update("csmResidualMonths", e.target.value)}
               className="border border-stone-200 px-2 py-1.5 font-mono tabular-nums focus:outline-none" />
           </label>
         </div>
