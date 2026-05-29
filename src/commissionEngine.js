@@ -194,6 +194,21 @@ export function cashForCommissionMonth(customer, monthKey, firstCashMonth) {
   return total;
 }
 
+// Phase 4.2: reversed cash (refunds + lost disputes) for a month, keyed to the
+// month the original cash was received. Stored in commission_customers.monthly_cash_reversed.
+export function reversedCash(customer, monthKey) {
+  return Number(
+    (customer.monthly_cash_reversed && customer.monthly_cash_reversed[monthKey]) || 0
+  );
+}
+
+// Phase 4.2: NET cash used for RESIDUALS only = gross minus reversals, floored at
+// $0 per customer per month. Initial CC (AE first-month 10%) uses GROSS, not this.
+export function netCashForResidual(customer, monthKey, firstCashMonth) {
+  const gross = cashForCommissionMonth(customer, monthKey, firstCashMonth);
+  return Math.max(0, gross - reversedCash(customer, monthKey));
+}
+
 // ------------------------------------------------------------
 // Assignment resolution
 // ------------------------------------------------------------
@@ -296,12 +311,12 @@ export function calcRepCommission(
           newDeals += 1;
           newMRR += mrr;
         } else {
-          aeResidual += cash * effCfg.aeResidualRate;
+          aeResidual += netCashForResidual(c, m, firstCashMonth) * effCfg.aeResidualRate; // Phase 4.2: net of reversals
         }
       } else {
         // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
         if (m !== firstCashMonth) {
-          csmResidual += cash * effCfg.csmRate;
+          csmResidual += netCashForResidual(c, m, firstCashMonth) * effCfg.csmRate; // Phase 4.2: net of reversals
         }
       }
     }
@@ -368,12 +383,12 @@ export function calcRepCommissionByCustomer(
           voiceAI += cash * effCfg.aeVoiceRate;
           voiceAICash += cash;
         } else {
-          residual += cash * effCfg.aeResidualRate;
+          residual += netCashForResidual(c, m, firstCashMonth) * effCfg.aeResidualRate; // Phase 4.2: net of reversals
         }
       } else {
         // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
         if (m !== firstCashMonth) {
-          residual += cash * effCfg.csmRate;
+          residual += netCashForResidual(c, m, firstCashMonth) * effCfg.csmRate; // Phase 4.2: net of reversals
         }
       }
     }
@@ -466,13 +481,13 @@ export function calcRepCommissionByCustomerByMonth(
             newDeals += 1;
             newMRR += mrr;
           } else {
-            cAeResidual = cash * effCfg.aeResidualRate;
+            cAeResidual = netCashForResidual(c, m, firstCashMonth) * effCfg.aeResidualRate; // Phase 4.2: net of reversals
             aeResidual += cAeResidual;
           }
         } else {
           // CSM earns nothing on the first cash month (initial CC is AE-only). Phase 4.2 base fix.
           if (!isFirstCashMonth) {
-            cCsmResidual = cash * effCfg.csmRate;
+            cCsmResidual = netCashForResidual(c, m, firstCashMonth) * effCfg.csmRate; // Phase 4.2: net of reversals
             csmResidual += cCsmResidual;
           }
         }
