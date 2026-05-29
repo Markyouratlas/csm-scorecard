@@ -10,7 +10,16 @@
 //     edit/delete rows while still in pre-match status
 //   - Bulk upload via CSV/XLSX
 //
-// Phase 3 (this revision):
+// Phase 4.1.2 (this revision):
+//   - Add "Cash" column to the inner sub-header of the Monthly Breakdown
+//     drill-down (was present in row data but missing from header → caused
+//     visual misalignment where $5,000 cash showed up under "Voice AI" label)
+//   - Rename "Voice AI" → "Initial CC" everywhere users see it (Personal
+//     headers, My Customers table, inner drill-down sub-header)
+//   - "My Customers" section now collapsible (collapsed by default) so the
+//     Monthly Breakdown is closer to top of the page
+//
+// Phase 3:
 //   - Monthly Breakdown rows are clickable → expand inline to show
 //     per-customer detail (status pill, next billing date, product, MRR, commission)
 //   - Per-customer rows include a placeholder "Mark Paid" button (Phase 4)
@@ -644,10 +653,19 @@ function PendingStat({ label, value, sub, icon: Icon, iconColor }) {
 }
 
 // ============================================================
-// Earnings section (Phase 3: drill-down on monthly breakdown)
+// Earnings section
+// ============================================================
+// Phase 4.1.2:
+//   - "Voice AI" → "Initial CC" everywhere users see it
+//   - "My Customers" section is now collapsible, collapsed by default
+//   - Inner sub-header of Monthly Breakdown now includes the Cash column
+//     (fixes the visual misalignment where data appeared under wrong headers)
 // ============================================================
 function EarningsSection({ calc, calcByMonth, userIsAE, config, tlOverrideCalc, byCustomer, repName }) {
   const [expandedMonth, setExpandedMonth] = useState(null);
+  // Phase 4.1.2: "My Customers" starts collapsed so Monthly Breakdown is
+  // visible without scrolling past a 50-row customer list.
+  const [myCustomersOpen, setMyCustomersOpen] = useState(false);
 
   const ytd = calc.monthly.reduce((a, m) => ({
     voiceAINetSales:   a.voiceAINetSales + (m.voiceAINetSales || 0),
@@ -776,96 +794,109 @@ function EarningsSection({ calc, calcByMonth, userIsAE, config, tlOverrideCalc, 
         </div>
       )}
 
-      {/* My Customers — per-customer earnings breakdown (unchanged) */}
+      {/* My Customers — Phase 4.1.2: collapsible, collapsed by default */}
       {byCustomer && byCustomer.length > 0 && (
-        <div className="bg-white border border-stone-200 overflow-x-auto">
-          <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.12em] text-stone-500 font-medium">My Customers</div>
-              <h3 className="text-base font-medium text-stone-900 italic" style={{ fontFamily: "'EB Garamond', Georgia, serif" }}>
-                Who you're earning from
-              </h3>
+        <div className="bg-white border border-stone-200">
+          <div
+            className="px-5 py-3 border-b border-stone-200 flex items-center justify-between cursor-pointer hover:bg-stone-50/40 transition-colors"
+            onClick={() => setMyCustomersOpen(o => !o)}
+            title={myCustomersOpen ? "Collapse" : "Expand"}
+          >
+            <div className="flex items-start gap-2">
+              {myCustomersOpen
+                ? <ChevronDown size={16} className="text-stone-500 mt-1 shrink-0" />
+                : <ChevronRight size={16} className="text-stone-500 mt-1 shrink-0" />}
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.12em] text-stone-500 font-medium">My Customers</div>
+                <h3 className="text-base font-medium text-stone-900 italic" style={{ fontFamily: "'EB Garamond', Georgia, serif" }}>
+                  Who you're earning from
+                </h3>
+              </div>
             </div>
             <span className="text-[10px] uppercase tracking-wider text-stone-400">
               {byCustomer.length} customer{byCustomer.length === 1 ? "" : "s"} in book
             </span>
           </div>
-          <table className="w-full text-sm">
-            <thead className="border-b border-stone-200 bg-stone-50/50">
-              <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
-                <th className="px-4 py-2 font-medium">Customer</th>
-                <th className="px-3 py-2 font-medium">Email</th>
-                <th className="px-3 py-2 font-medium text-right">Start</th>
-                <th className="px-3 py-2 font-medium text-right">Current MRR</th>
-                {userIsAE && <th className="px-3 py-2 font-medium text-right">Cash Collected</th>}
-                {userIsAE && <th className="px-3 py-2 font-medium text-right">Voice AI</th>}
-                <th className="px-3 py-2 font-medium text-right">Residual</th>
-                <th className="px-4 py-2 font-medium text-right">YTD Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byCustomer.map((row) => (
-                <tr key={row.customer.stripe_customer_id || row.customer.email} className="border-b border-stone-100 hover:bg-stone-50/50">
-                  <td className="px-4 py-2 text-stone-900 font-medium">
-                    {row.customer.name || <span className="text-stone-400 italic">—</span>}
-                    {row.isMatched && (
-                      <span className="ml-1.5 inline-flex items-center text-[9px] mono-font px-1 py-0.5 rounded font-medium" style={{ background: "#d1fae5", color: "#065f46" }}>
-                        matched
-                      </span>
+          {myCustomersOpen && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-stone-200 bg-stone-50/50">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+                    <th className="px-4 py-2 font-medium">Customer</th>
+                    <th className="px-3 py-2 font-medium">Email</th>
+                    <th className="px-3 py-2 font-medium text-right">Start</th>
+                    <th className="px-3 py-2 font-medium text-right">Current MRR</th>
+                    {userIsAE && <th className="px-3 py-2 font-medium text-right">Cash Collected</th>}
+                    {userIsAE && <th className="px-3 py-2 font-medium text-right">Initial CC</th>}
+                    <th className="px-3 py-2 font-medium text-right">Residual</th>
+                    <th className="px-4 py-2 font-medium text-right">YTD Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byCustomer.map((row) => (
+                    <tr key={row.customer.stripe_customer_id || row.customer.email} className="border-b border-stone-100 hover:bg-stone-50/50">
+                      <td className="px-4 py-2 text-stone-900 font-medium">
+                        {row.customer.name || <span className="text-stone-400 italic">—</span>}
+                        {row.isMatched && (
+                          <span className="ml-1.5 inline-flex items-center text-[9px] mono-font px-1 py-0.5 rounded font-medium" style={{ background: "#d1fae5", color: "#065f46" }}>
+                            matched
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600 text-[12px] mono-font">
+                        {row.customer.email || <span className="text-stone-400">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right text-stone-600 text-[11px] mono-font tabular-nums">
+                        {row.startDate ? row.startDate.slice(0, 10) : <span className="text-stone-400">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                        {row.latestMRR > 0 ? fmtMoney(row.latestMRR) : <span className="text-stone-300">—</span>}
+                      </td>
+                      {userIsAE && (
+                        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
+                          {row.cashCollected > 0 ? fmtMoney(row.cashCollected) : <span className="text-stone-300">—</span>}
+                        </td>
+                      )}
+                      {userIsAE && (
+                        <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                          {row.voiceAICommission > 0 ? fmtMoney(row.voiceAICommission) : <span className="text-stone-300">—</span>}
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                        {row.residual > 0 ? fmtMoney(row.residual) : <span className="text-stone-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
+                        {row.total > 0 ? fmtMoney(row.total) : <span className="text-stone-300">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-stone-300 bg-stone-50/50 font-medium">
+                    <td className="px-4 py-2 text-[10px] uppercase tracking-wider" colSpan={4}>Total</td>
+                    {userIsAE && (
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">
+                        {fmtMoney(byCustomer.reduce((s, r) => s + r.cashCollected, 0))}
+                      </td>
                     )}
-                  </td>
-                  <td className="px-3 py-2 text-stone-600 text-[12px] mono-font">
-                    {row.customer.email || <span className="text-stone-400">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right text-stone-600 text-[11px] mono-font tabular-nums">
-                    {row.startDate ? row.startDate.slice(0, 10) : <span className="text-stone-400">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
-                    {row.latestMRR > 0 ? fmtMoney(row.latestMRR) : <span className="text-stone-300">—</span>}
-                  </td>
-                  {userIsAE && (
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700">
-                      {row.cashCollected > 0 ? fmtMoney(row.cashCollected) : <span className="text-stone-300">—</span>}
-                    </td>
-                  )}
-                  {userIsAE && (
+                    {userIsAE && (
+                      <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+                        {fmtMoney(byCustomer.reduce((s, r) => s + r.voiceAICommission, 0))}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
-                      {row.voiceAICommission > 0 ? fmtMoney(row.voiceAICommission) : <span className="text-stone-300">—</span>}
+                      {fmtMoney(byCustomer.reduce((s, r) => s + r.residual, 0))}
                     </td>
-                  )}
-                  <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
-                    {row.residual > 0 ? fmtMoney(row.residual) : <span className="text-stone-300">—</span>}
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
-                    {row.total > 0 ? fmtMoney(row.total) : <span className="text-stone-300">—</span>}
-                  </td>
-                </tr>
-              ))}
-              <tr className="border-t-2 border-stone-300 bg-stone-50/50 font-medium">
-                <td className="px-4 py-2 text-[10px] uppercase tracking-wider" colSpan={userIsAE ? 4 : 4}>Total</td>
-                {userIsAE && (
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
-                    {fmtMoney(byCustomer.reduce((s, r) => s + r.cashCollected, 0))}
-                  </td>
-                )}
-                {userIsAE && (
-                  <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
-                    {fmtMoney(byCustomer.reduce((s, r) => s + r.voiceAICommission, 0))}
-                  </td>
-                )}
-                <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
-                  {fmtMoney(byCustomer.reduce((s, r) => s + r.residual, 0))}
-                </td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">
-                  {fmtMoney(byCustomer.reduce((s, r) => s + r.total, 0))}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">
+                      {fmtMoney(byCustomer.reduce((s, r) => s + r.total, 0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {/* My Monthly Breakdown — Phase 3: now with drill-down */}
+      {/* My Monthly Breakdown — Phase 4.1.2: header now matches data column count */}
       <div className="bg-white border border-stone-200 overflow-x-auto">
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
           <h3 className="text-sm font-medium text-stone-900">My Monthly Breakdown</h3>
@@ -880,7 +911,7 @@ function EarningsSection({ calc, calcByMonth, userIsAE, config, tlOverrideCalc, 
                   <th className="px-3 py-2 font-medium text-right">Deals</th>
                   <th className="px-3 py-2 font-medium text-right">New MRR</th>
                   <th className="px-3 py-2 font-medium text-right">Cash Collected</th>
-                  <th className="px-3 py-2 font-medium text-right">Voice AI</th>
+                  <th className="px-3 py-2 font-medium text-right">Initial CC</th>
                   <th className="px-3 py-2 font-medium text-right">Residual</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
                 </>
@@ -961,7 +992,8 @@ function EarningsSection({ calc, calcByMonth, userIsAE, config, tlOverrideCalc, 
                               <th className="px-3 py-1.5 font-medium">Product</th>
                               <th className="px-3 py-1.5 font-medium">Next Bill</th>
                               <th className="px-3 py-1.5 font-medium text-right">MRR</th>
-                              {userIsAE && <th className="px-3 py-1.5 font-medium text-right">Voice AI</th>}
+                              <th className="px-3 py-1.5 font-medium text-right">Cash</th>
+                              {userIsAE && <th className="px-3 py-1.5 font-medium text-right">Initial CC</th>}
                               <th className="px-3 py-1.5 font-medium text-right">Residual</th>
                               <th className="px-4 py-1.5 font-medium text-right">Total</th>
                               <th className="px-3 py-1.5 font-medium text-right"></th>

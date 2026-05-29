@@ -1,25 +1,20 @@
 // ============================================================
 // CommissionsView — top-level view for the Commission Tracker
 // ============================================================
-// Phase 4.1.1 (this revision):
-//   - Fix Cash column misalignment in the main Monthly Breakdown header
-//     (the inner expansion sub-header had it, but the parent header table
-//     was missing it, causing data to shift right).
-//   - Rename "Voice AI" → "Initial" everywhere (clean break: column headers,
-//     stat cards, CSV export labels, stat sub-text). The 10% first-cash-month
-//     rate is now called "Initial commission" since that's what it represents
-//     and "Voice AI" was a vestige of an earlier product name.
+// Phase 4.1.2 (this revision):
+//   - Final naming convention locked in:
+//       "Cash Collected" = the cash basis amount that arrived this month
+//       "Initial CC"     = the 10% initial commission earned on first cash month
+//   - Renames "Initial" → "Initial CC" across ByRep, Overview, Settings,
+//     What-If, CSV export, and the sub-table column header.
 //
 // Phase 4.1:
 //   - New "Cash" column on CustomerDrilldownRow shows the actual cash that
-//     arrived this month. Makes the commission math transparent: cash × rate
-//     = payout, both visible side by side.
-//   - Subscription IDs in the inner expansion are now hyperlinks to the
-//     customer's profile in Stripe Dashboard (opens in new tab).
+//     arrived this month. Makes the commission math transparent.
+//   - Subscription IDs in the inner expansion are hyperlinks to Stripe.
 //
-// Phase 4 (math layer):
-//   - All commission calc is now pure cash-based, computed in
-//     commissionEngine.js. UI just displays what the engine returns.
+// Phase 4:
+//   - All commission calc is pure cash-based, computed in commissionEngine.js.
 // ============================================================
 
 import React, { useState, useMemo } from "react";
@@ -82,7 +77,6 @@ function SubscriptionPill({ status, size = "sm" }) {
   );
 }
 
-// Friendly ISO-date → "May 28, 2026" formatter. Returns "—" for null/undefined.
 function fmtDate(iso) {
   if (!iso) return "—";
   try {
@@ -353,12 +347,9 @@ function SubscriptionsInnerTable({ subscriptions, stripeCustomerId }) {
 }
 
 // ============================================================
-// PER-CUSTOMER DRILL-DOWN ROW (shared by ByRep + Personal tab)
+// PER-CUSTOMER DRILL-DOWN ROW
 // ============================================================
-// One row per customer contribution to a specific month.
-//
-// Phase 4.1.1: "Voice AI" column renamed "Initial". Same data, same purple
-// tint — just the label changes.
+// Phase 4.1.2: "Initial" → "Initial CC" in cell tooltips/labels (data unchanged).
 // ============================================================
 export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
   const [expanded, setExpanded] = useState(false);
@@ -376,8 +367,8 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
     : "—";
 
   // colSpan for the inner expansion row.
-  // AE: 10 cols (Customer, Status, Product, Next Bill, MRR, Cash, Initial, Residual, Total, Mark Paid)
-  // CSM: 9 cols (no Initial column)
+  // AE: 10 cols (Customer, Status, Product, Next Bill, MRR, Cash, Initial CC, Residual, Total, Mark Paid)
+  // CSM: 9 cols (no Initial CC column)
   const totalCols = isAE ? 10 : 9;
 
   const handleRowClick = () => setExpanded((e) => !e);
@@ -435,7 +426,7 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
         <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-700 text-xs">
           {line.mrr > 0 ? fmtMoney(line.mrr) : <span className="text-stone-300">—</span>}
         </td>
-        {/* Phase 4.1: Cash column — what actually arrived this month */}
+        {/* Cash column — what actually arrived this month */}
         <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-900 text-xs font-medium">
           {line.cashReceived > 0 ? fmtMoney(line.cashReceived) : <span className="text-stone-300">—</span>}
         </td>
@@ -483,13 +474,7 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
 // ============================================================
 // MONTH DRILLDOWN ROW (shared)
 // ============================================================
-// Phase 4.1.1: inner sub-header has "Cash" column; "Voice AI" renamed "Initial".
-//
-// IMPORTANT: when changing the column count here, also update the colSpan
-// of the inner-expansion <td>. Currently:
-//   - AE: 10 expansion columns (Customer, Status, Product, Next Bill, MRR,
-//         Cash, Initial, Residual, Total, [empty for Mark Paid])
-//   - CSM: 9 expansion columns (same minus Initial)
+// Phase 4.1.2: inner sub-header now has "Cash" + "Initial CC" headers.
 // ============================================================
 function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
   const m = monthData;
@@ -565,7 +550,7 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
                     <th className="px-3 py-1.5 font-medium">Next Bill</th>
                     <th className="px-3 py-1.5 font-medium text-right">MRR</th>
                     <th className="px-3 py-1.5 font-medium text-right">Cash</th>
-                    {isAE && <th className="px-3 py-1.5 font-medium text-right">Initial</th>}
+                    {isAE && <th className="px-3 py-1.5 font-medium text-right">Initial CC</th>}
                     <th className="px-3 py-1.5 font-medium text-right">Residual</th>
                     <th className="px-4 py-1.5 font-medium text-right">Total</th>
                     <th className="px-3 py-1.5 font-medium text-right"></th>
@@ -773,8 +758,8 @@ function RepCustomerYTDTable({ rows, isAE }) {
           <th className="px-3 py-1.5 font-medium">Status</th>
           <th className="px-3 py-1.5 font-medium">Next Bill</th>
           <th className="px-3 py-1.5 font-medium text-right">Latest MRR</th>
-          {isAE && <th className="px-3 py-1.5 font-medium text-right">Cash</th>}
-          {isAE && <th className="px-3 py-1.5 font-medium text-right">Initial</th>}
+          {isAE && <th className="px-3 py-1.5 font-medium text-right">Cash Collected</th>}
+          {isAE && <th className="px-3 py-1.5 font-medium text-right">Initial CC</th>}
           <th className="px-3 py-1.5 font-medium text-right">Residual</th>
           <th className="px-4 py-1.5 font-medium text-right">YTD Total</th>
         </tr>
@@ -970,10 +955,7 @@ function CustomersTab({ c, initialFilter }) {
 }
 
 // ============================================================
-// BY REP TAB (with expandable month rows)
-// ============================================================
-// Phase 4.1.1: main Monthly Breakdown header — "Voice AI Cash" → "Initial Cash",
-// "10%" stays (rate label), "3% Residual" stays. Stat cards updated accordingly.
+// BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
 function ByRepTab({ c, initialRep }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
@@ -1000,8 +982,8 @@ function ByRepTab({ c, initialRep }) {
 
   const exportCSV = () => {
     const rows = calc.isAE
-      ? [["Month", "Deals", "New MRR", "Initial Cash", "Initial 10%", "Residual 3%", "Total"]]
-      : [["Month", "Book MRR", "CSM 3%", "Total"]];
+      ? [["Month", "Deals", "New MRR", "Cash Collected", "Initial CC (10%)", "Residual (3%)", "Total"]]
+      : [["Month", "Book MRR", "CSM (3%)", "Total"]];
     for (const m of calc.monthly) {
       if (calc.isAE) rows.push([m.month, m.newDeals, m.newMRR.toFixed(2), m.voiceAINetSales.toFixed(2), m.voiceAICommission.toFixed(2), m.aeResidual.toFixed(2), m.total.toFixed(2)]);
       else rows.push([m.month, m.bookMRR.toFixed(2), m.csmResidual.toFixed(2), m.total.toFixed(2)]);
@@ -1040,7 +1022,7 @@ function ByRepTab({ c, initialRep }) {
         {calc.isAE ? (
           <>
             <Stat label="YTD New MRR" value={fmtMoney(ytd.newMRR)} sub={`${ytd.newDeals} deals`} />
-            <Stat label="YTD Initial + Residual"
+            <Stat label="YTD Initial CC + Residual"
                   value={fmtMoney(ytd.voiceAICommission + ytd.aeResidual)}
                   sub={`${fmtMoney(ytd.voiceAICommission)} + ${fmtMoney(ytd.aeResidual)}`}
                   accent={BRAND.purple} />
@@ -1101,9 +1083,9 @@ function ByRepTab({ c, initialRep }) {
                 <>
                   <th className="px-3 py-2 font-medium text-right">Deals</th>
                   <th className="px-3 py-2 font-medium text-right">New MRR</th>
-                  <th className="px-3 py-2 font-medium text-right">Initial Cash</th>
-                  <th className="px-3 py-2 font-medium text-right">Initial 10%</th>
-                  <th className="px-3 py-2 font-medium text-right">3% Residual</th>
+                  <th className="px-3 py-2 font-medium text-right">Cash Collected</th>
+                  <th className="px-3 py-2 font-medium text-right">Initial CC (10%)</th>
+                  <th className="px-3 py-2 font-medium text-right">Residual (3%)</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
                 </>
               ) : (
@@ -1152,7 +1134,7 @@ function ByRepTab({ c, initialRep }) {
 }
 
 // ============================================================
-// WHAT-IF TAB (unchanged)
+// WHAT-IF TAB
 // ============================================================
 function WhatIfTab({ c }) {
   const [scenarios, setScenarios] = useState([
@@ -1215,7 +1197,7 @@ function WhatIfTab({ c }) {
             </div>
             <div className="space-y-2 text-xs">
               {[
-                ["aeVoiceRate",        "AE Initial rate %", 0.01],
+                ["aeVoiceRate",        "AE Initial CC rate %", 0.01],
                 ["aeResidualRate",     "AE Residual %", 0.01],
                 ["aeResidualMonths",   "AE Cap (mo.)",  1],
                 ["csmRate",            "CSM rate %",    0.01],
@@ -1535,7 +1517,7 @@ function DataTab({ c, isExecutive }) {
 }
 
 // ============================================================
-// SETTINGS TAB (Phase 4.1.1: "Voice AI" → "Initial" in labels)
+// SETTINGS TAB (Phase 4.1.2: labels match Initial CC convention)
 // ============================================================
 function SettingsTab({ c }) {
   const [draft, setDraft] = useState(c.config);
@@ -1565,7 +1547,7 @@ function SettingsTab({ c }) {
         </div>
         <div className="p-5 grid grid-cols-2 gap-4 text-sm">
           {[
-            ["aeVoiceRate",        "Initial rate (first cash month)", 0.01],
+            ["aeVoiceRate",        "Initial CC rate (first cash month)", 0.01],
             ["aeResidualRate",     "AE residual rate (subsequent months)", 0.01],
             ["aeResidualMonths",   "AE cap (months from start)", 1],
             ["acceleratorTarget",  "Annual variable target ($)", 1000],
