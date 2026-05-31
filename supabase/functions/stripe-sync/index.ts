@@ -259,15 +259,20 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
     const invoiceCutoffTs = Math.floor(new Date(earliestMonth + "-01T00:00:00Z").getTime() / 1000);
     const invoiceQuery = `status=paid&created[gte]=${invoiceCutoffTs}`;
 
+    // Phase 4.3: also pull charges over the same window, for one-off
+    // (non-invoice) payment capture into oneoff_payments. Same cutoff as invoices.
+    const chargesQuery = `created[gte]=${invoiceCutoffTs}`;
+
     // Phase 3.6.1: fetch products in parallel with the other resources so we
     // can resolve product.name from item.price.product (which is just an ID
     // string by default — we don't expand it inline since that crosses
     // Stripe's 4-level expansion depth limit).
-    const [customers, subs, invoices, products] = await Promise.all([
+    const [customers, subs, invoices, products, charges] = await Promise.all([
       stripePaginate("customers", sk),
       stripePaginate("subscriptions", sk, "status=all&expand[]=data.items.data.price"),
       stripePaginate("invoices", sk, invoiceQuery),
       stripePaginate("products", sk),
+      stripePaginate("charges", sk, chargesQuery),
     ]);
 
     // Build a lookup map: product ID → product name. Used during the sub
@@ -420,6 +425,79 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
       }
     }
 
+    // ============================================================
+    // Phase 4.3: capture one-off (non-invoice) payments into oneoff_payments.
+    // INERT by default. We INSERT new charges and REFRESH amount/refund/sync-time
+    // on existing ones. We NEVER touch included_in_commission, assigned_ae/csm,
+    // included_by/at — those are exec decisions and must survive re-sync.
+    //
+    // Dedupe guard: only succeeded charges with NO invoice are true one-offs.
+    // Subscription payments flow through invoices and are already counted in
+    // monthly_cash_received above — capturing them here would double-count.
+    // ============================================================
+    let oneoffInserted = 0;
+    let oneoffRefreshed = 0;
+    try {
+      const oneoffCharges = charges.filter(
+        (ch: any) => ch.status === "succeeded" && !ch.invoice && ch.customer && (ch.amount || 0) > 0
+      );
+
+      // Find which charge IDs already exist, so we preserve exec decisions on them.
+      const chargeIds = oneoffCharges.map((ch: any) => ch.id);
+      const existingIds = new Set<string>();
+      const EXIST_BATCH = 300;
+      for (let i = 0; i < chargeIds.length; i += EXIST_BATCH) {
+        const slice = chargeIds.slice(i, i + EXIST_BATCH);
+        const { data: existing } = await admin
+          .from("oneoff_payments")
+          .select("stripe_charge_id")
+          .in("stripe_charge_id", slice);
+        for (const r of existing || []) existingIds.add(r.stripe_charge_id);
+      }
+
+      const nowIso = new Date().toISOString();
+      const toInsert: any[] = [];
+
+      for (const ch of oneoffCharges) {
+        const custId = typeof ch.customer === "string" ? ch.customer : ch.customer.id;
+        const createdDate = new Date(ch.created * 1000);
+        if (existingIds.has(ch.id)) {
+          // Refresh ONLY volatile fields. Never touch gating/assignment columns.
+          const { error: rErr } = await admin
+            .from("oneoff_payments")
+            .update({
+              amount: (ch.amount || 0) / 100,
+              amount_refunded: (ch.amount_refunded || 0) / 100,
+              last_synced_at: nowIso,
+            })
+            .eq("stripe_charge_id", ch.id);
+          if (!rErr) oneoffRefreshed++;
+        } else {
+          // Brand-new one-off: insert INERT (column defaults set included_in_commission=false).
+          toInsert.push({
+            stripe_charge_id: ch.id,
+            stripe_customer_id: custId,
+            customer_email: (ch.billing_details?.email || ch.receipt_email || "").toLowerCase() || null,
+            customer_name: ch.billing_details?.name || null,
+            amount: (ch.amount || 0) / 100,
+            cash_month: ymOf(createdDate),
+            charge_created_at: createdDate.toISOString(),
+            amount_refunded: (ch.amount_refunded || 0) / 100,
+            last_synced_at: nowIso,
+          });
+        }
+      }
+
+      for (let i = 0; i < toInsert.length; i += BATCH) {
+        const batch = toInsert.slice(i, i + BATCH);
+        const { error: insErr } = await admin.from("oneoff_payments").insert(batch);
+        if (insErr) errors.push(`One-off insert batch ${i / BATCH}: ${insErr.message}`);
+        else oneoffInserted += batch.length;
+      }
+    } catch (oe: any) {
+      errors.push(`One-off capture failed: ${oe?.message || String(oe)}`);
+    }
+
     // ---- Reconcile assignments: if an assignment row has no stripe_customer_id
     // but its email matches a customer, fill in the stripe_customer_id. This
     // is the "email fallback" you asked for.
@@ -462,6 +540,9 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         subscriptions_fetched: subs.length,
         invoices_fetched: invoices.length,
         products_fetched: products.length,
+        charges_fetched: charges.length,
+        oneoff_inserted: oneoffInserted,
+        oneoff_refreshed: oneoffRefreshed,
         customers_with_subs_populated: customersWithSubs,
         months: monthCols,
         duration_ms: Date.now() - t0,
