@@ -22,11 +22,14 @@ import {
   TrendingUp, Users, DollarSign, AlertCircle, Settings, Download,
   GitCompare, Calendar, Zap, FileText, Check, X, Plus,
   RefreshCw, Search, Inbox, ChevronRight, ChevronDown, ExternalLink,
+  Receipt,
 } from "lucide-react";
 import Papa from "papaparse";
 
 import ScorecardShell from "./ScorecardShell";
 import { useCommissions } from "./useCommissions";
+import { useOneoffPayments } from "./useOneoffPayments";
+import { supabase } from "./supabase";
 import {
   ALL_REPS, REPS, isAE,
   calcRepCommission, calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
@@ -133,6 +136,7 @@ export default function CommissionsView({ profile, onSignOut }) {
     { id: "whatif",    label: "What-If",   icon: GitCompare },
     { id: "annualize", label: "Annualize", icon: Calendar },
     { id: "data",      label: "Data Sync", icon: Zap },
+    ...(isExecutive ? [{ id: "oneoffs",  label: "One-Offs", icon: Receipt }] : []),
     ...(isExecutive ? [{ id: "settings", label: "Settings", icon: Settings }] : []),
   ];
 
@@ -169,6 +173,7 @@ export default function CommissionsView({ profile, onSignOut }) {
         {tab === "whatif"    && <WhatIfTab    c={c} />}
         {tab === "annualize" && <AnnualizeTab c={c} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
+        {tab === "oneoffs"   && isExecutive && <OneOffsTab />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
     </ScorecardShell>
@@ -1512,6 +1517,335 @@ function DataTab({ c, isExecutive }) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// ONE-OFFS TAB — exec-only, include/exclude controls (Phase 4.3 Step 5)
+// ============================================================
+// Shows captured one-off (non-invoice) Stripe charges from
+// oneoff_payments. Each row can be opened to assign AE/CSM + rate
+// and included in commission via set_oneoff_inclusion (SECURITY
+// DEFINER, exec-gated server-side).
+// ============================================================
+function OneOffsTab() {
+  const o = useOneoffPayments();
+  const [editingChargeId, setEditingChargeId] = useState(null);
+
+  if (o.loading) {
+    return (
+      <div className="text-center text-stone-500 text-sm py-12">
+        Loading one-off payments…
+      </div>
+    );
+  }
+  if (o.error) {
+    return (
+      <div className="bg-red-50 border border-red-200 px-5 py-4 text-sm text-red-900">
+        <strong>Failed to load one-off payments.</strong> {o.error}
+      </div>
+    );
+  }
+
+  const rows = o.oneoffs;
+  const includedCount = rows.filter((r) => r.included_in_commission).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-medium text-stone-900">One-Off Payments</h2>
+          <div className="text-xs text-stone-500 mt-0.5">
+            {rows.length} captured · {includedCount} included in commission
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-stone-200 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-stone-50 border-b border-stone-200">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-stone-500">
+              <th className="px-4 py-2 font-medium">Customer</th>
+              <th className="px-3 py-2 font-medium">Email</th>
+              <th className="px-3 py-2 font-medium text-right">Amount</th>
+              <th className="px-3 py-2 font-medium">Cash Month</th>
+              <th className="px-3 py-2 font-medium text-right">Refunded</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-stone-500 text-sm italic">
+                  No one-off payments captured yet.
+                </td>
+              </tr>
+            ) : (
+              rows.map((p) => (
+                <OneOffRow
+                  key={p.stripe_charge_id}
+                  payment={p}
+                  isEditing={editingChargeId === p.stripe_charge_id}
+                  onOpenEdit={() => setEditingChargeId(p.stripe_charge_id)}
+                  onCloseEdit={() => setEditingChargeId(null)}
+                  reload={o.reload}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// OneOffRow — one payment + (when expanded) the include form
+// ------------------------------------------------------------
+function OneOffRow({ payment: p, isEditing, onOpenEdit, onCloseEdit, reload }) {
+  const netAmount = Math.max(0, (p.amount || 0) - (p.amount_refunded || 0));
+  const isIncluded = !!p.included_in_commission;
+
+  return (
+    <>
+      <tr className="border-b border-stone-100 last:border-b-0">
+        <td className="px-4 py-2 text-stone-700">
+          {p.customer_name || <span className="text-stone-400 italic">—</span>}
+        </td>
+        <td className="px-3 py-2 text-stone-600 font-mono text-[11px] truncate max-w-[240px]" title={p.customer_email}>
+          {p.customer_email || <span className="text-stone-400">—</span>}
+        </td>
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-900">
+          {fmtMoney(p.amount || 0)}
+        </td>
+        <td className="px-3 py-2 text-stone-600 font-mono tabular-nums text-xs">
+          {p.cash_month ? monthLabel(p.cash_month) : <span className="text-stone-400">—</span>}
+        </td>
+        <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-600 text-xs">
+          {p.amount_refunded > 0 ? fmtMoney(p.amount_refunded) : <span className="text-stone-300">—</span>}
+        </td>
+        <td className="px-3 py-2">
+          {isIncluded ? (
+            <span
+              className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-sm"
+              style={{ background: BRAND.purpleTint, color: BRAND.purpleDeep }}
+            >
+              Included
+            </span>
+          ) : (
+            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-stone-100 text-stone-500">
+              Not included
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-2 text-right">
+          {isEditing ? (
+            <button
+              type="button"
+              onClick={onCloseEdit}
+              className="text-[10px] px-2 py-1 border font-medium border-stone-200 text-stone-600 hover:bg-stone-50"
+            >
+              Cancel
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenEdit}
+              className="text-[10px] px-2 py-1 border font-medium"
+              style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purple, background: BRAND.purpleTint }}
+            >
+              {isIncluded ? "Edit" : "Include"}
+            </button>
+          )}
+        </td>
+      </tr>
+      {isEditing && (
+        <tr className="bg-stone-50 border-b border-stone-200">
+          <td colSpan={7} className="px-4 py-4">
+            <OneOffIncludeForm
+              payment={p}
+              netAmount={netAmount}
+              onCancel={onCloseEdit}
+              onSaved={async () => { onCloseEdit(); await reload(); }}
+            />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ------------------------------------------------------------
+// OneOffIncludeForm — assignments, rates, preview, and the
+// single rpc call that writes the inclusion decision.
+// ------------------------------------------------------------
+function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
+  // Convert stored decimal rate (0.10) back to display percentage ("10").
+  const decimalToPctStr = (r) =>
+    r != null ? String(+(r * 100).toFixed(2)) : "";
+
+  const [assignedAe, setAssignedAe] = useState(p.assigned_ae || null);
+  const [assignedCsm, setAssignedCsm] = useState(p.assigned_csm || null);
+  const [aeRateInput, setAeRateInput] = useState(decimalToPctStr(p.ae_commission_rate));
+  const [csmRateInput, setCsmRateInput] = useState(decimalToPctStr(p.csm_commission_rate));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const aeRatePct = parseFloat(aeRateInput);
+  const csmRatePct = parseFloat(csmRateInput);
+  const aeRateValid = !isNaN(aeRatePct) && aeRatePct >= 0 && aeRatePct <= 100;
+  const csmRateValid = !isNaN(csmRatePct) && csmRatePct >= 0 && csmRatePct <= 100;
+
+  const aePreview = (assignedAe && aeRateValid) ? netAmount * (aeRatePct / 100) : null;
+  const csmPreview = (assignedCsm && csmRateValid) ? netAmount * (csmRatePct / 100) : null;
+
+  const aeReady = !assignedAe || aeRateValid;
+  const csmReady = !assignedCsm || csmRateValid;
+  const hasAtLeastOne = !!assignedAe || !!assignedCsm;
+  const canSubmit = hasAtLeastOne && aeReady && csmReady && !submitting;
+
+  const handleInclude = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { error: rpcErr } = await supabase.rpc("set_oneoff_inclusion", {
+        p_charge_id: p.stripe_charge_id,
+        p_include: true,
+        p_assigned_ae: assignedAe || null,
+        p_assigned_csm: assignedCsm || null,
+        p_ae_rate: assignedAe ? (aeRatePct / 100) : null,
+        p_csm_rate: assignedCsm ? (csmRatePct / 100) : null,
+      });
+      if (rpcErr) throw rpcErr;
+      await onSaved();
+    } catch (e) {
+      console.error("set_oneoff_inclusion (include) failed:", e);
+      setError(e.message || String(e));
+      setSubmitting(false);
+    }
+  };
+
+  const handleExclude = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { error: rpcErr } = await supabase.rpc("set_oneoff_inclusion", {
+        p_charge_id: p.stripe_charge_id,
+        p_include: false,
+        p_assigned_ae: null,
+        p_assigned_csm: null,
+        p_ae_rate: null,
+        p_csm_rate: null,
+      });
+      if (rpcErr) throw rpcErr;
+      await onSaved();
+    } catch (e) {
+      console.error("set_oneoff_inclusion (exclude) failed:", e);
+      setError(e.message || String(e));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-stone-500">
+        Net amount (after refund):{" "}
+        <span className="font-mono tabular-nums font-medium text-stone-900">{fmtMoney(netAmount)}</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* AE column */}
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">AE</div>
+          <div className="flex items-center gap-2">
+            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} />
+            {assignedAe && (
+              <>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={aeRateInput}
+                  onChange={(e) => setAeRateInput(e.target.value)}
+                  placeholder="rate"
+                  disabled={submitting}
+                  className="w-20 text-xs border border-stone-200 px-1.5 py-0.5 focus:outline-none focus:border-stone-400"
+                />
+                <span className="text-xs text-stone-500">%</span>
+              </>
+            )}
+          </div>
+          {assignedAe && aeRateValid && (
+            <div className="text-[11px] text-stone-600 font-mono tabular-nums">
+              {fmtMoney(netAmount)} × {aeRatePct}% ={" "}
+              <span className="font-medium" style={{ color: BRAND.purple }}>{fmtMoney(aePreview)}</span>
+            </div>
+          )}
+          {assignedAe && !aeRateValid && aeRateInput !== "" && (
+            <div className="text-[11px] text-red-700">Rate must be between 0 and 100.</div>
+          )}
+        </div>
+
+        {/* CSM column */}
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">CSM</div>
+          <div className="flex items-center gap-2">
+            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} />
+            {assignedCsm && (
+              <>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={csmRateInput}
+                  onChange={(e) => setCsmRateInput(e.target.value)}
+                  placeholder="rate"
+                  disabled={submitting}
+                  className="w-20 text-xs border border-stone-200 px-1.5 py-0.5 focus:outline-none focus:border-stone-400"
+                />
+                <span className="text-xs text-stone-500">%</span>
+              </>
+            )}
+          </div>
+          {assignedCsm && csmRateValid && (
+            <div className="text-[11px] text-stone-600 font-mono tabular-nums">
+              {fmtMoney(netAmount)} × {csmRatePct}% ={" "}
+              <span className="font-medium" style={{ color: BRAND.purple }}>{fmtMoney(csmPreview)}</span>
+            </div>
+          )}
+          {assignedCsm && !csmRateValid && csmRateInput !== "" && (
+            <div className="text-[11px] text-red-700">Rate must be between 0 and 100.</div>
+          )}
+        </div>
+      </div>
+
+      {!hasAtLeastOne && (
+        <div className="text-[11px] text-stone-500 italic">
+          Assign at least one rep (AE or CSM) to include this payment.
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 px-3 py-2 text-[11px] text-red-900">
+          <strong>Failed to save.</strong> {error}
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
+        <Btn onClick={onCancel} variant="secondary" disabled={submitting}>Cancel</Btn>
+        {p.included_in_commission && (
+          <Btn onClick={handleExclude} variant="danger" disabled={submitting}>
+            {submitting ? "Saving…" : "Exclude"}
+          </Btn>
+        )}
+        <Btn onClick={handleInclude} variant="primary" disabled={!canSubmit}>
+          {submitting ? "Saving…" : "Confirm & Include"}
+        </Btn>
+      </div>
     </div>
   );
 }

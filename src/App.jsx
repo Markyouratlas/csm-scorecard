@@ -115,7 +115,7 @@ export default function App() {
     }
 
     loadProfile()
-  }, [session])
+  }, [session?.user?.id])
 
   const handleSignOut = async () => {
     try {

@@ -28,7 +28,10 @@ export function useCommissions() {
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ---- Initial load ----
   const loadAll = useCallback(async () => {
