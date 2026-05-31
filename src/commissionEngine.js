@@ -747,3 +747,40 @@ export const fmtPct = (n) => {
   const hasFraction = Math.abs(pct - Math.round(pct)) > 0.005;
   return `${pct.toLocaleString("en-US", hasFraction ? { minimumFractionDigits: 1, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })}%`;
 };
+
+// ============================================================
+// Phase 4.3: commission from manually-included one-off payments.
+// ============================================================
+// One-offs live in the oneoff_payments table and are INERT until an exec sets
+// included_in_commission=true, assigns a rep, and types a manual rate
+// (ae_commission_rate / csm_commission_rate, e.g. 0.10 = 10%). They are EXEMPT
+// from the 12-month residual cap (an exec inclusion is a deliberate act), and
+// commission is computed on cash NET of any refund, floored at $0.
+//
+// PURE + ADDITIVE: this does NOT touch calcRepCommission / *ByCustomer / *ByMonth.
+// Nothing calls it until the Step 5 UI wires it in, so it cannot affect any
+// existing number. The dashboard merges its output with the normal engine total.
+export function calcOneoffCommissionByRep(rep, includedOneoffs, monthCols) {
+  const ae = isAE(rep);
+  const byMonth = Object.fromEntries(monthCols.map((m) => [m, 0]));
+  const lines = [];
+  for (const o of includedOneoffs || []) {
+    // Safety: only ever count explicitly-included payments.
+    if (!o || o.included_in_commission !== true) continue;
+    const isThisRepAE = ae && o.assigned_ae === rep;
+    const isThisRepCSM = !ae && o.assigned_csm === rep;
+    if (!isThisRepAE && !isThisRepCSM) continue;
+    // Manual per-payment rate the exec typed (not the config rate).
+    const rate = Number(isThisRepAE ? o.ae_commission_rate : o.csm_commission_rate);
+    if (!rate || rate <= 0) continue; // no rate set for this rep -> no commission
+    const m = o.cash_month;
+    if (!(m in byMonth)) continue; // outside the displayed month window
+    const net = Math.max(0, Number(o.amount || 0) - Number(o.amount_refunded || 0));
+    const commission = net * rate;
+    byMonth[m] += commission;
+    lines.push({ stripe_charge_id: o.stripe_charge_id, month: m, netCash: net, rate, commission });
+  }
+  const monthly = monthCols.map((m) => ({ month: m, oneoffCommission: Math.round(byMonth[m] * 100) / 100 }));
+  const total = Math.round(monthly.reduce((s, r) => s + r.oneoffCommission, 0) * 100) / 100;
+  return { rep, monthly, total, lines };
+}
