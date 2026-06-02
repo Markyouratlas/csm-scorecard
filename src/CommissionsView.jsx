@@ -33,6 +33,7 @@ import { supabase } from "./supabase";
 import {
   ALL_REPS, REPS, isAE,
   calcRepCommission, calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
+  calcOneoffCommissionByRep,
   calcAccelerator, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
@@ -98,6 +99,11 @@ export default function CommissionsView({ profile, onSignOut }) {
   const tier = accessTier(profile);
   const isExecutive = tier === "executive";
   const c = useCommissions();
+  const o = useOneoffPayments();
+  const includedOneoffs = useMemo(
+    () => (o.oneoffs || []).filter((x) => x.included_in_commission),
+    [o.oneoffs]
+  );
   const [tab, setTab] = useState("overview");
   const [jumpRep, setJumpRep] = useState(null);
   const [needsFilter, setNeedsFilter] = useState(null);
@@ -167,13 +173,13 @@ export default function CommissionsView({ profile, onSignOut }) {
           })}
         </div>
 
-        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} />}
+        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} />}
         {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} />}
         {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} />}
         {tab === "whatif"    && <WhatIfTab    c={c} />}
         {tab === "annualize" && <AnnualizeTab c={c} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
-        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} />}
+        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} o={o} />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
     </ScorecardShell>
@@ -583,7 +589,7 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
 // ============================================================
 // OVERVIEW TAB (with expandable per-rep rows)
 // ============================================================
-function OverviewTab({ c, onJumpTo }) {
+function OverviewTab({ c, onJumpTo, oneoffs }) {
   const [expandedRep, setExpandedRep] = useState(null);
 
   const stats = useMemo(() => {
@@ -613,8 +619,11 @@ function OverviewTab({ c, onJumpTo }) {
     const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols);
     const ytd = r.monthly.reduce((s, m) => s + m.total, 0);
     const thisMonth = r.monthly[r.monthly.length - 1]?.total || 0;
-    return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth };
-  }), [c.customers, c.indexedAssignments, c.config, c.monthCols]);
+    const oo = calcOneoffCommissionByRep(rep, oneoffs || [], c.monthCols);
+    const oneOffThisMonth = oo.monthly[oo.monthly.length - 1]?.oneoffCommission || 0;
+    const oneOffYtd = oo.total;
+    return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth, oneOffThisMonth, oneOffYtd };
+  }), [c.customers, c.indexedAssignments, c.config, c.monthCols, oneoffs]);
 
   const expandedRepCustomers = useMemo(() => {
     if (!expandedRep) return null;
@@ -659,6 +668,8 @@ function OverviewTab({ c, onJumpTo }) {
               <th className="px-3 py-2.5 font-medium text-right">Book</th>
               <th className="px-3 py-2.5 font-medium text-right">This Month</th>
               <th className="px-5 py-2.5 font-medium text-right">YTD Comm.</th>
+              <th className="px-3 py-2.5 font-medium text-right">One-Off · This Mo.</th>
+              <th className="px-5 py-2.5 font-medium text-right">One-Off · YTD</th>
             </tr>
           </thead>
           <tbody>
@@ -690,10 +701,16 @@ function OverviewTab({ c, onJumpTo }) {
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums text-stone-700">{r.bookSize}</td>
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums text-stone-900">{fmtMoney(r.thisMonth)}</td>
                     <td className="px-5 py-2.5 text-right font-mono tabular-nums font-medium text-stone-900">{fmtMoney(r.ytd)}</td>
+                    <td className="px-3 py-2.5 text-right font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>
+                      {r.oneOffThisMonth > 0 ? fmtMoney(r.oneOffThisMonth) : <span className="text-stone-300">—</span>}
+                    </td>
+                    <td className="px-5 py-2.5 text-right font-mono tabular-nums font-medium" style={{ color: BRAND.purple }}>
+                      {r.oneOffYtd > 0 ? fmtMoney(r.oneOffYtd) : <span className="text-stone-300">—</span>}
+                    </td>
                   </tr>
                   {expanded && expandedRepCustomers && (
                     <tr className="border-b border-stone-200 bg-stone-50/50">
-                      <td colSpan={6} className="px-0 py-0">
+                      <td colSpan={8} className="px-0 py-0">
                         <RepCustomerYTDTable rows={expandedRepCustomers} isAE={r.isAE} />
                       </td>
                     </tr>
@@ -1546,8 +1563,7 @@ function resolveRepProfile(repFirstName, profiles) {
 // and included in commission via set_oneoff_inclusion (SECURITY
 // DEFINER, exec-gated server-side).
 // ============================================================
-function OneOffsTab({ profiles }) {
-  const o = useOneoffPayments();
+function OneOffsTab({ profiles, o }) {
   const [editingChargeId, setEditingChargeId] = useState(null);
 
   if (o.loading) {
