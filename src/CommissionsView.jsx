@@ -173,7 +173,7 @@ export default function CommissionsView({ profile, onSignOut }) {
         {tab === "whatif"    && <WhatIfTab    c={c} />}
         {tab === "annualize" && <AnnualizeTab c={c} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
-        {tab === "oneoffs"   && isExecutive && <OneOffsTab />}
+        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
     </ScorecardShell>
@@ -1521,6 +1521,23 @@ function DataTab({ c, isExecutive }) {
   );
 }
 
+// ------------------------------------------------------------
+// resolveRepProfile — first-name string → profile.id, matching
+// the same convention used by commissionEngine.js
+// (o.assigned_ae === profile.name.split(' ')[0]). Returns a
+// tagged result so callers distinguish "no rep selected" from
+// "no profile" from "first-name collision (ambiguous)".
+// ------------------------------------------------------------
+function resolveRepProfile(repFirstName, profiles) {
+  if (!repFirstName) return { id: null, status: "unassigned" };
+  const matches = (profiles || []).filter(
+    (pf) => (pf.name || "").split(" ")[0] === repFirstName
+  );
+  if (matches.length === 0) return { id: null, status: "no_profile" };
+  if (matches.length > 1) return { id: null, status: "ambiguous", count: matches.length };
+  return { id: matches[0].id, status: "ok" };
+}
+
 // ============================================================
 // ONE-OFFS TAB — exec-only, include/exclude controls (Phase 4.3 Step 5)
 // ============================================================
@@ -1529,7 +1546,7 @@ function DataTab({ c, isExecutive }) {
 // and included in commission via set_oneoff_inclusion (SECURITY
 // DEFINER, exec-gated server-side).
 // ============================================================
-function OneOffsTab() {
+function OneOffsTab({ profiles }) {
   const o = useOneoffPayments();
   const [editingChargeId, setEditingChargeId] = useState(null);
 
@@ -1587,6 +1604,7 @@ function OneOffsTab() {
                 <OneOffRow
                   key={p.stripe_charge_id}
                   payment={p}
+                  profiles={profiles}
                   isEditing={editingChargeId === p.stripe_charge_id}
                   onOpenEdit={() => setEditingChargeId(p.stripe_charge_id)}
                   onCloseEdit={() => setEditingChargeId(null)}
@@ -1604,7 +1622,7 @@ function OneOffsTab() {
 // ------------------------------------------------------------
 // OneOffRow — one payment + (when expanded) the include form
 // ------------------------------------------------------------
-function OneOffRow({ payment: p, isEditing, onOpenEdit, onCloseEdit, reload }) {
+function OneOffRow({ payment: p, profiles, isEditing, onOpenEdit, onCloseEdit, reload }) {
   const netAmount = Math.max(0, (p.amount || 0) - (p.amount_refunded || 0));
   const isIncluded = !!p.included_in_commission;
 
@@ -1666,6 +1684,7 @@ function OneOffRow({ payment: p, isEditing, onOpenEdit, onCloseEdit, reload }) {
           <td colSpan={7} className="px-4 py-4">
             <OneOffIncludeForm
               payment={p}
+              profiles={profiles}
               netAmount={netAmount}
               onCancel={onCloseEdit}
               onSaved={async () => { onCloseEdit(); await reload(); }}
@@ -1681,7 +1700,7 @@ function OneOffRow({ payment: p, isEditing, onOpenEdit, onCloseEdit, reload }) {
 // OneOffIncludeForm — assignments, rates, preview, and the
 // single rpc call that writes the inclusion decision.
 // ------------------------------------------------------------
-function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
+function OneOffIncludeForm({ payment: p, profiles, netAmount, onCancel, onSaved }) {
   // Convert stored decimal rate (0.10) back to display percentage ("10").
   const decimalToPctStr = (r) =>
     r != null ? String(+(r * 100).toFixed(2)) : "";
@@ -1698,11 +1717,14 @@ function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
   const aeRateValid = !isNaN(aeRatePct) && aeRatePct >= 0 && aeRatePct <= 100;
   const csmRateValid = !isNaN(csmRatePct) && csmRatePct >= 0 && csmRatePct <= 100;
 
+  const aeResolution = resolveRepProfile(assignedAe, profiles);
+  const csmResolution = resolveRepProfile(assignedCsm, profiles);
+
   const aePreview = (assignedAe && aeRateValid) ? netAmount * (aeRatePct / 100) : null;
   const csmPreview = (assignedCsm && csmRateValid) ? netAmount * (csmRatePct / 100) : null;
 
-  const aeReady = !assignedAe || aeRateValid;
-  const csmReady = !assignedCsm || csmRateValid;
+  const aeReady = !assignedAe || (aeRateValid && aeResolution.status === "ok");
+  const csmReady = !assignedCsm || (csmRateValid && csmResolution.status === "ok");
   const hasAtLeastOne = !!assignedAe || !!assignedCsm;
   const canSubmit = hasAtLeastOne && aeReady && csmReady && !submitting;
 
@@ -1717,6 +1739,8 @@ function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
         p_assigned_csm: assignedCsm || null,
         p_ae_rate: assignedAe ? (aeRatePct / 100) : null,
         p_csm_rate: assignedCsm ? (csmRatePct / 100) : null,
+        p_assigned_ae_id: assignedAe ? aeResolution.id : null,
+        p_assigned_csm_id: assignedCsm ? csmResolution.id : null,
       });
       if (rpcErr) throw rpcErr;
       await onSaved();
@@ -1738,6 +1762,8 @@ function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
         p_assigned_csm: null,
         p_ae_rate: null,
         p_csm_rate: null,
+        p_assigned_ae_id: null,
+        p_assigned_csm_id: null,
       });
       if (rpcErr) throw rpcErr;
       await onSaved();
@@ -1787,6 +1813,16 @@ function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
           {assignedAe && !aeRateValid && aeRateInput !== "" && (
             <div className="text-[11px] text-red-700">Rate must be between 0 and 100.</div>
           )}
+          {assignedAe && aeResolution.status === "no_profile" && (
+            <div className="text-[11px] text-red-700">
+              No profile found for AE "{assignedAe}". Reconcile profile.name (case + spelling) before including.
+            </div>
+          )}
+          {assignedAe && aeResolution.status === "ambiguous" && (
+            <div className="text-[11px] text-red-700">
+              {aeResolution.count} profiles match AE "{assignedAe}". First names must be unique — disambiguate before including.
+            </div>
+          )}
         </div>
 
         {/* CSM column */}
@@ -1819,6 +1855,16 @@ function OneOffIncludeForm({ payment: p, netAmount, onCancel, onSaved }) {
           )}
           {assignedCsm && !csmRateValid && csmRateInput !== "" && (
             <div className="text-[11px] text-red-700">Rate must be between 0 and 100.</div>
+          )}
+          {assignedCsm && csmResolution.status === "no_profile" && (
+            <div className="text-[11px] text-red-700">
+              No profile found for CSM "{assignedCsm}". Reconcile profile.name (case + spelling) before including.
+            </div>
+          )}
+          {assignedCsm && csmResolution.status === "ambiguous" && (
+            <div className="text-[11px] text-red-700">
+              {csmResolution.count} profiles match CSM "{assignedCsm}". First names must be unique — disambiguate before including.
+            </div>
           )}
         </div>
       </div>
