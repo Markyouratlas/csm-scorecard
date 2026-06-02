@@ -175,7 +175,7 @@ export default function CommissionsView({ profile, onSignOut }) {
 
         {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} />}
         {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} />}
-        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} />}
+        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} />}
         {tab === "whatif"    && <WhatIfTab    c={c} />}
         {tab === "annualize" && <AnnualizeTab c={c} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
@@ -487,7 +487,7 @@ export function CustomerDrilldownRow({ line, isAE, onMarkPaid }) {
 // ============================================================
 // Phase 4.1.2: inner sub-header now has "Cash" + "Initial CC" headers.
 // ============================================================
-function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
+function MonthDrilldownRow({ monthData, isAE, expanded, onToggle, oneoffCommission = 0 }) {
   const m = monthData;
   const customerCount = m.customers?.length || 0;
   const expandable = customerCount > 0;
@@ -533,6 +533,9 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
             <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
               {m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}
             </td>
+            <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+              {oneoffCommission > 0 ? fmtMoney(oneoffCommission) : <span className="text-stone-300">—</span>}
+            </td>
           </>
         ) : (
           <>
@@ -545,13 +548,16 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle }) {
             <td className="px-4 py-2 text-right font-mono tabular-nums font-medium text-stone-900">
               {m.total > 0 ? fmtMoney(m.total) : <span className="text-stone-300">—</span>}
             </td>
+            <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>
+              {oneoffCommission > 0 ? fmtMoney(oneoffCommission) : <span className="text-stone-300">—</span>}
+            </td>
           </>
         )}
       </tr>
       {expanded && customerCount > 0 && (
         <>
           <tr className="bg-stone-100/70 border-b border-stone-200">
-            <td colSpan={isAE ? 7 : 4} className="px-0 py-0">
+            <td colSpan={isAE ? 8 : 5} className="px-0 py-0">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-[9px] uppercase tracking-wider text-stone-500 border-b border-stone-200">
@@ -979,7 +985,7 @@ function CustomersTab({ c, initialFilter }) {
 // ============================================================
 // BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
-function ByRepTab({ c, initialRep }) {
+function ByRepTab({ c, initialRep, oneoffs }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const [expandedMonth, setExpandedMonth] = useState(null);
 
@@ -1001,6 +1007,16 @@ function ByRepTab({ c, initialRep }) {
     newMRR: a.newMRR + m.newMRR,
   }), { voiceAICommission: 0, voiceAINetSales: 0, aeResidual: 0, csmResidual: 0, total: 0, newDeals: 0, newMRR: 0 }), [calc]);
   const acc = useMemo(() => calc.isAE ? calcAccelerator(ytd.total, c.config) : null, [calc.isAE, ytd.total, c.config]);
+
+  const oneoffCalc = useMemo(
+    () => calcOneoffCommissionByRep(selectedRep, oneoffs || [], c.monthCols),
+    [selectedRep, oneoffs, c.monthCols]
+  );
+  const oneoffByMonth = useMemo(
+    () => Object.fromEntries((oneoffCalc.monthly || []).map((m) => [m.month, m.oneoffCommission])),
+    [oneoffCalc]
+  );
+  const oneoffYtd = oneoffCalc.total;
 
   const exportCSV = () => {
     const rows = calc.isAE
@@ -1039,7 +1055,7 @@ function ByRepTab({ c, initialRep }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-200">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-stone-200">
         <Stat label="Book Size" value={calc.book.length} sub={calc.isAE ? "AE-attributed" : "In book"} />
         {calc.isAE ? (
           <>
@@ -1060,6 +1076,11 @@ function ByRepTab({ c, initialRep }) {
             <Stat label="YTD Comm." value={fmtMoney(ytd.csmResidual)} sub="Across book" />
           </>
         )}
+        <Stat
+          label="YTD One-Off"
+          value={oneoffYtd > 0 ? fmtMoney(oneoffYtd) : <span className="text-stone-300">—</span>}
+          accent={BRAND.purple}
+        />
       </div>
 
       {calc.isAE && acc && (
@@ -1109,12 +1130,14 @@ function ByRepTab({ c, initialRep }) {
                   <th className="px-3 py-2 font-medium text-right">Initial CC (10%)</th>
                   <th className="px-3 py-2 font-medium text-right">Residual (3%)</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
+                  <th className="px-3 py-2 font-medium text-right">One-Off</th>
                 </>
               ) : (
                 <>
                   <th className="px-3 py-2 font-medium text-right">Book MRR</th>
                   <th className="px-3 py-2 font-medium text-right">3%</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
+                  <th className="px-3 py-2 font-medium text-right">One-Off</th>
                 </>
               )}
             </tr>
@@ -1125,6 +1148,7 @@ function ByRepTab({ c, initialRep }) {
                 key={m.month}
                 monthData={m}
                 isAE={calc.isAE}
+                oneoffCommission={oneoffByMonth[m.month] || 0}
                 expanded={expandedMonth === m.month}
                 onToggle={() => setExpandedMonth(expandedMonth === m.month ? null : m.month)}
               />
@@ -1139,12 +1163,18 @@ function ByRepTab({ c, initialRep }) {
                   <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{fmtMoney(ytd.voiceAICommission)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{fmtMoney(ytd.aeResidual)}</td>
                   <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">{fmtMoney(ytd.total)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold" style={{ color: BRAND.purple }}>
+                    {oneoffYtd > 0 ? fmtMoney(oneoffYtd) : <span className="text-stone-300">—</span>}
+                  </td>
                 </>
               ) : (
                 <>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">—</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: BRAND.purple }}>{fmtMoney(ytd.csmResidual)}</td>
                   <td className="px-4 py-2 text-right font-mono tabular-nums font-semibold">{fmtMoney(ytd.total)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold" style={{ color: BRAND.purple }}>
+                    {oneoffYtd > 0 ? fmtMoney(oneoffYtd) : <span className="text-stone-300">—</span>}
+                  </td>
                 </>
               )}
             </tr>
