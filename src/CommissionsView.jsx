@@ -17,7 +17,7 @@
 //   - All commission calc is pure cash-based, computed in commissionEngine.js.
 // ============================================================
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   TrendingUp, Users, DollarSign, AlertCircle, Settings, Download,
   GitCompare, Calendar, Zap, FileText, Check, X, Plus,
@@ -35,6 +35,7 @@ import {
   calcRepCommission, calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
   calcOneoffCommissionByRep,
   detectFirstNameCollisions,
+  repsFromProfiles,
   calcAccelerator, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
@@ -109,10 +110,27 @@ export default function CommissionsView({ profile, onSignOut }) {
     () => detectFirstNameCollisions(c.profiles),
     [c.profiles]
   );
+  const repList = useMemo(
+    () => repsFromProfiles(c.profiles),
+    [c.profiles]
+  );
   const ambiguousNames = useMemo(
     () => new Set(collisions.map((co) => co.firstName)),
     [collisions]
   );
+  // Drift sentinel: warn loudly if the dynamic rep list ever diverges from
+  // the hardcoded REPS for the 5 production reps. Catches "Heather's profile
+  // role_type got changed to manager and her math silently broke" before it
+  // reaches a paycheck.
+  useEffect(() => {
+    if (!c.profiles || c.profiles.length === 0) return;
+    const drift = [];
+    for (const n of REPS.AE)  if (!repList.AE.includes(n))  drift.push(`hardcoded AE "${n}" missing from dynamic`);
+    for (const n of REPS.CSM) if (!repList.CSM.includes(n)) drift.push(`hardcoded CSM "${n}" missing from dynamic`);
+    for (const n of repList.AE)  if (REPS.CSM.includes(n)) drift.push(`"${n}" is AE in dynamic but CSM in hardcoded`);
+    for (const n of repList.CSM) if (REPS.AE.includes(n))  drift.push(`"${n}" is CSM in dynamic but AE in hardcoded`);
+    if (drift.length > 0) console.warn("[REPS drift]", drift);
+  }, [c.profiles, repList]);
   const [tab, setTab] = useState("overview");
   const [jumpRep, setJumpRep] = useState(null);
   const [needsFilter, setNeedsFilter] = useState(null);
@@ -182,13 +200,13 @@ export default function CommissionsView({ profile, onSignOut }) {
           })}
         </div>
 
-        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} collisions={collisions} />}
-        {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} ambiguousNames={ambiguousNames} />}
-        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} collisions={collisions} />}
-        {tab === "whatif"    && <WhatIfTab    c={c} />}
-        {tab === "annualize" && <AnnualizeTab c={c} />}
+        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} collisions={collisions} repList={repList} />}
+        {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} ambiguousNames={ambiguousNames} repList={repList} />}
+        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} collisions={collisions} repList={repList} />}
+        {tab === "whatif"    && <WhatIfTab    c={c} repList={repList} />}
+        {tab === "annualize" && <AnnualizeTab c={c} repList={repList} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
-        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} o={o} ambiguousNames={ambiguousNames} />}
+        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} o={o} ambiguousNames={ambiguousNames} repList={repList} />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
     </ScorecardShell>
@@ -208,8 +226,10 @@ function Stat({ label, value, sub, accent }) {
   );
 }
 
-function RepSelect({ value, onChange, type, disabled, ambiguousNames }) {
-  const options = type === "AE" ? REPS.AE : REPS.CSM;
+function RepSelect({ value, onChange, type, disabled, ambiguousNames, repList }) {
+  const options = repList
+    ? (type === "AE" ? repList.AE : repList.CSM)
+    : (type === "AE" ? REPS.AE : REPS.CSM);
   return (
     <select value={value || ""} onChange={(e) => onChange(e.target.value || null)} disabled={disabled}
       className="text-xs bg-transparent border border-stone-200 px-1.5 py-0.5 hover:border-stone-400 focus:outline-none disabled:bg-stone-50 disabled:cursor-not-allowed">
@@ -655,7 +675,7 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle, oneoffCommissi
 // ============================================================
 // OVERVIEW TAB (with expandable per-rep rows)
 // ============================================================
-function OverviewTab({ c, onJumpTo, oneoffs, collisions }) {
+function OverviewTab({ c, onJumpTo, oneoffs, collisions, repList }) {
   const [expandedRep, setExpandedRep] = useState(null);
 
   const stats = useMemo(() => {
@@ -674,22 +694,22 @@ function OverviewTab({ c, onJumpTo, oneoffs, collisions }) {
       return !a?.ae;
     });
     let totalThisMonth = 0;
-    for (const rep of ALL_REPS) {
-      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols);
+    for (const rep of (repList?.all || [])) {
+      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, null, null, repList);
       if (r.monthly.length > 0) totalThisMonth += r.monthly[r.monthly.length - 1].total;
     }
     return { paying, aeEra, needsCSM, needsAE, totalThisMonth };
-  }, [c.customers, c.assignments, c.indexedAssignments, c.config, c.monthCols]);
+  }, [c.customers, c.assignments, c.indexedAssignments, c.config, c.monthCols, repList]);
 
-  const perRep = useMemo(() => ALL_REPS.map((rep) => {
-    const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols);
+  const perRep = useMemo(() => (repList?.all || []).map((rep) => {
+    const r = calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, null, null, repList);
     const ytd = r.monthly.reduce((s, m) => s + m.total, 0);
     const thisMonth = r.monthly[r.monthly.length - 1]?.total || 0;
-    const oo = calcOneoffCommissionByRep(rep, oneoffs || [], c.monthCols);
+    const oo = calcOneoffCommissionByRep(rep, oneoffs || [], c.monthCols, repList);
     const oneOffThisMonth = oo.monthly[oo.monthly.length - 1]?.oneoffCommission || 0;
     const oneOffYtd = oo.total;
     return { rep, isAE: r.isAE, bookSize: r.book.length, ytd, thisMonth, oneOffThisMonth, oneOffYtd };
-  }), [c.customers, c.indexedAssignments, c.config, c.monthCols, oneoffs]);
+  }), [c.customers, c.indexedAssignments, c.config, c.monthCols, oneoffs, repList]);
 
   const expandedRepCustomers = useMemo(() => {
     if (!expandedRep) return null;
@@ -701,8 +721,9 @@ function OverviewTab({ c, onJumpTo, oneoffs, collisions }) {
       c.monthCols,
       c.indexedOverrides,
       c.matchedDealsByCustomer,
+      repList,
     );
-  }, [expandedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]);
+  }, [expandedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]);
 
   const pendingUnmatched = c.unmatched.filter((u) => u.status === "pending");
 
@@ -917,7 +938,7 @@ function RepCustomerYTDTable({ rows, isAE }) {
 // ============================================================
 // CUSTOMERS TAB (unchanged)
 // ============================================================
-function CustomersTab({ c, initialFilter, ambiguousNames }) {
+function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
   const [search, setSearch] = useState("");
   const [era, setEra] = useState("paying");
   const [needsFilter, setNeedsFilter] = useState(initialFilter || null);
@@ -980,7 +1001,7 @@ function CustomersTab({ c, initialFilter, ambiguousNames }) {
       {filtered.length > 0 && filtered.length < 350 && (
         <div className="flex gap-2 items-center text-xs">
           <span className="text-stone-500">Bulk assign filtered → AE:</span>
-          {REPS.AE.map((r) => {
+          {(repList?.AE || REPS.AE).map((r) => {
             const isAmbiguous = ambiguousNames && ambiguousNames.has(r);
             return (
               <button
@@ -1028,10 +1049,10 @@ function CustomersTab({ c, initialFilter, ambiguousNames }) {
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-600">{fmtMoney(x.max_mrr)}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.ae} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} ambiguousNames={ambiguousNames} />}</td>
+                    : <RepSelect value={a.ae} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} ambiguousNames={ambiguousNames} repList={repList} />}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.csm} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} ambiguousNames={ambiguousNames} />}</td>
+                    : <RepSelect value={a.csm} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} ambiguousNames={ambiguousNames} repList={repList} />}</td>
                   <td className="px-3 py-2">
                     {x.is_self_serve ? <span className="text-[11px] text-stone-500">Self-serve</span>
                       : x.is_ae_era   ? <span className="text-[11px]" style={{ color: BRAND.purpleDeep }}>AE-era</span>
@@ -1055,16 +1076,16 @@ function CustomersTab({ c, initialFilter, ambiguousNames }) {
 // ============================================================
 // BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
-function ByRepTab({ c, initialRep, oneoffs, collisions }) {
+function ByRepTab({ c, initialRep, oneoffs, collisions, repList }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const [expandedMonth, setExpandedMonth] = useState(null);
 
   const calc = useMemo(
     () => calcRepCommissionByCustomerByMonth(
       selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols,
-      c.indexedOverrides, c.matchedDealsByCustomer,
+      c.indexedOverrides, c.matchedDealsByCustomer, repList,
     ),
-    [selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer]
+    [selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]
   );
 
   const ytd = useMemo(() => calc.monthly.reduce((a, m) => ({
@@ -1079,8 +1100,8 @@ function ByRepTab({ c, initialRep, oneoffs, collisions }) {
   const acc = useMemo(() => calc.isAE ? calcAccelerator(ytd.total, c.config) : null, [calc.isAE, ytd.total, c.config]);
 
   const oneoffCalc = useMemo(
-    () => calcOneoffCommissionByRep(selectedRep, oneoffs || [], c.monthCols),
-    [selectedRep, oneoffs, c.monthCols]
+    () => calcOneoffCommissionByRep(selectedRep, oneoffs || [], c.monthCols, repList),
+    [selectedRep, oneoffs, c.monthCols, repList]
   );
   const oneoffByMonth = useMemo(
     () => Object.fromEntries((oneoffCalc.monthly || []).map((m) => [m.month, m.oneoffCommission])),
@@ -1108,8 +1129,8 @@ function ByRepTab({ c, initialRep, oneoffs, collisions }) {
       <CollisionBanner collisions={collisions} />
       <div className="bg-white border border-stone-200 px-4 py-3 flex items-center gap-2 flex-wrap">
         <span className="text-xs uppercase tracking-wider text-stone-500 font-medium mr-2">Rep</span>
-        {ALL_REPS.map((r) => {
-          const ae = isAE(r), active = selectedRep === r;
+        {(repList?.all || []).map((r) => {
+          const ae = isAE(r, repList), active = selectedRep === r;
           return (
             <button key={r} onClick={() => { setSelectedRep(r); setExpandedMonth(null); }}
               className="text-sm px-3 py-1 border transition"
@@ -1259,7 +1280,7 @@ function ByRepTab({ c, initialRep, oneoffs, collisions }) {
 // ============================================================
 // WHAT-IF TAB
 // ============================================================
-function WhatIfTab({ c }) {
+function WhatIfTab({ c, repList }) {
   const [scenarios, setScenarios] = useState([
     { name: "Current",    config: { ...c.config }, locked: true },
     { name: "Scenario B", config: { ...c.config, aeResidualRate: 0.04, aeResidualMonths: 18 } },
@@ -1283,14 +1304,14 @@ function WhatIfTab({ c }) {
   const results = useMemo(() => scenarios.map((s) => {
     const byRep = {};
     let total = 0;
-    for (const rep of ALL_REPS) {
-      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, s.config, c.monthCols);
+    for (const rep of (repList?.all || [])) {
+      const r = calcRepCommission(rep, c.customers, c.indexedAssignments, s.config, c.monthCols, null, null, repList);
       const ytd = r.monthly.reduce((sum, m) => sum + m.total, 0);
       byRep[rep] = ytd;
       total += ytd;
     }
     return { ...s, byRep, total };
-  }), [scenarios, c.customers, c.indexedAssignments, c.monthCols]);
+  }), [scenarios, c.customers, c.indexedAssignments, c.monthCols, repList]);
 
   const base = results[0];
 
@@ -1356,10 +1377,10 @@ function WhatIfTab({ c }) {
             </tr>
           </thead>
           <tbody>
-            {ALL_REPS.map((rep) => (
+            {(repList?.all || []).map((rep) => (
               <tr key={rep} className="border-b border-stone-100">
                 <td className="px-5 py-2.5 font-medium text-stone-900">
-                  {rep} <span className="text-[10px] text-stone-400">{isAE(rep) ? "AE" : "CSM"}</span>
+                  {rep} <span className="text-[10px] text-stone-400">{isAE(rep, repList) ? "AE" : "CSM"}</span>
                 </td>
                 {results.map((r, i) => {
                   const val = r.byRep[rep];
@@ -1407,7 +1428,7 @@ function WhatIfTab({ c }) {
 // ============================================================
 // ANNUALIZE TAB (unchanged)
 // ============================================================
-function AnnualizeTab({ c }) {
+function AnnualizeTab({ c, repList }) {
   const [method, setMethod] = useState("hold");
   const [growth, setGrowth] = useState(5);
   const [planYear, setPlanYear] = useState(() => new Date().getFullYear());
@@ -1420,15 +1441,15 @@ function AnnualizeTab({ c }) {
 
     const projCustomers = projectCustomers(c.customers, c.monthCols, projMonths, method, growth);
 
-    return ALL_REPS.map((rep) => {
-      const r = calcRepCommission(rep, projCustomers, c.indexedAssignments, c.config, allMonths);
+    return (repList?.all || []).map((rep) => {
+      const r = calcRepCommission(rep, projCustomers, c.indexedAssignments, c.config, allMonths, null, null, repList);
       const yearTotal   = r.monthly.reduce((s, m) => s + m.total, 0);
       const actualTotal = r.monthly.filter((m) =>  actualSet.has(m.month)).reduce((s, m) => s + m.total, 0);
       const projTotal   = r.monthly.filter((m) => !actualSet.has(m.month)).reduce((s, m) => s + m.total, 0);
-      const acc = isAE(rep) ? calcAccelerator(yearTotal, c.config) : null;
-      return { rep, isAE: isAE(rep), yearTotal, actualTotal, projTotal, acc };
+      const acc = isAE(rep, repList) ? calcAccelerator(yearTotal, c.config) : null;
+      return { rep, isAE: isAE(rep, repList), yearTotal, actualTotal, projTotal, acc };
     });
-  }, [c.customers, c.indexedAssignments, c.config, c.monthCols, method, growth, planYear]);
+  }, [c.customers, c.indexedAssignments, c.config, c.monthCols, method, growth, planYear, repList]);
 
   return (
     <div className="space-y-5">
@@ -1664,7 +1685,7 @@ function resolveRepProfile(repFirstName, profiles) {
 // and included in commission via set_oneoff_inclusion (SECURITY
 // DEFINER, exec-gated server-side).
 // ============================================================
-function OneOffsTab({ profiles, o, ambiguousNames }) {
+function OneOffsTab({ profiles, o, ambiguousNames, repList }) {
   const [editingChargeId, setEditingChargeId] = useState(null);
 
   if (o.loading) {
@@ -1723,6 +1744,7 @@ function OneOffsTab({ profiles, o, ambiguousNames }) {
                   payment={p}
                   profiles={profiles}
                   ambiguousNames={ambiguousNames}
+                  repList={repList}
                   isEditing={editingChargeId === p.stripe_charge_id}
                   onOpenEdit={() => setEditingChargeId(p.stripe_charge_id)}
                   onCloseEdit={() => setEditingChargeId(null)}
@@ -1740,7 +1762,7 @@ function OneOffsTab({ profiles, o, ambiguousNames }) {
 // ------------------------------------------------------------
 // OneOffRow — one payment + (when expanded) the include form
 // ------------------------------------------------------------
-function OneOffRow({ payment: p, profiles, ambiguousNames, isEditing, onOpenEdit, onCloseEdit, reload }) {
+function OneOffRow({ payment: p, profiles, ambiguousNames, repList, isEditing, onOpenEdit, onCloseEdit, reload }) {
   const netAmount = Math.max(0, (p.amount || 0) - (p.amount_refunded || 0));
   const isIncluded = !!p.included_in_commission;
 
@@ -1804,6 +1826,7 @@ function OneOffRow({ payment: p, profiles, ambiguousNames, isEditing, onOpenEdit
               payment={p}
               profiles={profiles}
               ambiguousNames={ambiguousNames}
+              repList={repList}
               netAmount={netAmount}
               onCancel={onCloseEdit}
               onSaved={async () => { onCloseEdit(); await reload(); }}
@@ -1819,7 +1842,7 @@ function OneOffRow({ payment: p, profiles, ambiguousNames, isEditing, onOpenEdit
 // OneOffIncludeForm — assignments, rates, preview, and the
 // single rpc call that writes the inclusion decision.
 // ------------------------------------------------------------
-function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, netAmount, onCancel, onSaved }) {
+function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netAmount, onCancel, onSaved }) {
   // Convert stored decimal rate (0.10) back to display percentage ("10").
   const decimalToPctStr = (r) =>
     r != null ? String(+(r * 100).toFixed(2)) : "";
@@ -1905,7 +1928,7 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, netAmount, on
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">AE</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} ambiguousNames={ambiguousNames} />
+            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} ambiguousNames={ambiguousNames} repList={repList} />
             {assignedAe && (
               <>
                 <input
@@ -1948,7 +1971,7 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, netAmount, on
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">CSM</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} ambiguousNames={ambiguousNames} />
+            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} ambiguousNames={ambiguousNames} repList={repList} />
             {assignedCsm && (
               <>
                 <input

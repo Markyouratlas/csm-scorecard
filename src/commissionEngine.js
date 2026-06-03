@@ -38,8 +38,10 @@ export const REPS = {
   CSM: ["Matt", "Sean", "Noah"],
 };
 export const ALL_REPS = [...REPS.AE, ...REPS.CSM];
-export const isAE = (rep) => REPS.AE.includes(rep);
-export const isCSM = (rep) => REPS.CSM.includes(rep);
+export const isAE  = (rep, repList = null) =>
+  repList ? repList.AE.includes(rep)  : REPS.AE.includes(rep);
+export const isCSM = (rep, repList = null) =>
+  repList ? repList.CSM.includes(rep) : REPS.CSM.includes(rep);
 
 // ============================================================
 // Dynamic rep resolution (additive — inert until consumers wire it)
@@ -354,8 +356,9 @@ export function calcRepCommission(
   monthCols,
   indexedOverrides = null,
   matchedDealsByCustomer = null,  // kept for signature compat; unused in Phase 4 math
+  repList = null,
 ) {
-  const ae = isAE(rep);
+  const ae = isAE(rep, repList);
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
@@ -443,8 +446,9 @@ export function calcRepCommissionByCustomer(
   monthCols,
   indexedOverrides = null,
   matchedDealsByCustomer = null,
+  repList = null,
 ) {
-  const ae = isAE(rep);
+  const ae = isAE(rep, repList);
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
@@ -517,8 +521,9 @@ export function calcRepCommissionByCustomerByMonth(
   monthCols,
   indexedOverrides = null,
   matchedDealsByCustomer = null,
+  repList = null,
 ) {
-  const ae = isAE(rep);
+  const ae = isAE(rep, repList);
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
@@ -636,6 +641,7 @@ export function calcTeamLeadOverride(
   monthCols,
   indexedOverrides = null,
   matchedDealsByCustomer = null,
+  repList = null,
 ) {
   if (!tlProfile || !tlProfile.is_team_lead) {
     return { totalOverride: 0, byReport: {}, monthly: monthCols.map((m) => ({ month: m, total: 0 })) };
@@ -669,6 +675,7 @@ export function calcTeamLeadOverride(
       monthCols,
       indexedOverrides,
       matchedDealsByCustomer,
+      repList,
     );
 
     const reportBreakdown = { perMonth: [], total: 0 };
@@ -853,8 +860,8 @@ export const fmtPct = (n) => {
 // PURE + ADDITIVE: this does NOT touch calcRepCommission / *ByCustomer / *ByMonth.
 // Nothing calls it until the Step 5 UI wires it in, so it cannot affect any
 // existing number. The dashboard merges its output with the normal engine total.
-export function calcOneoffCommissionByRep(rep, includedOneoffs, monthCols) {
-  const ae = isAE(rep);
+export function calcOneoffCommissionByRep(rep, includedOneoffs, monthCols, repList = null) {
+  const ae = isAE(rep, repList);
   const byMonth = Object.fromEntries(monthCols.map((m) => [m, 0]));
   const lines = [];
   for (const o of includedOneoffs || []) {
