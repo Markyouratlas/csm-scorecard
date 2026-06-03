@@ -38,6 +38,7 @@ import {
   repsFromProfiles,
   calcAccelerator, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
+  resolveRepConfig,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
 } from "./commissionEngine";
 import { accessTier } from "./teams";
@@ -202,7 +203,7 @@ export default function CommissionsView({ profile, onSignOut }) {
 
         {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} collisions={collisions} repList={repList} />}
         {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} ambiguousNames={ambiguousNames} repList={repList} />}
-        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} collisions={collisions} repList={repList} />}
+        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} collisions={collisions} repList={repList} isExecutive={isExecutive} />}
         {tab === "whatif"    && <WhatIfTab    c={c} repList={repList} />}
         {tab === "annualize" && <AnnualizeTab c={c} repList={repList} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
@@ -300,6 +301,476 @@ function CollisionBanner({ collisions }) {
         <div className="text-xs text-red-800 mt-2">
           Resolve by editing one profile's name (e.g. add a last initial) so first names are unique among commission-earning profiles.
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// REP OVERRIDES PANEL — per-rep commission_rep_overrides editor
+// ============================================================
+// Mounted in ByRepTab for the currently selected rep. Reads effective
+// config + override history from c (already loaded by useCommissions).
+// Writes via the upsert_rep_override RPC (SECURITY DEFINER, exec-gated).
+//
+// Visual unit safety: rate fields and multiplier fields use distinct
+// input components with distinct backgrounds + suffix characters so
+// "10" (rate %) and "1.5" (multiplier ×) cannot be confused at a glance.
+// The RPC enforces the same boundaries server-side as belt-and-suspenders.
+// ============================================================
+
+function RepOverridesPanel({ repName, c, isExecutive }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  const overridesForRep = useMemo(
+    () => (c.repOverrides || [])
+      .filter((o) => o.rep_name === repName)
+      .sort((a, b) => (b.effective_date || "").localeCompare(a.effective_date || "")),
+    [c.repOverrides, repName]
+  );
+
+  const summary = overridesForRep.length > 0
+    ? `${overridesForRep.length} override${overridesForRep.length === 1 ? "" : "s"} on record`
+    : "Using defaults";
+
+  return (
+    <div className="bg-white border border-stone-200">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50"
+      >
+        <div className="flex items-center gap-2">
+          {expanded
+            ? <ChevronDown size={14} className="text-stone-500" />
+            : <ChevronRight size={14} className="text-stone-500" />}
+          <span className="text-sm font-medium text-stone-900">Effective Rates &amp; Override</span>
+        </div>
+        <span className="text-xs text-stone-500">{summary}</span>
+      </button>
+
+      {expanded && (
+        <div className="px-5 py-4 border-t border-stone-200 space-y-5">
+          <EffectiveRatesDisplay repName={repName} c={c} />
+
+          {isExecutive && (
+            !showAddForm ? (
+              <div>
+                <Btn variant="ghost" onClick={() => setShowAddForm(true)}>
+                  <Plus size={12} className="inline mr-1" />Add override
+                </Btn>
+              </div>
+            ) : (
+              <AddOverrideForm
+                repName={repName}
+                onCancel={() => setShowAddForm(false)}
+                onSaved={async () => {
+                  setShowAddForm(false);
+                  await c.reload();
+                }}
+              />
+            )
+          )}
+
+          {overridesForRep.length > 0 && (
+            <OverridesHistory rows={overridesForRep} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Unit-distinct inputs ----------------------------------------
+
+function RateInput({ value, onChange, placeholder, disabled }) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        min="0"
+        max="100"
+        step="0.01"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "—"}
+        disabled={disabled}
+        className="w-24 text-sm border border-stone-300 px-2 py-1 bg-white focus:outline-none focus:border-stone-500 disabled:bg-stone-50 disabled:cursor-not-allowed"
+      />
+      <span className="text-sm text-stone-600 select-none">%</span>
+    </div>
+  );
+}
+
+function MultiplierInput({ value, onChange, placeholder, disabled }) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        min="1"
+        max="10"
+        step="0.01"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "—"}
+        disabled={disabled}
+        className="w-24 text-sm border-2 px-2 py-1 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ background: BRAND.purpleTint, borderColor: BRAND.purpleTintMid, color: BRAND.purpleDeep }}
+      />
+      <span className="text-sm font-semibold select-none" style={{ color: BRAND.purpleDeep }}>×</span>
+    </div>
+  );
+}
+
+function MonthsInput({ value, onChange, placeholder, disabled }) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        min="1"
+        step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "—"}
+        disabled={disabled}
+        className="w-24 text-sm border border-stone-300 px-2 py-1 bg-white focus:outline-none focus:border-stone-500 disabled:bg-stone-50 disabled:cursor-not-allowed"
+      />
+      <span className="text-sm text-stone-600 select-none">months</span>
+    </div>
+  );
+}
+
+function DollarInput({ value, onChange, placeholder, disabled }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-sm text-stone-600 select-none">$</span>
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || "—"}
+        disabled={disabled}
+        className="w-32 text-sm border border-stone-300 px-2 py-1 bg-white focus:outline-none focus:border-stone-500 disabled:bg-stone-50 disabled:cursor-not-allowed"
+      />
+    </div>
+  );
+}
+
+// ---- Layout primitives -------------------------------------------
+
+function FieldGroup({ title, children }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-2">{title}</div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function FieldRow({ label, helper, children }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex-1">
+        <div className="text-sm text-stone-900">{label}</div>
+        {helper && <div className="text-[10px] text-stone-500">{helper}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+// ---- Effective rates display (read-only) -------------------------
+
+function EffectiveRatesDisplay({ repName, c }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const effCfg = useMemo(
+    () => resolveRepConfig(repName, today, c.indexedOverrides, c.config),
+    [repName, c.indexedOverrides, c.config]
+  );
+  const isOverride = effCfg._source === "override";
+
+  const rows = [
+    ["AE Initial CC",       `${(effCfg.aeVoiceRate * 100).toFixed(2)}%`],
+    ["AE residual",         `${(effCfg.aeResidualRate * 100).toFixed(2)}%`],
+    ["AE residual cap",     `${effCfg.aeResidualMonths} months`],
+    ["CSM residual",        `${(effCfg.csmRate * 100).toFixed(2)}%`],
+    ["CSM residual cap",    `${effCfg.csmResidualMonths} months`],
+    ["Accelerator target",  `$${(effCfg.acceleratorTarget || 0).toLocaleString()}`],
+    ["Accel 1.2× tier",     `${effCfg.accelerator120Multiplier}×`],
+    ["Accel 1.5× tier",     `${effCfg.accelerator150Multiplier}×`],
+    ["TL override",         `${(effCfg.teamLeadOverridePct * 100).toFixed(2)}%`],
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium flex items-center gap-2">
+        <span>Currently effective (today)</span>
+        {isOverride ? (
+          <span
+            className="text-[10px] px-1.5 py-0.5"
+            style={{ background: BRAND.purpleTint, color: BRAND.purpleDeep, borderRadius: 2 }}
+          >
+            override since {effCfg._effective_date}
+          </span>
+        ) : (
+          <span className="text-[10px] text-stone-400">using default config</span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-xs">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <div className="text-stone-500">{label}</div>
+            <div className="font-mono tabular-nums font-medium text-stone-900">{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- Preview block (live decimals + raw input echo) --------------
+
+function PreviewBlock({ dbValues, rawInputs }) {
+  const lines = [];
+  if (dbValues.p_ae_pct                 != null) lines.push(["ae_pct",                  dbValues.p_ae_pct,                  `${rawInputs.aePct} %`]);
+  if (dbValues.p_ae_residual_pct        != null) lines.push(["ae_residual_pct",         dbValues.p_ae_residual_pct,         `${rawInputs.aeResidualPct} %`]);
+  if (dbValues.p_ae_residual_months     != null) lines.push(["ae_residual_months",      dbValues.p_ae_residual_months,      `${dbValues.p_ae_residual_months} months`]);
+  if (dbValues.p_csm_pct                != null) lines.push(["csm_pct",                 dbValues.p_csm_pct,                 `${rawInputs.csmPct} %`]);
+  if (dbValues.p_csm_residual_months    != null) lines.push(["csm_residual_months",     dbValues.p_csm_residual_months,     `${dbValues.p_csm_residual_months} months`]);
+  if (dbValues.p_accelerator_target     != null) lines.push(["accelerator_target",      dbValues.p_accelerator_target,      `$${dbValues.p_accelerator_target}`]);
+  if (dbValues.p_accel_1_5x_pct         != null) lines.push(["accel_1_5x_pct",          dbValues.p_accel_1_5x_pct,          `${rawInputs.accel15xPct} ×`]);
+  if (dbValues.p_accel_2x_pct           != null) lines.push(["accel_2x_pct",            dbValues.p_accel_2x_pct,            `${rawInputs.accel2xPct} ×`]);
+  if (dbValues.p_team_lead_override_pct != null) lines.push(["team_lead_override_pct",  dbValues.p_team_lead_override_pct,  `${rawInputs.teamLeadOverridePct} %`]);
+
+  return (
+    <div className="bg-stone-900 text-stone-100 px-4 py-3 font-mono text-[11px] space-y-0.5 leading-relaxed">
+      <div className="text-[9px] uppercase tracking-wider text-stone-400 mb-1.5">About to write</div>
+      <div>rep_name: <span className="text-stone-200">{dbValues.p_rep_name}</span></div>
+      <div>effective_date: <span className="text-stone-200">{dbValues.p_effective_date}</span></div>
+      {lines.map(([col, dec, raw]) => (
+        <div key={col}>
+          {col}: <span style={{ color: BRAND.purpleLight }}>{String(dec)}</span>{" "}
+          <span className="text-stone-500">← you typed: {raw}</span>
+        </div>
+      ))}
+      <div className="text-stone-500 italic">(all other fields NULL → inherit from default)</div>
+      {dbValues.p_notes && <div>notes: <span className="text-stone-200">{dbValues.p_notes}</span></div>}
+    </div>
+  );
+}
+
+// ---- History list -------------------------------------------------
+
+function OverridesHistory({ rows }) {
+  const formatRow = (r) => {
+    const parts = [];
+    if (r.ae_pct                 != null) parts.push(`ae_pct: ${r.ae_pct}`);
+    if (r.ae_residual_pct        != null) parts.push(`ae_residual_pct: ${r.ae_residual_pct}`);
+    if (r.ae_residual_months     != null) parts.push(`ae_residual_months: ${r.ae_residual_months}`);
+    if (r.csm_pct                != null) parts.push(`csm_pct: ${r.csm_pct}`);
+    if (r.csm_residual_months    != null) parts.push(`csm_residual_months: ${r.csm_residual_months}`);
+    if (r.accelerator_target     != null) parts.push(`accelerator_target: $${r.accelerator_target}`);
+    if (r.accel_1_5x_pct         != null) parts.push(`accel_1_5x_pct: ${r.accel_1_5x_pct}×`);
+    if (r.accel_2x_pct           != null) parts.push(`accel_2x_pct: ${r.accel_2x_pct}×`);
+    if (r.team_lead_override_pct != null) parts.push(`team_lead_override_pct: ${r.team_lead_override_pct}`);
+    return parts;
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">
+        Existing overrides for this rep
+      </div>
+      <div className="border border-stone-200 divide-y divide-stone-200">
+        {rows.map((r) => {
+          const parts = formatRow(r);
+          return (
+            <div key={r.id} className="px-3 py-2 text-xs">
+              <div className="flex items-center justify-between">
+                <div className="font-mono tabular-nums font-medium text-stone-900">{r.effective_date}</div>
+                <div className="text-stone-500 text-[10px]">
+                  by {r.created_by_name || "?"} on {r.created_at ? new Date(r.created_at).toLocaleDateString() : "?"}
+                </div>
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-mono tabular-nums text-stone-700">
+                {parts.map((p, i) => <div key={i}>{p}</div>)}
+              </div>
+              {r.notes && <div className="mt-1 text-[11px] text-stone-600 italic">&ldquo;{r.notes}&rdquo;</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---- The form -----------------------------------------------------
+
+function AddOverrideForm({ repName, onCancel, onSaved }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [effectiveDate, setEffectiveDate] = useState(today);
+  const [aePct, setAePct] = useState("");
+  const [aeResidualPct, setAeResidualPct] = useState("");
+  const [aeResidualMonths, setAeResidualMonths] = useState("");
+  const [csmPct, setCsmPct] = useState("");
+  const [csmResidualMonths, setCsmResidualMonths] = useState("");
+  const [acceleratorTarget, setAcceleratorTarget] = useState("");
+  const [accel15xPct, setAccel15xPct] = useState("");
+  const [accel2xPct, setAccel2xPct] = useState("");
+  const [teamLeadOverridePct, setTeamLeadOverridePct] = useState("");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const transformRate       = (s) => s.trim() === "" ? null : Number(s) / 100;
+  const transformMultiplier = (s) => s.trim() === "" ? null : Number(s);
+  const transformInt        = (s) => s.trim() === "" ? null : parseInt(s, 10);
+  const transformDollar     = (s) => s.trim() === "" ? null : Number(s);
+
+  const dbValues = {
+    p_rep_name: repName,
+    p_effective_date: effectiveDate,
+    p_ae_pct: transformRate(aePct),
+    p_ae_residual_pct: transformRate(aeResidualPct),
+    p_ae_residual_months: transformInt(aeResidualMonths),
+    p_csm_pct: transformRate(csmPct),
+    p_csm_residual_months: transformInt(csmResidualMonths),
+    p_accelerator_target: transformDollar(acceleratorTarget),
+    p_accel_1_5x_pct: transformMultiplier(accel15xPct),
+    p_accel_2x_pct: transformMultiplier(accel2xPct),
+    p_team_lead_override_pct: transformRate(teamLeadOverridePct),
+    p_notes: notes.trim() === "" ? null : notes,
+  };
+
+  const overrideFields = [
+    dbValues.p_ae_pct, dbValues.p_ae_residual_pct, dbValues.p_ae_residual_months,
+    dbValues.p_csm_pct, dbValues.p_csm_residual_months,
+    dbValues.p_accelerator_target, dbValues.p_accel_1_5x_pct, dbValues.p_accel_2x_pct,
+    dbValues.p_team_lead_override_pct,
+  ];
+  const hasAtLeastOne = overrideFields.some((v) => v !== null);
+  const canSubmit = hasAtLeastOne && !submitting && Boolean(effectiveDate);
+  const isPastDate = effectiveDate && effectiveDate < today;
+
+  const handleSave = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const { error: rpcErr } = await supabase.rpc("upsert_rep_override", dbValues);
+      if (rpcErr) throw rpcErr;
+      await onSaved();
+    } catch (e) {
+      console.error("upsert_rep_override failed:", e);
+      setError(e.message || String(e));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 border border-stone-200 bg-stone-50/50 p-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-1">Rep</div>
+          <div className="text-sm font-medium text-stone-900">{repName}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-1">Effective date</div>
+          <input
+            type="date"
+            value={effectiveDate}
+            onChange={(e) => setEffectiveDate(e.target.value)}
+            disabled={submitting}
+            className="text-sm border border-stone-300 px-2 py-1 disabled:bg-stone-50 disabled:cursor-not-allowed"
+          />
+        </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900">
+        Applies only to customers with start_date ≥ <strong>{effectiveDate || "?"}</strong>.
+        Existing customers continue at their previously locked rate.
+      </div>
+
+      {isPastDate && (
+        <div className="bg-red-50 border-2 border-red-300 px-3 py-2 text-[11px] text-red-900">
+          <strong>⚠ Effective date is in the past</strong> — this will RETROACTIVELY apply to all customers with start_date in [{effectiveDate}, {today}]. Confirm you intend the backdating.
+        </div>
+      )}
+
+      <FieldGroup title="AE compensation">
+        <FieldRow label="AE Initial CC rate" helper="First cash month rate">
+          <RateInput value={aePct} onChange={setAePct} placeholder="10" disabled={submitting} />
+        </FieldRow>
+        <FieldRow label="AE residual rate" helper="Subsequent months">
+          <RateInput value={aeResidualPct} onChange={setAeResidualPct} placeholder="3" disabled={submitting} />
+        </FieldRow>
+        <FieldRow label="AE residual cap" helper="Months from start_date">
+          <MonthsInput value={aeResidualMonths} onChange={setAeResidualMonths} placeholder="12" disabled={submitting} />
+        </FieldRow>
+      </FieldGroup>
+
+      <FieldGroup title="CSM compensation">
+        <FieldRow label="CSM residual rate" helper="Every month after first">
+          <RateInput value={csmPct} onChange={setCsmPct} placeholder="3" disabled={submitting} />
+        </FieldRow>
+        <FieldRow label="CSM residual cap" helper="Months from start_date (blank = inherit)">
+          <MonthsInput value={csmResidualMonths} onChange={setCsmResidualMonths} placeholder="12" disabled={submitting} />
+        </FieldRow>
+      </FieldGroup>
+
+      <FieldGroup title="Accelerator">
+        <FieldRow label="Accelerator target" helper="Annual variable comp goal">
+          <DollarInput value={acceleratorTarget} onChange={setAcceleratorTarget} placeholder="60000" disabled={submitting} />
+        </FieldRow>
+        <FieldRow label="Accelerator at 1.2× target" helper="Tier 1 payout multiplier">
+          <MultiplierInput value={accel15xPct} onChange={setAccel15xPct} placeholder="1.5" disabled={submitting} />
+        </FieldRow>
+        <FieldRow label="Accelerator at 1.5× target" helper="Tier 2 payout multiplier">
+          <MultiplierInput value={accel2xPct} onChange={setAccel2xPct} placeholder="2.0" disabled={submitting} />
+        </FieldRow>
+      </FieldGroup>
+
+      <FieldGroup title="Team Lead">
+        <FieldRow label="Team lead override" helper="% of reports' commissions">
+          <RateInput value={teamLeadOverridePct} onChange={setTeamLeadOverridePct} placeholder="2" disabled={submitting} />
+        </FieldRow>
+      </FieldGroup>
+
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-1">Notes (optional)</div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          disabled={submitting}
+          placeholder="Why is this override being set?"
+          className="w-full text-sm border border-stone-300 px-2 py-1 h-16 disabled:bg-stone-50 disabled:cursor-not-allowed"
+        />
+      </div>
+
+      {hasAtLeastOne ? (
+        <PreviewBlock
+          dbValues={dbValues}
+          rawInputs={{ aePct, aeResidualPct, csmPct, accel15xPct, accel2xPct, teamLeadOverridePct }}
+        />
+      ) : (
+        <div className="text-[11px] text-stone-500 italic">
+          Fill at least one override field to enable Save. Empty fields inherit from the default config.
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border-2 border-red-300 px-3 py-2 text-[11px] text-red-900">
+          <strong>Save failed:</strong> {error}
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200">
+        <Btn onClick={onCancel} variant="secondary" disabled={submitting}>Cancel</Btn>
+        <Btn onClick={handleSave} variant="primary" disabled={!canSubmit}>
+          {submitting ? "Saving…" : "Save override"}
+        </Btn>
       </div>
     </div>
   );
@@ -1076,7 +1547,7 @@ function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
 // ============================================================
 // BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
-function ByRepTab({ c, initialRep, oneoffs, collisions, repList }) {
+function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const [expandedMonth, setExpandedMonth] = useState(null);
 
@@ -1204,6 +1675,12 @@ function ByRepTab({ c, initialRep, oneoffs, collisions, repList }) {
           )}
         </div>
       )}
+
+      <RepOverridesPanel
+        repName={selectedRep}
+        c={c}
+        isExecutive={isExecutive}
+      />
 
       <div className="bg-white border border-stone-200 overflow-x-auto">
         <div className="px-5 py-3 border-b border-stone-200 flex items-center justify-between">
