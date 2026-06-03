@@ -41,6 +41,99 @@ export const ALL_REPS = [...REPS.AE, ...REPS.CSM];
 export const isAE = (rep) => REPS.AE.includes(rep);
 export const isCSM = (rep) => REPS.CSM.includes(rep);
 
+// ============================================================
+// Dynamic rep resolution (additive — inert until consumers wire it)
+// ============================================================
+// Derives the same first-name shape as REPS from a profiles array,
+// so new AE/CSM profiles (including preview-experience accounts)
+// appear in dropdowns and engine attribution without editing the
+// hardcoded REPS constant. Demos = real reps; no demo filtering.
+//
+// IMPORTANT: the subscription engine still matches by first-name
+// string against commission_assignments.ae/.csm (text columns), so
+// if two commission-earning profiles share a first name the engine
+// WILL double-count subscription commission across them. Use
+// detectFirstNameCollisions() in the UI to surface a loud banner
+// AND block the assignment dropdown until disambiguated. The
+// structural fix (UUID-everywhere on commission_assignments) is
+// deferred to a later phase.
+
+// Job-role keys (per teams.js) that earn subscription commission.
+const COMMISSION_ROLE_TYPE = {
+  ae:  "account_executive",
+  csm: "csm",
+};
+
+// Profiles excluded regardless of role_type. Defense-in-depth — the
+// final positive whitelist in isCommissionRep already prevents any
+// non-AE/non-CSM role_type from passing. (teams.js isLeadershipRole
+// also includes "other"; omitted here to match scope — add if needed.)
+const NON_COMMISSION_ROLE_TYPES = new Set([
+  "executive", "ceo", "coo", "cto", "cfo", "vp",
+]);
+
+function isCommissionRep(profile) {
+  if (!profile) return false;
+  if (profile.role === "executive") return false;
+  if (NON_COMMISSION_ROLE_TYPES.has(profile.role_type)) return false;
+  return (
+    profile.role_type === COMMISSION_ROLE_TYPE.ae ||
+    profile.role_type === COMMISSION_ROLE_TYPE.csm
+  );
+}
+
+function firstNameOf(profile) {
+  return ((profile && profile.name) || "").trim().split(/\s+/)[0] || "";
+}
+
+// { AE: [firstName,...], CSM: [firstName,...], all: [...] }
+// Same shape as the hardcoded REPS/ALL_REPS constants. Deduped.
+export function repsFromProfiles(profiles) {
+  const aeSet = new Set();
+  const csmSet = new Set();
+  for (const p of profiles || []) {
+    if (!isCommissionRep(p)) continue;
+    const fn = firstNameOf(p);
+    if (!fn) continue;
+    if (p.role_type === COMMISSION_ROLE_TYPE.ae)  aeSet.add(fn);
+    if (p.role_type === COMMISSION_ROLE_TYPE.csm) csmSet.add(fn);
+  }
+  const AE  = Array.from(aeSet);
+  const CSM = Array.from(csmSet);
+  return { AE, CSM, all: [...AE, ...CSM] };
+}
+
+// Returns [] when no first-name collisions exist among commission
+// reps; otherwise one entry per colliding first-name. The banner
+// (Step 2) consumes this directly. Profile detail includes id, name,
+// role_type, team so the exec can identify which profiles to fix.
+export function detectFirstNameCollisions(profiles) {
+  const byFirstName = new Map();
+  for (const p of profiles || []) {
+    if (!isCommissionRep(p)) continue;
+    const fn = firstNameOf(p);
+    if (!fn) continue;
+    if (!byFirstName.has(fn)) byFirstName.set(fn, []);
+    byFirstName.get(fn).push(p);
+  }
+  const collisions = [];
+  for (const [fn, list] of byFirstName) {
+    if (list.length > 1) {
+      collisions.push({
+        firstName: fn,
+        count: list.length,
+        profiles: list.map((p) => ({
+          id: p.id,
+          name: p.name,
+          role_type: p.role_type,
+          team: p.team,
+        })),
+      });
+    }
+  }
+  return collisions;
+}
+
 export const DEFAULT_CONFIG = {
   aeVoiceRate: 0.10,        // First-cash-month rate for AE
   aeResidualRate: 0.03,     // Subsequent-cash-month rate for AE

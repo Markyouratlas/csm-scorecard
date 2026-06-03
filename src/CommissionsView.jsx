@@ -34,6 +34,7 @@ import {
   ALL_REPS, REPS, isAE,
   calcRepCommission, calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
   calcOneoffCommissionByRep,
+  detectFirstNameCollisions,
   calcAccelerator, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
   monthLabel, fmtMoney, fmtPct, DEFAULT_CONFIG,
@@ -104,6 +105,14 @@ export default function CommissionsView({ profile, onSignOut }) {
     () => (o.oneoffs || []).filter((x) => x.included_in_commission),
     [o.oneoffs]
   );
+  const collisions = useMemo(
+    () => detectFirstNameCollisions(c.profiles),
+    [c.profiles]
+  );
+  const ambiguousNames = useMemo(
+    () => new Set(collisions.map((co) => co.firstName)),
+    [collisions]
+  );
   const [tab, setTab] = useState("overview");
   const [jumpRep, setJumpRep] = useState(null);
   const [needsFilter, setNeedsFilter] = useState(null);
@@ -173,13 +182,13 @@ export default function CommissionsView({ profile, onSignOut }) {
           })}
         </div>
 
-        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} />}
-        {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} />}
-        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} />}
+        {tab === "overview"  && <OverviewTab  c={c} onJumpTo={jumpTo} oneoffs={includedOneoffs} collisions={collisions} />}
+        {tab === "customers" && <CustomersTab c={c} initialFilter={needsFilter} ambiguousNames={ambiguousNames} />}
+        {tab === "byRep"     && <ByRepTab     c={c} initialRep={jumpRep} oneoffs={includedOneoffs} collisions={collisions} />}
         {tab === "whatif"    && <WhatIfTab    c={c} />}
         {tab === "annualize" && <AnnualizeTab c={c} />}
         {tab === "data"      && <DataTab      c={c} isExecutive={isExecutive} />}
-        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} o={o} />}
+        {tab === "oneoffs"   && isExecutive && <OneOffsTab profiles={c.profiles} o={o} ambiguousNames={ambiguousNames} />}
         {tab === "settings"  && isExecutive && <SettingsTab c={c} />}
       </div>
     </ScorecardShell>
@@ -199,13 +208,20 @@ function Stat({ label, value, sub, accent }) {
   );
 }
 
-function RepSelect({ value, onChange, type, disabled }) {
+function RepSelect({ value, onChange, type, disabled, ambiguousNames }) {
   const options = type === "AE" ? REPS.AE : REPS.CSM;
   return (
     <select value={value || ""} onChange={(e) => onChange(e.target.value || null)} disabled={disabled}
       className="text-xs bg-transparent border border-stone-200 px-1.5 py-0.5 hover:border-stone-400 focus:outline-none disabled:bg-stone-50 disabled:cursor-not-allowed">
       <option value="">—</option>
-      {options.map((r) => <option key={r} value={r}>{r}</option>)}
+      {options.map((r) => {
+        const isAmbiguous = ambiguousNames && ambiguousNames.has(r);
+        return (
+          <option key={r} value={r} disabled={isAmbiguous}>
+            {isAmbiguous ? `${r} (ambiguous — resolve collision)` : r}
+          </option>
+        );
+      })}
     </select>
   );
 }
@@ -222,6 +238,50 @@ function Btn({ onClick, variant = "secondary", children, className = "", disable
       className={`text-sm px-3 py-1.5 border transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>
       {children}
     </button>
+  );
+}
+
+// ============================================================
+// COLLISION BANNER — loud warning on Overview + By Rep when two
+// commission-earning profiles share a first name. The subscription
+// engine matches by first name, so commission numbers double-count
+// across colliding profiles until disambiguated.
+// ============================================================
+function CollisionBanner({ collisions }) {
+  if (!collisions || collisions.length === 0) return null;
+  return (
+    <div className="bg-red-50 border-2 border-red-300 px-5 py-4 flex items-start gap-3">
+      <AlertCircle size={20} className="text-red-700 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-red-900">
+          Commission numbers may be unreliable — same-first-name collision detected
+        </div>
+        <div className="text-xs text-red-800 mt-1.5 leading-relaxed">
+          The subscription engine matches reps by first name, so the profiles below
+          will be double-counted in subscription commission until disambiguated.
+          Assignment dropdowns block these names until you fix one of the profiles.
+        </div>
+        <ul className="text-xs text-red-900 mt-2 space-y-1 list-none">
+          {collisions.map((co) => (
+            <li key={co.firstName}>
+              <strong>"{co.firstName}"</strong> matches {co.count} profiles:&nbsp;
+              {co.profiles.map((p, i) => (
+                <span key={p.id}>
+                  {i > 0 ? " · " : ""}
+                  <span className="font-mono">{p.name}</span>
+                  <span className="opacity-70 ml-1">
+                    ({p.role_type === "csm" ? "CSM" : "AE"}{p.team ? `, ${p.team}` : ""})
+                  </span>
+                </span>
+              ))}
+            </li>
+          ))}
+        </ul>
+        <div className="text-xs text-red-800 mt-2">
+          Resolve by editing one profile's name (e.g. add a last initial) so first names are unique among commission-earning profiles.
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -595,7 +655,7 @@ function MonthDrilldownRow({ monthData, isAE, expanded, onToggle, oneoffCommissi
 // ============================================================
 // OVERVIEW TAB (with expandable per-rep rows)
 // ============================================================
-function OverviewTab({ c, onJumpTo, oneoffs }) {
+function OverviewTab({ c, onJumpTo, oneoffs, collisions }) {
   const [expandedRep, setExpandedRep] = useState(null);
 
   const stats = useMemo(() => {
@@ -648,6 +708,7 @@ function OverviewTab({ c, onJumpTo, oneoffs }) {
 
   return (
     <div className="space-y-6">
+      <CollisionBanner collisions={collisions} />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-200">
         <Stat label="Paying Customers" value={stats.paying.length}
               sub={`${c.customers.length - stats.paying.length} self-serve excluded`} />
@@ -856,7 +917,7 @@ function RepCustomerYTDTable({ rows, isAE }) {
 // ============================================================
 // CUSTOMERS TAB (unchanged)
 // ============================================================
-function CustomersTab({ c, initialFilter }) {
+function CustomersTab({ c, initialFilter, ambiguousNames }) {
   const [search, setSearch] = useState("");
   const [era, setEra] = useState("paying");
   const [needsFilter, setNeedsFilter] = useState(initialFilter || null);
@@ -919,12 +980,21 @@ function CustomersTab({ c, initialFilter }) {
       {filtered.length > 0 && filtered.length < 350 && (
         <div className="flex gap-2 items-center text-xs">
           <span className="text-stone-500">Bulk assign filtered → AE:</span>
-          {REPS.AE.map((r) => (
-            <button key={r} onClick={() => handleBulk(r)} className="px-2 py-1 border"
-              style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purpleDeep, background: BRAND.purpleTint }}>
-              {r}
-            </button>
-          ))}
+          {REPS.AE.map((r) => {
+            const isAmbiguous = ambiguousNames && ambiguousNames.has(r);
+            return (
+              <button
+                key={r}
+                onClick={() => handleBulk(r)}
+                disabled={isAmbiguous}
+                title={isAmbiguous ? "Ambiguous first name — resolve collision before bulk-assigning" : undefined}
+                className="px-2 py-1 border disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purpleDeep, background: BRAND.purpleTint }}
+              >
+                {r}{isAmbiguous ? " ⚠" : ""}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -958,10 +1028,10 @@ function CustomersTab({ c, initialFilter }) {
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-600">{fmtMoney(x.max_mrr)}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.ae} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} />}</td>
+                    : <RepSelect value={a.ae} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} ambiguousNames={ambiguousNames} />}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.csm} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} />}</td>
+                    : <RepSelect value={a.csm} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} ambiguousNames={ambiguousNames} />}</td>
                   <td className="px-3 py-2">
                     {x.is_self_serve ? <span className="text-[11px] text-stone-500">Self-serve</span>
                       : x.is_ae_era   ? <span className="text-[11px]" style={{ color: BRAND.purpleDeep }}>AE-era</span>
@@ -985,7 +1055,7 @@ function CustomersTab({ c, initialFilter }) {
 // ============================================================
 // BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
-function ByRepTab({ c, initialRep, oneoffs }) {
+function ByRepTab({ c, initialRep, oneoffs, collisions }) {
   const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
   const [expandedMonth, setExpandedMonth] = useState(null);
 
@@ -1035,6 +1105,7 @@ function ByRepTab({ c, initialRep, oneoffs }) {
 
   return (
     <div className="space-y-5">
+      <CollisionBanner collisions={collisions} />
       <div className="bg-white border border-stone-200 px-4 py-3 flex items-center gap-2 flex-wrap">
         <span className="text-xs uppercase tracking-wider text-stone-500 font-medium mr-2">Rep</span>
         {ALL_REPS.map((r) => {
@@ -1593,7 +1664,7 @@ function resolveRepProfile(repFirstName, profiles) {
 // and included in commission via set_oneoff_inclusion (SECURITY
 // DEFINER, exec-gated server-side).
 // ============================================================
-function OneOffsTab({ profiles, o }) {
+function OneOffsTab({ profiles, o, ambiguousNames }) {
   const [editingChargeId, setEditingChargeId] = useState(null);
 
   if (o.loading) {
@@ -1651,6 +1722,7 @@ function OneOffsTab({ profiles, o }) {
                   key={p.stripe_charge_id}
                   payment={p}
                   profiles={profiles}
+                  ambiguousNames={ambiguousNames}
                   isEditing={editingChargeId === p.stripe_charge_id}
                   onOpenEdit={() => setEditingChargeId(p.stripe_charge_id)}
                   onCloseEdit={() => setEditingChargeId(null)}
@@ -1668,7 +1740,7 @@ function OneOffsTab({ profiles, o }) {
 // ------------------------------------------------------------
 // OneOffRow — one payment + (when expanded) the include form
 // ------------------------------------------------------------
-function OneOffRow({ payment: p, profiles, isEditing, onOpenEdit, onCloseEdit, reload }) {
+function OneOffRow({ payment: p, profiles, ambiguousNames, isEditing, onOpenEdit, onCloseEdit, reload }) {
   const netAmount = Math.max(0, (p.amount || 0) - (p.amount_refunded || 0));
   const isIncluded = !!p.included_in_commission;
 
@@ -1731,6 +1803,7 @@ function OneOffRow({ payment: p, profiles, isEditing, onOpenEdit, onCloseEdit, r
             <OneOffIncludeForm
               payment={p}
               profiles={profiles}
+              ambiguousNames={ambiguousNames}
               netAmount={netAmount}
               onCancel={onCloseEdit}
               onSaved={async () => { onCloseEdit(); await reload(); }}
@@ -1746,7 +1819,7 @@ function OneOffRow({ payment: p, profiles, isEditing, onOpenEdit, onCloseEdit, r
 // OneOffIncludeForm — assignments, rates, preview, and the
 // single rpc call that writes the inclusion decision.
 // ------------------------------------------------------------
-function OneOffIncludeForm({ payment: p, profiles, netAmount, onCancel, onSaved }) {
+function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, netAmount, onCancel, onSaved }) {
   // Convert stored decimal rate (0.10) back to display percentage ("10").
   const decimalToPctStr = (r) =>
     r != null ? String(+(r * 100).toFixed(2)) : "";
@@ -1832,7 +1905,7 @@ function OneOffIncludeForm({ payment: p, profiles, netAmount, onCancel, onSaved 
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">AE</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} />
+            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} ambiguousNames={ambiguousNames} />
             {assignedAe && (
               <>
                 <input
@@ -1875,7 +1948,7 @@ function OneOffIncludeForm({ payment: p, profiles, netAmount, onCancel, onSaved 
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">CSM</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} />
+            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} ambiguousNames={ambiguousNames} />
             {assignedCsm && (
               <>
                 <input
