@@ -4,7 +4,7 @@ import {
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
   Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
-  ChevronLeft, ChevronRight, Phone, Handshake
+  ChevronLeft, ChevronRight, ChevronDown, Phone, Handshake
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -1276,6 +1276,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
 function RosterTab({ profiles, currentUser, reload, isExec }) {
   const [editing, setEditing] = useState(null) // profile id being edited
   const [showPreview, setShowPreview] = useState(false)
+  const [archivedOpen, setArchivedOpen] = useState(true)
 
   const setRole = async (id, newRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id)
@@ -1309,11 +1310,37 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
     reload()
   }
 
-  // Sort: active first (alphabetical), then archived (alphabetical)
-  const sortedProfiles = [...profiles].sort((a, b) => {
-    if (!!a.archived_at !== !!b.archived_at) return a.archived_at ? 1 : -1
-    return a.name.localeCompare(b.name)
-  })
+  const byName = (a, b) => a.name.localeCompare(b.name)
+  const active = profiles.filter(p => !p.archived_at)
+  const archived = profiles.filter(p => p.archived_at).sort(byName)
+
+  // Group active members by team in TEAMS order, plus any unrecognized teams that still have members.
+  const teamKeys = [
+    ...TEAMS.map(t => t.key),
+    ...[...new Set(active.map(p => p.team))].filter(k => !TEAMS.some(t => t.key === k)),
+  ]
+  const teamGroups = teamKeys
+    .map(key => ({ key, members: active.filter(p => p.team === key).sort(byName) }))
+    .filter(g => g.members.length > 0)
+
+  const renderCard = (c) => (
+    <RosterCard
+      key={c.id}
+      profile={c}
+      currentUser={currentUser}
+      isExec={isExec}
+      isEditing={editing === c.id}
+      onStartEdit={() => setEditing(c.id)}
+      onCancelEdit={() => setEditing(null)}
+      onSetRole={(role) => setRole(c.id, role)}
+      onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
+      onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
+      onArchive={() => archiveUser(c.id)}
+      onUnarchive={() => unarchiveUser(c.id)}
+      onRemove={() => removeUser(c.id)}
+      onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
+    />
+  )
 
   return (
     <div className="space-y-8">
@@ -1341,26 +1368,34 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 fade-up" style={{ animationDelay: '60ms' }}>
-        {sortedProfiles.map(c => (
-          <RosterCard
-            key={c.id}
-            profile={c}
-            currentUser={currentUser}
-            isExec={isExec}
-            isEditing={editing === c.id}
-            onStartEdit={() => setEditing(c.id)}
-            onCancelEdit={() => setEditing(null)}
-            onSetRole={(role) => setRole(c.id, role)}
-            onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
-            onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
-            onArchive={() => archiveUser(c.id)}
-            onUnarchive={() => unarchiveUser(c.id)}
-            onRemove={() => removeUser(c.id)}
-            onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
-          />
-        ))}
-      </div>
+      {teamGroups.map((g, i) => (
+        <div key={g.key} className="fade-up" style={{ animationDelay: `${60 + i * 30}ms` }}>
+          <div className="flex items-baseline gap-2 mb-3 pl-3" style={{ borderLeft: `3px solid ${getTeamColor(g.key)}` }}>
+            <h2 className="display-font text-xl font-medium text-stone-900">{getTeamLabel(g.key)}</h2>
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {g.members.length} member{g.members.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {g.members.map(renderCard)}
+          </div>
+        </div>
+      ))}
+
+      {archived.length > 0 && (
+        <div className="fade-up">
+          <button onClick={() => setArchivedOpen(o => !o)}
+            className="flex items-center gap-2 mb-3 text-stone-600 hover:text-stone-900 transition-colors">
+            {archivedOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            <Archive className="w-4 h-4" />
+            <h2 className="display-font text-xl font-medium">Archived</h2>
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {archived.length} member{archived.length === 1 ? '' : 's'}</span>
+          </button>
+          {archivedOpen && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {archived.map(renderCard)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
