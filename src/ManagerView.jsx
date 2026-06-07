@@ -1370,9 +1370,9 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
 
       {teamGroups.map((g, i) => (
         <div key={g.key} className="fade-up" style={{ animationDelay: `${60 + i * 30}ms` }}>
-          <div className="flex items-baseline gap-2 mb-3 pl-3" style={{ borderLeft: `3px solid ${getTeamColor(g.key)}` }}>
-            <h2 className="display-font text-xl font-medium text-stone-900">{getTeamLabel(g.key)}</h2>
-            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {g.members.length} member{g.members.length === 1 ? '' : 's'}</span>
+          <div className="flex items-baseline flex-nowrap gap-2 mb-3 pl-3" style={{ borderLeft: `3px solid ${getTeamColor(g.key)}` }}>
+            <h2 className="display-font text-2xl font-semibold text-stone-900">{getTeamLabel(g.key)}</h2>
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500 whitespace-nowrap">· {g.members.length} member{g.members.length === 1 ? '' : 's'}</span>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
             {g.members.map(renderCard)}
