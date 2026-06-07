@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { Loader2, Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown } from 'lucide-react'
+import { Loader2, Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
@@ -81,7 +81,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} />}
-        {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} />}
+        {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'commission' && <CommissionsTab profile={profile} />}
         {section === 'notes' && <NotesSection weekData={weekData} update={update} />}
@@ -231,7 +231,7 @@ function DerivedCell({ value, target, comparator, format }) {
   )
 }
 
-function PipelineSection({ weekData, update }) {
+function PipelineSection({ weekData, update, profile }) {
   const deals = weekData.deals || []
   const addDeal = () => update(d => ({
     ...d,
@@ -343,7 +343,7 @@ function PipelineSection({ weekData, update }) {
         )}
       </div>
 
-      <ChannelPartnerDeals />
+      <ChannelPartnerDeals profile={profile} />
     </div>
   )
 }
@@ -377,20 +377,26 @@ const fmtChannelDate = (d) => {
   return isNaN(date) ? '—' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function ChannelPartnerDeals() {
+const DEAL_PORTAL_URL = 'https://deals.youratlas.com'
+
+function ChannelPartnerDeals({ profile }) {
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
 
+  const enabled = !!profile?.channel_partner_enabled
+
   const load = useCallback(async () => {
+    if (!enabled) { setLoading(false); return }
     const { data } = await supabase.from('channel_deals').select('*').order('portal_created_at', { ascending: false })
     setDeals(data || [])
     setLoading(false)
-  }, [])
+  }, [enabled])
 
   useEffect(() => { load() }, [load])
 
-  // Keep the section out of view entirely until there's something to show.
+  // Only for channel-partner-enabled reps, and only once there's something to show.
+  if (!enabled) return null
   if (loading || deals.length === 0) return null
 
   const qualified = deals.filter(d => d.status === 'qualified')
@@ -422,8 +428,16 @@ function ChannelPartnerDeals() {
 
       {/* Channel deals table */}
       <div className="bg-white border border-stone-200 p-6">
-        <div className="display-font text-2xl font-medium text-stone-900">Channel Partner Deals</div>
-        <p className="text-sm text-stone-600 mt-1 mb-6">Deals registered through the Atlas Channel Partner Portal</p>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
+          <div>
+            <div className="display-font text-2xl font-medium text-stone-900">Channel Partner Deals</div>
+            <p className="text-sm text-stone-600 mt-1">Deals registered through the Atlas Channel Partner Portal</p>
+          </div>
+          <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
+            Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[860px]">
@@ -469,6 +483,12 @@ function ChannelPartnerDeals() {
                             <ChannelDetail label="CRM" value={deal.crm} />
                             <ChannelDetail label="Pain Point" value={deal.pain_point} wide />
                             <ChannelDetail label="Admin Notes" value={deal.notes} wide />
+                          </div>
+                          <div className="pl-5 mt-3">
+                            <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 hover:text-violet-900 hover:underline">
+                              Manage in Portal <ExternalLink className="w-3 h-3" />
+                            </a>
                           </div>
                         </td>
                       </tr>

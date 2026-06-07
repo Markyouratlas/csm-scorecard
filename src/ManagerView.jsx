@@ -4,7 +4,7 @@ import {
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
   Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
-  ChevronLeft, ChevronRight, Phone
+  ChevronLeft, ChevronRight, Phone, Handshake
 } from 'lucide-react'
 import { supabase } from './supabase'
 import {
@@ -1304,6 +1304,10 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
     await supabase.from('profiles').delete().eq('id', id)
     reload()
   }
+  const setChannelPartner = async (id, enabled) => {
+    await supabase.from('profiles').update({ channel_partner_enabled: enabled }).eq('id', id)
+    reload()
+  }
 
   // Sort: active first (alphabetical), then archived (alphabetical)
   const sortedProfiles = [...profiles].sort((a, b) => {
@@ -1353,6 +1357,7 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
             onArchive={() => archiveUser(c.id)}
             onUnarchive={() => unarchiveUser(c.id)}
             onRemove={() => removeUser(c.id)}
+            onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
           />
         ))}
       </div>
@@ -1444,7 +1449,7 @@ function ScorecardPreviews() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onArchive, onUnarchive, onRemove }) {
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onArchive, onUnarchive, onRemove, onToggleChannelPartner }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1482,6 +1487,7 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
               {tier === 'team_lead' && <Badge color="amber" icon={UserCheck}>Lead</Badge>}
               <Badge color="stone">{team?.label || profile.team}</Badge>
               <Badge color="stone">{roleLabel}</Badge>
+              {profile.channel_partner_enabled && profile.team === 'sales' && <Badge color="violet" icon={Handshake}>Channel Partner</Badge>}
             </div>
           </div>
         </div>
@@ -1528,6 +1534,12 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
                 Edit role
               </button>
             </div>
+            {isExec && profile.team === 'sales' && (
+              <button onClick={() => onToggleChannelPartner(!profile.channel_partner_enabled)}
+                className={`w-full flex items-center justify-center gap-1.5 py-1.5 border transition-colors text-xs ${profile.channel_partner_enabled ? 'border-violet-300 bg-violet-50 hover:bg-violet-100 text-violet-800' : 'border-stone-300 hover:bg-stone-100'}`}>
+                <Handshake className="w-3 h-3" /> {profile.channel_partner_enabled ? 'Disable Channel Partner' : 'Enable Channel Partner'}
+              </button>
+            )}
             {isExec && (
               <div className="flex gap-2">
                 {profile.role === 'executive' ? (
@@ -1573,6 +1585,7 @@ function Badge({ color, icon: Icon, children }) {
     amber: 'text-amber-800 bg-amber-50',
     stone: 'text-stone-600 bg-stone-100',
     emerald: 'text-emerald-700 bg-emerald-50',
+    violet: 'text-violet-700 bg-violet-50',
   }
   return (
     <span className={`inline-flex items-center gap-1 mono-font text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded ${colors[color] || colors.stone}`}>
