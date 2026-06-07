@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react'
-import { Loader2, Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar } from 'lucide-react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import { Loader2, Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown } from 'lucide-react'
+import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -341,6 +342,153 @@ function PipelineSection({ weekData, update }) {
           </div>
         )}
       </div>
+
+      <ChannelPartnerDeals />
+    </div>
+  )
+}
+
+// Status badge styling for portal-sourced deals.
+const CHANNEL_STATUS = {
+  pending:     { label: 'Pending Review', cls: 'bg-amber-100 text-amber-700' },
+  qualified:   { label: 'Qualified',      cls: 'bg-emerald-100 text-emerald-700' },
+  declined:    { label: 'Declined',       cls: 'bg-red-100 text-red-700' },
+  demo_booked: { label: 'Demo Booked',    cls: 'bg-violet-100 text-violet-700' },
+}
+
+function ChannelStatusBadge({ status }) {
+  const s = CHANNEL_STATUS[status] || { label: status || '—', cls: 'bg-stone-100 text-stone-600' }
+  return <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
+}
+
+function FlagDot({ flag }) {
+  if (flag !== 'green' && flag !== 'red') return null
+  return <span className={`inline-block w-2 h-2 rounded-full ${flag === 'green' ? 'bg-emerald-500' : 'bg-red-500'}`} title={flag === 'green' ? 'Great fit' : 'Needs review'} />
+}
+
+const parseValue = (v) => {
+  const n = Number(String(v ?? '').replace(/[^0-9.]/g, ''))
+  return isNaN(n) ? 0 : n
+}
+
+const fmtChannelDate = (d) => {
+  if (!d) return '—'
+  const date = new Date(d)
+  return isNaN(date) ? '—' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function ChannelPartnerDeals() {
+  const [deals, setDeals] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState(null)
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('channel_deals').select('*').order('portal_created_at', { ascending: false })
+    setDeals(data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Keep the section out of view entirely until there's something to show.
+  if (loading || deals.length === 0) return null
+
+  const qualified = deals.filter(d => d.status === 'qualified')
+  const pending = deals.filter(d => d.status === 'pending')
+  const qualifiedValues = qualified.map(d => parseValue(d.avg_value)).filter(n => n > 0)
+  const avgValue = qualifiedValues.length ? qualifiedValues.reduce((a, b) => a + b, 0) / qualifiedValues.length : null
+
+  return (
+    <div className="space-y-6">
+      {/* Channel summary */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="border border-stone-200 bg-white p-4">
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Total Channel Deals</div>
+          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{deals.length}</div>
+        </div>
+        <div className="border border-stone-200 bg-white p-4">
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Qualified</div>
+          <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{qualified.length}</div>
+        </div>
+        <div className="border border-stone-200 bg-white p-4">
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Pending Review</div>
+          <div className="display-font text-2xl font-medium text-amber-600 num-tabular">{pending.length}</div>
+        </div>
+        <div className="border border-stone-200 bg-white p-4">
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Avg Value (Qualified)</div>
+          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{avgValue !== null ? `$${Math.round(avgValue).toLocaleString()}` : '—'}</div>
+        </div>
+      </div>
+
+      {/* Channel deals table */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-2xl font-medium text-stone-900">Channel Partner Deals</div>
+        <p className="text-sm text-stone-600 mt-1 mb-6">Deals registered through the Atlas Channel Partner Portal</p>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[860px]">
+            <thead>
+              <tr className="border-b border-stone-200 bg-stone-50">
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Business</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Partner</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">TSD</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deals.map(deal => {
+                const expanded = expandedId === deal.id
+                return (
+                  <React.Fragment key={deal.id}>
+                    <tr onClick={() => setExpandedId(expanded ? null : deal.id)} className="border-b border-stone-100 hover:bg-stone-50 cursor-pointer transition-colors">
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          {expanded ? <ChevronDown className="w-3.5 h-3.5 text-stone-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />}
+                          <div>
+                            <div className="font-medium text-stone-800">{deal.business_name}</div>
+                            {deal.contact_name && <div className="text-[11px] text-stone-500">{deal.contact_name}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-stone-700">{deal.partner_company || '—'}</td>
+                      <td className="py-2.5 px-3 text-stone-700">{deal.tsd_name || '—'}</td>
+                      <td className="py-2.5 px-3 text-stone-700"><span className="inline-flex items-center gap-1.5">{deal.call_volume || '—'} <FlagDot flag={deal.call_volume_flag} /></span></td>
+                      <td className="py-2.5 px-3 text-stone-700"><span className="inline-flex items-center gap-1.5">{deal.avg_value || '—'} <FlagDot flag={deal.avg_value_flag} /></span></td>
+                      <td className="py-2.5 px-3"><ChannelStatusBadge status={deal.status} /></td>
+                      <td className="py-2.5 px-3 text-stone-500 num-tabular">{fmtChannelDate(deal.portal_created_at)}</td>
+                    </tr>
+                    {expanded && (
+                      <tr className="border-b border-stone-100 bg-stone-50/60">
+                        <td colSpan={7} className="py-4 px-3">
+                          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 pl-5">
+                            <ChannelDetail label="Contact Email" value={deal.contact_email} />
+                            <ChannelDetail label="Contact Phone" value={deal.contact_phone} />
+                            <ChannelDetail label="CRM" value={deal.crm} />
+                            <ChannelDetail label="Pain Point" value={deal.pain_point} wide />
+                            <ChannelDetail label="Admin Notes" value={deal.notes} wide />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChannelDetail({ label, value, wide }) {
+  return (
+    <div className={wide ? 'sm:col-span-2 lg:col-span-3' : ''}>
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-0.5">{label}</div>
+      <div className="text-sm text-stone-700 whitespace-pre-wrap break-words">{value || <span className="text-stone-400">—</span>}</div>
     </div>
   )
 }
