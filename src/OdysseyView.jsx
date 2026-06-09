@@ -11,6 +11,7 @@ import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
+import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -248,6 +249,8 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
           format="percent"
           openModal={openModal} />
       </div>
+
+      <RevenueBreakdownCard />
     </div>
   )
 }

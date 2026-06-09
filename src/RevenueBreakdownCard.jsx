@@ -1,0 +1,192 @@
+import React from 'react'
+import { Layers, AlertCircle } from 'lucide-react'
+import { useRevenueBreakdown } from './hooks/useRevenueBreakdown.js'
+
+// =============================================================================
+//  RevenueBreakdownCard
+//
+//  READ-ONLY display card for the Odyssey Executive sub-tab. Surfaces two views
+//  derived from commission_customers.subscriptions:
+//    1. Active recurring (list price) by product, sorted desc.
+//    2. Subscription count + recurring by status.
+//
+//  This is "contracted recurring at list price" — NOT net MRR. The footnote
+//  below is non-negotiable. Nothing here writes to any table.
+// =============================================================================
+
+const BRAND = '#6639A6'
+
+const FOOTNOTE =
+  "Contracted recurring at list price — Atlas's full signed book, before " +
+  "discounts and before Stripe's trial/prepaid exclusions. Not the same as " +
+  "Stripe net MRR (~$97K)."
+
+// Status pill colors — muted, readable.
+const STATUS_COLORS = {
+  active:     '#15803D',
+  trialing:   '#6639A6',
+  past_due:   '#B45309',
+  canceled:   '#78716C',
+  paused:     '#A8A29E',
+  incomplete: '#B45309',
+  unpaid:     '#DC2649',
+  unknown:    '#A8A29E',
+}
+
+function fmtMoney(n) {
+  return '$' + Math.round(Number(n) || 0).toLocaleString('en-US')
+}
+
+function fmtStatus(s) {
+  return String(s || 'unknown').replace(/_/g, ' ')
+}
+
+export default function RevenueBreakdownCard() {
+  const { byProduct, byStatus, totals, loading, error } = useRevenueBreakdown()
+
+  const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.contractedMrr), 0)
+  const maxStatusMrr = byStatus.reduce((m, s) => Math.max(m, s.mrr), 0)
+
+  return (
+    <div className="card p-6 md:p-8 relative overflow-hidden">
+      <div
+        className="absolute -top-32 -right-32 w-[420px] h-[420px] rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.10), transparent 70%)' }}
+      />
+      <div className="relative">
+        {/* ---- Header ---- */}
+        <div
+          className="flex items-center gap-2 mono-text text-[10px] uppercase tracking-[0.18em] font-semibold mb-2"
+          style={{ color: BRAND }}
+        >
+          <Layers className="w-3 h-3" /> Revenue
+        </div>
+        <h2 className="display-text text-3xl md:text-4xl font-medium leading-tight text-stone-900">
+          Revenue by Product
+        </h2>
+        <p className="text-xs text-stone-500 mt-2 max-w-2xl leading-relaxed">
+          {FOOTNOTE}
+        </p>
+
+        {/* ---- States ---- */}
+        {loading && (
+          <div className="mono-text text-[11px] uppercase tracking-widest text-stone-400 mt-8">
+            Loading…
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="flex items-center gap-2 text-sm text-rose-700 mt-8">
+            <AlertCircle className="w-4 h-4" />
+            Couldn't load subscription data.
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            {/* ---- Headline total ---- */}
+            <div className="mt-6 flex flex-wrap items-end gap-x-8 gap-y-3">
+              <div>
+                <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1">
+                  Active contracted recurring
+                </div>
+                <div
+                  className="display-text font-medium leading-none num-tabular"
+                  style={{ color: BRAND, fontSize: '44px' }}
+                >
+                  {fmtMoney(totals.activeContracted)}
+                </div>
+              </div>
+              <div>
+                <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1">
+                  Active subscriptions
+                </div>
+                <div className="display-text font-medium leading-none num-tabular text-stone-800" style={{ fontSize: '44px' }}>
+                  {(totals.activeSubs || 0).toLocaleString('en-US')}
+                </div>
+              </div>
+            </div>
+
+            {/* ---- By product (active only) ---- */}
+            <div className="mt-8">
+              <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
+                Active recurring by product
+              </div>
+              {byProduct.length === 0 ? (
+                <div className="text-sm text-stone-400">No active subscriptions.</div>
+              ) : (
+                <div className="space-y-2.5">
+                  {byProduct.map((p) => {
+                    const pct = maxProductMrr > 0 ? (p.contractedMrr / maxProductMrr) * 100 : 0
+                    return (
+                      <div key={p.product}>
+                        <div className="flex items-baseline justify-between gap-3 mb-1">
+                          <span className="text-sm text-stone-700 truncate">{p.product}</span>
+                          <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
+                            {fmtMoney(p.contractedMrr)}
+                            <span className="text-stone-400 ml-2">
+                              {p.activeSubs} sub{p.activeSubs === 1 ? '' : 's'}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${pct}%`, background: BRAND }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ---- By status (all statuses) ---- */}
+            <div className="mt-8">
+              <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
+                Subscriptions by status
+              </div>
+              {byStatus.length === 0 ? (
+                <div className="text-sm text-stone-400">No subscriptions found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="mono-text text-[10px] uppercase tracking-[0.14em] text-stone-400">
+                        <th className="font-semibold pb-2 pr-4">Status</th>
+                        <th className="font-semibold pb-2 pr-4 text-right">Subs</th>
+                        <th className="font-semibold pb-2 text-right">Recurring</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byStatus.map((s) => (
+                        <tr key={s.status} className="border-t border-stone-100">
+                          <td className="py-2 pr-4">
+                            <span className="inline-flex items-center gap-2 text-sm text-stone-700">
+                              <span
+                                className="w-2 h-2 rounded-full"
+                                style={{ background: STATUS_COLORS[s.status] || STATUS_COLORS.unknown }}
+                              />
+                              <span className="capitalize">{fmtStatus(s.status)}</span>
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-right mono-text text-[12px] num-tabular text-stone-900">
+                            {(s.subs || 0).toLocaleString('en-US')}
+                          </td>
+                          <td className="py-2 text-right mono-text text-[12px] num-tabular text-stone-900">
+                            {fmtMoney(s.mrr)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
