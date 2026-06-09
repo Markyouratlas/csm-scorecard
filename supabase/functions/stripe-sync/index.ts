@@ -269,7 +269,7 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
     // Stripe's 4-level expansion depth limit).
     const [customers, subs, invoices, products, charges] = await Promise.all([
       stripePaginate("customers", sk),
-      stripePaginate("subscriptions", sk, "status=all&expand[]=data.items.data.price"),
+      stripePaginate("subscriptions", sk, "status=all&expand[]=data.items.data.price&expand[]=data.discounts.coupon"),
       stripePaginate("invoices", sk, invoiceQuery),
       stripePaginate("products", sk),
       stripePaginate("charges", sk, chargesQuery),
@@ -361,6 +361,19 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         ? new Date(s.current_period_end * 1000).toISOString()
         : null;
 
+      // Coupon can live on either the newer `discounts[0].coupon` shape or the
+      // legacy `discount.coupon`. Read defensively from both; null if neither.
+      const coupon = s.discounts?.[0]?.coupon ?? s.discount?.coupon ?? null;
+      const discount = coupon
+        ? {
+            percent_off: coupon.percent_off ?? null,   // e.g. 100 for "100% off"
+            amount_off: coupon.amount_off ?? null,      // cents, if fixed-amount
+            currency: coupon.currency ?? null,
+            duration: coupon.duration ?? null,          // 'forever' | 'once' | 'repeating'
+            name: coupon.name ?? null,
+          }
+        : null;
+
       row.subscriptions.push({
         id: s.id,
         status: s.status,                              // active | canceled | past_due | trialing | paused | incomplete | unpaid
@@ -371,6 +384,8 @@ async function runSync(sk: string, actorId: string | null, isServiceRoleCall: bo
         created: s.created ? new Date(s.created * 1000).toISOString() : null,
         canceled_at: s.canceled_at ? new Date(s.canceled_at * 1000).toISOString() : null,
         ended_at: s.ended_at ? new Date(s.ended_at * 1000).toISOString() : null,
+        pause_collection: s.pause_collection || null, // { behavior, resumes_at } when paused, else null
+        discount,
       });
 
       // Track the earliest upcoming current_period_end across all ACTIVE subs.
