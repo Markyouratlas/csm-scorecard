@@ -14,7 +14,10 @@ import { supabase } from '../supabase.js'
 //  It is NOT net MRR and must never be labeled as such.
 //
 //  Returns:
-//    byProduct: [{ product, activeSubs, contractedMrr }]   (status==='active', sorted by contractedMrr desc)
+//    byProduct: [{ product, activeSubs, contractedMrr,
+//                  customers: [{ name, stripeCustomerId, mrr }] }]
+//                                                          (status==='active', sorted by contractedMrr desc;
+//                                                           customers sorted by mrr desc)
 //    byStatus:  [{ status, subs, mrr }]                     (all statuses, sorted by mrr desc)
 //    totals:    { activeContracted, activeSubs }
 //    loading, error
@@ -44,7 +47,7 @@ export function useRevenueBreakdown() {
     try {
       const { data: rows, error } = await supabase
         .from('commission_customers')
-        .select('subscriptions')
+        .select('name, stripe_customer_id, subscriptions')
       if (error) throw error
 
       setState({ loading: false, error: null, ...aggregate(rows || []) })
@@ -82,6 +85,9 @@ function aggregate(rows) {
     const subs = Array.isArray(row?.subscriptions) ? row.subscriptions : null
     if (!subs || subs.length === 0) continue
 
+    const customerName = row.name || row.stripe_customer_id || 'Unknown customer'
+    const stripeCustomerId = row.stripe_customer_id || null
+
     for (const sub of subs) {
       if (!sub) continue
       const status = sub.status || 'unknown'
@@ -96,9 +102,10 @@ function aggregate(rows) {
       // ---- by product (active only) ----
       if (status === 'active') {
         const product = sub.product_label || 'Uncategorized'
-        const pr = productMap.get(product) || { activeSubs: 0, contractedMrr: 0 }
+        const pr = productMap.get(product) || { activeSubs: 0, contractedMrr: 0, customers: [] }
         pr.activeSubs += 1
         pr.contractedMrr += mrr
+        pr.customers.push({ name: customerName, stripeCustomerId, mrr })
         productMap.set(product, pr)
 
         activeContracted += mrr
@@ -108,7 +115,12 @@ function aggregate(rows) {
   }
 
   const byProduct = [...productMap.entries()]
-    .map(([product, v]) => ({ product, activeSubs: v.activeSubs, contractedMrr: v.contractedMrr }))
+    .map(([product, v]) => ({
+      product,
+      activeSubs: v.activeSubs,
+      contractedMrr: v.contractedMrr,
+      customers: v.customers.sort((a, b) => b.mrr - a.mrr),
+    }))
     .sort((a, b) => b.contractedMrr - a.contractedMrr)
 
   const byStatus = [...statusMap.entries()]

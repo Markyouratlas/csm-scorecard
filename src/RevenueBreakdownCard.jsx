@@ -1,5 +1,5 @@
-import React from 'react'
-import { Layers, AlertCircle } from 'lucide-react'
+import React, { useState } from 'react'
+import { Layers, AlertCircle, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown.js'
 
 // =============================================================================
@@ -33,6 +33,11 @@ const STATUS_COLORS = {
   unknown:    '#A8A29E',
 }
 
+function stripeCustomerUrl(id) {
+  if (!id) return null
+  return `https://dashboard.stripe.com/customers/${id}`
+}
+
 function fmtMoney(n) {
   return '$' + Math.round(Number(n) || 0).toLocaleString('en-US')
 }
@@ -43,6 +48,7 @@ function fmtStatus(s) {
 
 export default function RevenueBreakdownCard() {
   const { byProduct, byStatus, totals, loading, error } = useRevenueBreakdown()
+  const [expanded, setExpanded] = useState(null)
 
   const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.contractedMrr), 0)
   const maxStatusMrr = byStatus.reduce((m, s) => Math.max(m, s.mrr), 0)
@@ -118,23 +124,76 @@ export default function RevenueBreakdownCard() {
                 <div className="space-y-2.5">
                   {byProduct.map((p) => {
                     const pct = maxProductMrr > 0 ? (p.contractedMrr / maxProductMrr) * 100 : 0
+                    const isOpen = expanded === p.product
                     return (
                       <div key={p.product}>
-                        <div className="flex items-baseline justify-between gap-3 mb-1">
-                          <span className="text-sm text-stone-700 truncate">{p.product}</span>
-                          <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
-                            {fmtMoney(p.contractedMrr)}
-                            <span className="text-stone-400 ml-2">
-                              {p.activeSubs} sub{p.activeSubs === 1 ? '' : 's'}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setExpanded(isOpen ? null : p.product)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setExpanded(isOpen ? null : p.product)
+                            }
+                          }}
+                          className="cursor-pointer rounded-lg -mx-2 px-2 py-1 hover:bg-stone-50 transition-colors"
+                        >
+                          <div className="flex items-baseline justify-between gap-3 mb-1">
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              {isOpen
+                                ? <ChevronDown size={13} className="text-stone-400 shrink-0" />
+                                : <ChevronRight size={13} className="text-stone-400 shrink-0" />}
+                              <span className="text-sm text-stone-700 truncate">{p.product}</span>
                             </span>
-                          </span>
+                            <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
+                              {fmtMoney(p.contractedMrr)}
+                              <span className="text-stone-400 ml-2">
+                                {p.activeSubs} sub{p.activeSubs === 1 ? '' : 's'}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${pct}%`, background: BRAND }}
+                            />
+                          </div>
                         </div>
-                        <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${pct}%`, background: BRAND }}
-                          />
-                        </div>
+
+                        {isOpen && (
+                          <div className="pl-6 pr-2 pt-2 pb-1 space-y-1.5">
+                            {p.customers.map((c, i) => {
+                              const url = stripeCustomerUrl(c.stripeCustomerId)
+                              return (
+                                <div
+                                  key={(c.stripeCustomerId || c.name) + i}
+                                  className="flex items-baseline justify-between gap-3"
+                                >
+                                  {url ? (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline truncate"
+                                      style={{ color: BRAND }}
+                                      title="Open this customer's profile in Stripe Dashboard"
+                                    >
+                                      <span className="truncate">{c.name}</span>
+                                      <ExternalLink size={10} className="shrink-0 opacity-60" />
+                                    </a>
+                                  ) : (
+                                    <span className="text-[12px] text-stone-600 truncate">{c.name}</span>
+                                  )}
+                                  <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
+                                    {fmtMoney(c.mrr)}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
