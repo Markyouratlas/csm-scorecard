@@ -17,9 +17,9 @@ import { useRevenueBreakdown } from './hooks/useRevenueBreakdown.js'
 const BRAND = '#6639A6'
 
 const FOOTNOTE =
-  "Contracted recurring at list price — Atlas's full signed book, before " +
-  "discounts and before Stripe's trial/prepaid exclusions. Not the same as " +
-  "Stripe net MRR (~$97K)."
+  "Net recurring we're actively collecting — active and trialing subscriptions at their " +
+  "billed price, after discounts. Paused, past-due, and fully-comped (100%-off) accounts " +
+  "are shown but excluded. The 'at list' figure is the gross book before these adjustments."
 
 // Status pill colors — muted, readable.
 const STATUS_COLORS = {
@@ -46,12 +46,44 @@ function fmtStatus(s) {
   return String(s || 'unknown').replace(/_/g, ' ')
 }
 
-export default function RevenueBreakdownCard() {
-  const { byProduct, byStatus, totals, loading, error } = useRevenueBreakdown()
-  const [expanded, setExpanded] = useState(null)
+// Pill color for a customer revenue badge: amber for paused / past due,
+// stone for free, purple for trial + any discount ('X% off' / 'discount').
+function badgeColor(badge) {
+  if (badge === 'Past Due') return '#DC2626'
+  if (badge === 'Paused') return '#B45309'
+  if (badge === 'Free') return '#78716C'
+  return BRAND // 'Trial' / '% off' / 'discount'
+}
 
-  const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.contractedMrr), 0)
+// "Needs attention" filter pills — Past Due first.
+const ATTENTION_PILLS = [
+  { state: 'past_due', label: 'Past Due', color: '#DC2626' },
+  { state: 'paused',   label: 'Paused',   color: '#B45309' },
+  { state: 'free',     label: 'Free',     color: '#78716C' },
+]
+
+// Short tag shown after a non-active product on the "also:" line.
+// Active/collecting products show no tag.
+const STATE_TAG = {
+  trial: 'trial',
+  paused: 'paused',
+  past_due: 'past due',
+  free: 'free',
+  discounted: 'discounted',
+}
+
+export default function RevenueBreakdownCard() {
+  const { byProduct, byStatus, attention, attentionCounts, totals, loading, error } = useRevenueBreakdown()
+  const [expanded, setExpanded] = useState(null)
+  const [attentionFilter, setAttentionFilter] = useState(null) // 'past_due' | 'paused' | 'free' | null
+
+  const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.netMrr), 0)
   const maxStatusMrr = byStatus.reduce((m, s) => Math.max(m, s.mrr), 0)
+  const totalAttention = attentionCounts.past_due + attentionCounts.paused + attentionCounts.free
+  const filteredAttention = attentionFilter
+    ? attention.filter(a => a.state === attentionFilter)
+    : []
+  const filterLabel = ATTENTION_PILLS.find(p => p.state === attentionFilter)?.label
 
   return (
     <div className="card p-6 md:p-8 relative overflow-hidden">
@@ -94,13 +126,16 @@ export default function RevenueBreakdownCard() {
             <div className="mt-6 flex flex-wrap items-end gap-x-8 gap-y-3">
               <div>
                 <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1">
-                  Active contracted recurring
+                  Active recurring (collecting)
                 </div>
                 <div
                   className="display-text font-medium leading-none num-tabular"
                   style={{ color: BRAND, fontSize: '44px' }}
                 >
-                  {fmtMoney(totals.activeContracted)}
+                  {fmtMoney(totals.netContracted)}
+                </div>
+                <div className="mono-text text-[10.5px] text-stone-400 mt-1.5">
+                  of {fmtMoney(totals.activeContracted)} at list
                 </div>
               </div>
               <div>
@@ -113,17 +148,99 @@ export default function RevenueBreakdownCard() {
               </div>
             </div>
 
-            {/* ---- By product (active only) ---- */}
+            {/* ---- Needs attention filter strip ---- */}
+            {totalAttention > 0 && (
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <span className="mono-text text-[10px] uppercase tracking-[0.14em] font-semibold text-stone-400 mr-1">
+                  Needs attention
+                </span>
+                {ATTENTION_PILLS.map((pill) => {
+                  const count = attentionCounts[pill.state]
+                  const active = attentionFilter === pill.state
+                  return (
+                    <button
+                      key={pill.state}
+                      type="button"
+                      onClick={() => setAttentionFilter(active ? null : pill.state)}
+                      aria-pressed={active}
+                      className="mono-text text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-full border transition-colors"
+                      style={active
+                        ? { color: '#fff', background: pill.color, borderColor: pill.color }
+                        : { color: pill.color, background: `${pill.color}14`, borderColor: `${pill.color}33` }}
+                    >
+                      {pill.label} ({count})
+                    </button>
+                  )
+                })}
+                {attentionFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setAttentionFilter(null)}
+                    className="mono-text text-[10px] uppercase tracking-wider text-stone-400 hover:text-stone-600 underline ml-1"
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ---- By product (current subs) — or attention list when filtered ---- */}
             <div className="mt-8">
               <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
-                Active recurring by product
+                {attentionFilter ? `${filterLabel} subscriptions` : 'Active recurring by product'}
               </div>
-              {byProduct.length === 0 ? (
+              {attentionFilter ? (
+                filteredAttention.length === 0 ? (
+                  <div className="text-sm text-stone-400">None.</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filteredAttention.map((a, i) => {
+                      const url = stripeCustomerUrl(a.stripeCustomerId)
+                      return (
+                        <div
+                          key={(a.stripeCustomerId || a.name) + a.product + i}
+                          className="flex items-baseline justify-between gap-3 py-1 border-b border-stone-50 last:border-b-0"
+                        >
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            {url ? (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline min-w-0"
+                                style={{ color: BRAND }}
+                                title="Open this customer's profile in Stripe Dashboard"
+                              >
+                                <span className="truncate">{a.name}</span>
+                                <ExternalLink size={10} className="shrink-0 opacity-60" />
+                              </a>
+                            ) : (
+                              <span className="text-[12px] text-stone-600 truncate">{a.name}</span>
+                            )}
+                            {a.badge && (
+                              <span
+                                className="mono-text text-[8.5px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0"
+                                style={{ color: badgeColor(a.badge), background: `${badgeColor(a.badge)}1A` }}
+                              >
+                                {a.badge}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-stone-400 truncate">· {a.product}</span>
+                          </span>
+                          <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
+                            {fmtMoney(a.listMrr)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              ) : byProduct.length === 0 ? (
                 <div className="text-sm text-stone-400">No active subscriptions.</div>
               ) : (
                 <div className="space-y-2.5">
                   {byProduct.map((p) => {
-                    const pct = maxProductMrr > 0 ? (p.contractedMrr / maxProductMrr) * 100 : 0
+                    const pct = maxProductMrr > 0 ? (p.netMrr / maxProductMrr) * 100 : 0
                     const isOpen = expanded === p.product
                     return (
                       <div key={p.product}>
@@ -147,7 +264,7 @@ export default function RevenueBreakdownCard() {
                               <span className="text-sm text-stone-700 truncate">{p.product}</span>
                             </span>
                             <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
-                              {fmtMoney(p.contractedMrr)}
+                              {fmtMoney(p.netMrr)}
                               <span className="text-stone-400 ml-2">
                                 {p.activeSubs} sub{p.activeSubs === 1 ? '' : 's'}
                               </span>
@@ -170,25 +287,51 @@ export default function RevenueBreakdownCard() {
                                   key={(c.stripeCustomerId || c.name) + i}
                                   className="flex items-baseline justify-between gap-3"
                                 >
-                                  {url ? (
-                                    <a
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline truncate"
-                                      style={{ color: BRAND }}
-                                      title="Open this customer's profile in Stripe Dashboard"
-                                    >
-                                      <span className="truncate">{c.name}</span>
-                                      <ExternalLink size={10} className="shrink-0 opacity-60" />
-                                    </a>
-                                  ) : (
-                                    <span className="text-[12px] text-stone-600 truncate">{c.name}</span>
-                                  )}
-                                  <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
-                                    {fmtMoney(c.mrr)}
+                                  <span className="min-w-0">
+                                    <span className="flex items-center gap-1.5 min-w-0">
+                                      {url ? (
+                                        <a
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline min-w-0"
+                                          style={{ color: BRAND }}
+                                          title="Open this customer's profile in Stripe Dashboard"
+                                        >
+                                          <span className="truncate">{c.name}</span>
+                                          <ExternalLink size={10} className="shrink-0 opacity-60" />
+                                        </a>
+                                      ) : (
+                                        <span className="text-[12px] text-stone-600 truncate">{c.name}</span>
+                                      )}
+                                      {c.badge && (
+                                        <span
+                                          className="mono-text text-[8.5px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0"
+                                          style={{ color: badgeColor(c.badge), background: `${badgeColor(c.badge)}1A` }}
+                                        >
+                                          {c.badge}
+                                        </span>
+                                      )}
+                                    </span>
+                                    {c.otherProducts?.length > 0 && (
+                                      <span className="block text-[10.5px] text-stone-400 leading-snug">
+                                        also: {c.otherProducts.map(op => {
+                                          const tag = STATE_TAG[op.state]
+                                          return `${op.product} (${fmtMoney(op.mrr)}${tag ? ', ' + tag : ''})`
+                                        }).join(', ')}
+                                      </span>
+                                    )}
                                   </span>
+                                  {c.collecting ? (
+                                    <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
+                                      {fmtMoney(c.netMrr)}
+                                    </span>
+                                  ) : (
+                                    <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
+                                      {fmtMoney(c.listMrr)}
+                                    </span>
+                                  )}
                                 </div>
                               )
                             })}
