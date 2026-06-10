@@ -12,6 +12,7 @@ import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
 import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
+import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -160,6 +161,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
   const customersLatest = targets.getLatestActual('total-customers')
   const arpuLatest = targets.getLatestActual('arpu')
 
+  // LIVE Stripe-derived hero actuals (read-only). MRR = net committed recurring across
+  // all current subs; customers = distinct customers with a committed sub (manual recurring
+  // entries count by name); ARPU = MRR / customers.
+  const rev = useRevenueBreakdown()
+  const liveMrr = rev.totals?.committedContracted || null
+  const liveCustomers = liveMrr == null ? null
+    : new Set(rev.allSubRecords.filter(r => r.inMrr).map(r => r.stripeCustomerId || r.name)).size
+  const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
+
   // For the hero: "annual target" = December of the CURRENT year if available,
   // else December of the year the latest actual lives in, else just take whatever
   // the most-distant target we have is. This gives the most motivating "X of Y" framing.
@@ -191,14 +201,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       {/* MRR Hero — prototype-style unified card */}
       <MrrHeroCard
-        value={mrrLatest?.actual}
+        value={liveMrr ?? mrrLatest?.actual}
         target={mrrAnnualTarget}
-        asOfMonth={mrrLatest?.monthKey}
-        series={mrrSeries}
-        customers={customersLatest?.actual}
+        asOfMonth={liveMrr != null ? null : mrrLatest?.monthKey}
+        live={liveMrr != null}
+        series={[]}
+        customers={liveCustomers ?? customersLatest?.actual}
         customersTarget={customersAnnualTarget}
-        arpu={arpuLatest?.actual}
-        onClickMrr={() => openModal('total-mrr', mrrLatest?.actual)}
+        arpu={liveArpu ?? arpuLatest?.actual}
+        onClickMrr={() => openModal('total-mrr', liveMrr ?? mrrLatest?.actual)}
         onClickCustomers={() => openModal('total-customers', customersLatest?.actual)}
         onClickArpu={() => openModal('arpu', arpuLatest?.actual)}
         canEdit={canEdit}
@@ -1129,7 +1140,7 @@ function shortMonthLabel(monthKey) {
 // =============================================================================
 
 function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTarget, arpu,
-                      onClickMrr, onClickCustomers, onClickArpu, canEdit }) {
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit, live }) {
   const pct = target && value ? Math.min(100, (value / target) * 100) : 0
   const hasMrr = value != null
   const hasTarget = target != null
@@ -1170,7 +1181,9 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
             )}
             <div className="display-text italic text-xl md:text-2xl mt-2 text-stone-500">
               {hasTarget ? <>of {formatMetricValue(target, 'currency')} MRR</> : 'no target set'}
-              {asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
+              {live
+                ? <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· live</span>
+                : asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
             </div>
             {hasTarget && (
               <div className="mt-5 max-w-md">
