@@ -4,10 +4,10 @@ import { supabase } from '../supabase.js'
 // =============================================================================
 //  useRevenueBreakdown
 //
-//  Read-only aggregation of commission_customers.subscriptions (jsonb array).
-//  Each element is shaped { status, product_label, mrr, ... } (written by the
-//  stripe-sync edge function). We do NOT write anything here — RLS already lets
-//  the exec viewing Odyssey read all rows.
+//  Aggregation of commission_customers.subscriptions (jsonb array, written by the
+//  stripe-sync edge function) MERGED with manual_revenue rows (added by execs via
+//  the add_manual_revenue RPC). This hook only READS both tables — all manual
+//  writes go through RPCs in the component, never direct table writes.
 //
 //  This is DISPLAY ONLY. It is "contracted recurring at list price" — the full
 //  signed book before discounts and before Stripe's trial/prepaid exclusions.
@@ -17,7 +17,11 @@ import { supabase } from '../supabase.js'
 //    byProduct: [{ product, activeSubs, contractedMrr, netMrr,
 //                  customers: [{ name, stripeCustomerId, listMrr, netMrr,
 //                                collecting, state, badge,
-//                                otherProducts: [{ product, mrr, state }] }] }]
+//                                otherProducts: [{ product, mrr, state }],
+//                                // manual entries also carry:
+//                                manualId, paymentMethod, note }] }]
+//                  (manual rows: state 'manual' (recurring) or 'manual_onetime';
+//                   one-time = captured cash, not MRR, so contributes 0 to net)
 //                                                          (current subs = active/trialing/past_due,
 //                                                           sorted by contractedMrr desc;
 //                                                           customers sorted by listMrr desc;
@@ -126,12 +130,14 @@ export function useRevenueBreakdown() {
   const load = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }))
     try {
-      const { data: rows, error } = await supabase
-        .from('commission_customers')
-        .select('name, stripe_customer_id, subscriptions')
-      if (error) throw error
+      const [custRes, manualRes] = await Promise.all([
+        supabase.from('commission_customers').select('name, stripe_customer_id, subscriptions'),
+        supabase.from('manual_revenue').select('*').eq('voided', false),
+      ])
+      if (custRes.error) throw custRes.error
+      if (manualRes.error) throw manualRes.error
 
-      setState({ loading: false, error: null, ...aggregate(rows || []) })
+      setState({ loading: false, error: null, ...aggregate(custRes.data || [], manualRes.data || []) })
     } catch (e) {
       console.error('useRevenueBreakdown:', e)
       setState({
@@ -158,7 +164,7 @@ export function useRevenueBreakdown() {
 // Sort priority for the "Needs attention" list.
 const ATTENTION_ORDER = { past_due: 0, paused: 1, free: 2 }
 
-function aggregate(rows) {
+function aggregate(rows, manualRows = []) {
   // product_label -> { activeSubs, contractedMrr, netMrr, customers } for CURRENT subs
   const productMap = new Map()
   // status -> { subs, mrr } across ALL statuses
@@ -226,6 +232,36 @@ function aggregate(rows) {
         }
       }
     }
+  }
+
+  // ---- Merge manual revenue (added via the add_manual_revenue RPC) ----
+  // A manual-only product is valid, so create its bucket if needed. Recurring
+  // entries count toward net + contracted; one-time entries are captured cash
+  // that is NOT MRR, so they only attach to the customer list.
+  for (const m of manualRows) {
+    if (!m) continue
+    const product = m.product_label || 'Uncategorized'
+    const amount = toNumber(m.amount)
+    const pr = productMap.get(product) || { activeSubs: 0, contractedMrr: 0, netMrr: 0, customers: [] }
+    const base = {
+      name: m.customer_name || 'Manual entry',
+      stripeCustomerId: null,
+      listMrr: amount,
+      otherProducts: [],
+      manualId: m.id,
+      paymentMethod: m.payment_method || null,
+      note: m.note || null,
+    }
+    if (m.entry_type === 'onetime') {
+      pr.customers.push({ ...base, netMrr: 0, collecting: false, state: 'manual_onetime', badge: 'Manual · 1-time' })
+    } else {
+      pr.netMrr += amount
+      pr.contractedMrr += amount
+      pr.activeSubs += 1
+      netContracted += amount
+      pr.customers.push({ ...base, netMrr: amount, collecting: true, state: 'manual', badge: 'Manual' })
+    }
+    productMap.set(product, pr)
   }
 
   const byProduct = [...productMap.entries()]

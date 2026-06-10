@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Layers, AlertCircle, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
+import { Layers, AlertCircle, ChevronRight, ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
+import { supabase } from './supabase.js'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown.js'
 
 // =============================================================================
@@ -52,8 +53,12 @@ function badgeColor(badge) {
   if (badge === 'Past Due') return '#DC2626'
   if (badge === 'Paused') return '#B45309'
   if (badge === 'Free') return '#78716C'
+  if (badge === 'Manual · 1-time') return '#15803D'
+  if (badge === 'Manual') return '#6639A6'
   return BRAND // 'Trial' / '% off' / 'discount'
 }
+
+const BLANK_MANUAL_FORM = { name: '', type: 'recurring', amount: '', paymentMethod: '', note: '' }
 
 // "Needs attention" filter pills — Past Due first.
 const ATTENTION_PILLS = [
@@ -73,9 +78,63 @@ const STATE_TAG = {
 }
 
 export default function RevenueBreakdownCard() {
-  const { byProduct, byStatus, attention, attentionCounts, totals, loading, error } = useRevenueBreakdown()
+  const { byProduct, byStatus, attention, attentionCounts, totals, loading, error, refresh } = useRevenueBreakdown()
   const [expanded, setExpanded] = useState(null)
   const [attentionFilter, setAttentionFilter] = useState(null) // 'past_due' | 'paused' | 'free' | null
+
+  // Inline "add manual entry" form state. Only one product's form is open at a time.
+  const [formProduct, setFormProduct] = useState(null)
+  const [formValues, setFormValues] = useState(BLANK_MANUAL_FORM)
+  const [formError, setFormError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [voidingId, setVoidingId] = useState(null)
+
+  function openForm(product) {
+    setFormProduct(product)
+    setFormValues(BLANK_MANUAL_FORM)
+    setFormError(null)
+  }
+
+  function closeForm() {
+    setFormProduct(null)
+    setFormError(null)
+  }
+
+  // All manual writes go through RPCs — we never touch manual_revenue directly.
+  async function submitManual(productLabel) {
+    setFormError(null)
+    const name = formValues.name.trim()
+    const amount = Number(formValues.amount)
+    if (!name) { setFormError('Customer name is required.'); return }
+    if (formValues.amount === '' || !Number.isFinite(amount) || amount < 0) {
+      setFormError('Amount must be a number ≥ 0.'); return
+    }
+    setSubmitting(true)
+    const { error: rpcError } = await supabase.rpc('add_manual_revenue', {
+      p_product_label: productLabel,
+      p_customer_name: name,
+      p_entry_type: formValues.type, // 'recurring' | 'onetime'
+      p_amount: amount,
+      p_payment_method: formValues.paymentMethod.trim() || null,
+      p_note: formValues.note.trim() || null,
+    })
+    setSubmitting(false)
+    if (rpcError) { setFormError(rpcError.message); return } // keep form open on error (e.g. 42501)
+    closeForm()
+    refresh()
+  }
+
+  async function voidManual(manualId) {
+    if (typeof window !== 'undefined' && !window.confirm('Void this manual entry?')) return
+    setVoidingId(manualId)
+    const { error: rpcError } = await supabase.rpc('void_manual_revenue', { p_id: manualId })
+    setVoidingId(null)
+    if (rpcError) {
+      if (typeof window !== 'undefined') window.alert(`Couldn't void entry: ${rpcError.message}`)
+      return
+    }
+    refresh()
+  }
 
   const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.netMrr), 0)
   const maxStatusMrr = byStatus.reduce((m, s) => Math.max(m, s.mrr), 0)
@@ -323,18 +382,59 @@ export default function RevenueBreakdownCard() {
                                       </span>
                                     )}
                                   </span>
-                                  {c.collecting ? (
-                                    <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
-                                      {fmtMoney(c.netMrr)}
-                                    </span>
-                                  ) : (
-                                    <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
-                                      {fmtMoney(c.listMrr)}
-                                    </span>
-                                  )}
+                                  <span className="flex items-center gap-2 shrink-0">
+                                    {c.state === 'manual_onetime' ? (
+                                      // Captured one-time cash — real revenue, just not MRR. Muted, not struck.
+                                      <span className="mono-text text-[11px] num-tabular text-stone-400 whitespace-nowrap">
+                                        {fmtMoney(c.listMrr)}
+                                      </span>
+                                    ) : c.collecting ? (
+                                      <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
+                                        {fmtMoney(c.netMrr)}
+                                      </span>
+                                    ) : (
+                                      <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
+                                        {fmtMoney(c.listMrr)}
+                                      </span>
+                                    )}
+                                    {c.manualId && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); voidManual(c.manualId) }}
+                                        disabled={voidingId === c.manualId}
+                                        title="Void this manual entry"
+                                        aria-label="Void this manual entry"
+                                        className="text-stone-300 hover:text-rose-600 disabled:opacity-40 transition-colors"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    )}
+                                  </span>
                                 </div>
                               )
                             })}
+
+                            {/* ---- Add manual entry ---- */}
+                            {formProduct === p.product ? (
+                              <ManualEntryForm
+                                productLabel={p.product}
+                                values={formValues}
+                                setValues={setFormValues}
+                                error={formError}
+                                submitting={submitting}
+                                onSubmit={() => submitManual(p.product)}
+                                onCancel={closeForm}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); openForm(p.product) }}
+                                className="mono-text text-[10.5px] uppercase tracking-wider font-semibold inline-flex items-center gap-1 mt-1 hover:underline"
+                                style={{ color: BRAND }}
+                              >
+                                <Plus size={12} /> Add manual entry
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -388,6 +488,127 @@ export default function RevenueBreakdownCard() {
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// Inline form for adding a manual revenue entry to one product. No <form> tag —
+// submission is driven by the button's onClick. The product is fixed (read-only).
+function ManualEntryForm({ productLabel, values, setValues, error, submitting, onSubmit, onCancel }) {
+  const set = (key) => (e) => setValues(v => ({ ...v, [key]: e.target.value }))
+  const inputClass =
+    'w-full text-[12px] text-stone-700 bg-white border border-stone-200 rounded px-2 py-1.5 ' +
+    'focus:outline-none focus:border-[#6639A6] transition-colors'
+  const labelClass = 'mono-text text-[9px] uppercase tracking-[0.14em] font-semibold text-stone-400 mb-1 block'
+
+  return (
+    <div
+      className="mt-2 rounded-lg border border-stone-200 bg-stone-50/60 p-3 space-y-2.5"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="mono-text text-[10px] uppercase tracking-[0.14em] font-semibold" style={{ color: BRAND }}>
+          New manual entry
+        </span>
+        <span className="text-[11px] text-stone-500 truncate">{productLabel}</span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div>
+          <label className={labelClass}>Customer name *</label>
+          <input
+            type="text"
+            value={values.name}
+            onChange={set('name')}
+            placeholder="Customer name"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Amount *</label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={values.amount}
+            onChange={set('amount')}
+            placeholder="0"
+            className={inputClass}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={labelClass}>Type</label>
+        <div className="inline-flex rounded-md border border-stone-200 overflow-hidden">
+          {[{ v: 'recurring', l: 'Recurring' }, { v: 'onetime', l: 'One-time' }].map((opt) => {
+            const active = values.type === opt.v
+            return (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setValues(v => ({ ...v, type: opt.v }))}
+                className="mono-text text-[10px] uppercase tracking-wider font-semibold px-3 py-1.5 transition-colors"
+                style={active
+                  ? { color: '#fff', background: BRAND }
+                  : { color: '#78716C', background: '#fff' }}
+              >
+                {opt.l}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div>
+          <label className={labelClass}>Payment method</label>
+          <input
+            type="text"
+            value={values.paymentMethod}
+            onChange={set('paymentMethod')}
+            placeholder="optional"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Note</label>
+          <input
+            type="text"
+            value={values.note}
+            onChange={set('note')}
+            placeholder="optional"
+            className={inputClass}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-1.5 text-[11px] text-rose-700">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={submitting}
+          className="mono-text text-[10px] uppercase tracking-wider font-semibold text-white px-3 py-1.5 rounded-md disabled:opacity-50 transition-opacity"
+          style={{ background: BRAND }}
+        >
+          {submitting ? 'Saving…' : 'Save entry'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={submitting}
+          className="mono-text text-[10px] uppercase tracking-wider font-semibold text-stone-500 hover:text-stone-700 px-2 py-1.5 disabled:opacity-50"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   )
