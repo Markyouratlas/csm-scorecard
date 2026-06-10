@@ -82,13 +82,21 @@ export default function OdysseyView({ onSwitchToScorecard, profile }) {
             Refreshed {data.meta.fetchedAt.toLocaleTimeString()} · {data.meta.memberCount} members
             {targets.loading && <span className="ml-2">· loading targets…</span>}
           </div>
-          <button onClick={data.refresh}
-            disabled={data.loading}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md hover:bg-stone-100 disabled:opacity-50"
-            style={{ color: BRAND }}>
-            <RefreshCw className={`w-3 h-3 ${data.loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="group relative">
+            <button onClick={data.refresh}
+              disabled={data.loading}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md hover:bg-stone-100 disabled:opacity-50"
+              style={{ color: BRAND }}>
+              <RefreshCw className={`w-3 h-3 ${data.loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute bottom-full right-0 mb-2 w-[240px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 normal-case tracking-normal"
+            >
+              Reloads the dashboard from the database. Does not pull new data from Stripe — use the Data Sync tab for that.
+            </div>
+          </div>
         </div>
       )}
       {modalMetric && (

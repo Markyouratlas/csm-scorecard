@@ -112,6 +112,21 @@ const STATE_TAG = {
   discounted: 'discounted',
 }
 
+// Hover copy for each row in the "Subscriptions by status" table, keyed by status.
+const STATUS_TOOLTIPS = {
+  active:
+    "Subscriptions Stripe marks active — currently billing, plus paused-collection " +
+    "accounts (which keep 'active' status). Shown at list price; the MRR pill is the net figure.",
+  canceled: 'Subscriptions that have been canceled. Not part of current revenue.',
+  trialing:
+    'Accounts in their trial/onboarding window (often prepaid). Roll into billing when the trial ends.',
+  past_due:
+    'Active subscriptions whose latest charge failed. Still active; in dunning until recovered or canceled.',
+  incomplete_expired:
+    'Signups whose first payment never completed within ~23 hours, so Stripe expired them. ' +
+    'Never activated; not revenue.',
+}
+
 // Pure-CSS hover tooltip for the headline pills. Parent must be `group relative`.
 // Sits above the pill, ~260px, dark, hidden until group-hover, never intercepts pointer.
 function PillTooltip({ children }) {
@@ -129,6 +144,7 @@ export default function RevenueBreakdownCard() {
   const { byStatus, attentionCounts, allSubRecords, totals, loading, error, refresh } = useRevenueBreakdown()
   const [expanded, setExpanded] = useState(null)
   const [view, setView] = useState('mrr') // which headline pill drives the breakdown; MRR is home
+  const [zeroOpen, setZeroOpen] = useState(false) // show/hide the rolled-up $0 products
 
   // Inline "add manual entry" form state. Only one product's form is open at a time.
   const [formProduct, setFormProduct] = useState(null)
@@ -279,6 +295,151 @@ export default function RevenueBreakdownCard() {
   const allPills = [...revenuePills, ...bucketPills]
   const activePill = allPills.find((p) => p.key === view) || revenuePills[0]
 
+  // Split the breakdown so $0-in-this-view products roll up into one collapsible
+  // "Other" row at the bottom. Order within each group is preserved from breakdown.
+  const nonZeroProducts = breakdown.filter((p) => p.amount > 0)
+  const zeroProducts = breakdown.filter((p) => p.amount === 0)
+
+  // One product row + its chevron drill-down. Identical markup for both groups.
+  const renderProduct = (p) => {
+    const pct = maxBreakdownAmount > 0 ? (p.amount / maxBreakdownAmount) * 100 : 0
+    const isOpen = expanded === p.product
+    return (
+      <div key={p.product}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setExpanded(isOpen ? null : p.product)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              setExpanded(isOpen ? null : p.product)
+            }
+          }}
+          className="cursor-pointer rounded-lg -mx-2 px-2 py-1 hover:bg-stone-50 transition-colors"
+        >
+          <div className="flex items-baseline justify-between gap-3 mb-1">
+            <span className="flex items-center gap-1.5 min-w-0">
+              {isOpen
+                ? <ChevronDown size={13} className="text-stone-400 shrink-0" />
+                : <ChevronRight size={13} className="text-stone-400 shrink-0" />}
+              <span className="text-sm text-stone-700 truncate">{p.product}</span>
+            </span>
+            <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
+              {fmtMoney(p.amount)}
+              <span className="text-stone-400 ml-2">
+                {p.count} sub{p.count === 1 ? '' : 's'}
+              </span>
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${pct}%`, background: activePill.color }}
+            />
+          </div>
+        </div>
+
+        {isOpen && (
+          <div className="pl-6 pr-2 pt-2 pb-1 space-y-1.5">
+            {p.customers.map((c, i) => {
+              const url = stripeCustomerUrl(c.stripeCustomerId)
+              // Greyed view (not live revenue) or a $0 one-time → muted amount.
+              const muted = viewDef.greyed || c.state === 'manual_onetime'
+              return (
+                <div
+                  key={(c.stripeCustomerId || c.name) + i}
+                  className="flex items-baseline justify-between gap-3"
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline min-w-0"
+                          style={{ color: BRAND }}
+                          title="Open this customer's profile in Stripe Dashboard"
+                        >
+                          <span className="truncate">{c.name}</span>
+                          <ExternalLink size={10} className="shrink-0 opacity-60" />
+                        </a>
+                      ) : (
+                        <span className="text-[12px] text-stone-600 truncate">{c.name}</span>
+                      )}
+                      {c.badge && (
+                        <span
+                          className="mono-text text-[8.5px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0"
+                          style={{ color: badgeColor(c.badge), background: `${badgeColor(c.badge)}1A` }}
+                        >
+                          {c.badge}
+                        </span>
+                      )}
+                    </span>
+                    {c.otherProducts?.length > 0 && (
+                      <span className="block text-[10.5px] text-stone-400 leading-snug">
+                        also: {c.otherProducts.map(op => {
+                          const tag = STATE_TAG[op.state]
+                          return `${op.product} (${fmtMoney(op.mrr)}${tag ? ', ' + tag : ''})`
+                        }).join(', ')}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={
+                        'mono-text text-[11px] num-tabular whitespace-nowrap ' +
+                        (muted ? 'text-stone-400' : 'text-stone-700')
+                      }
+                    >
+                      {fmtMoney(c.amount)}
+                    </span>
+                    {c.manualId && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); voidManual(c.manualId) }}
+                        disabled={voidingId === c.manualId}
+                        title="Void this manual entry"
+                        aria-label="Void this manual entry"
+                        className="text-stone-300 hover:text-rose-600 disabled:opacity-40 transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
+
+            {/* ---- Add manual entry ---- */}
+            {formProduct === p.product ? (
+              <ManualEntryForm
+                productLabel={p.product}
+                values={formValues}
+                setValues={setFormValues}
+                error={formError}
+                submitting={submitting}
+                onSubmit={() => submitManual(p.product)}
+                onCancel={closeForm}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openForm(p.product) }}
+                className="mono-text text-[10.5px] uppercase tracking-wider font-semibold inline-flex items-center gap-1 mt-1 hover:underline"
+                style={{ color: BRAND }}
+              >
+                <Plus size={12} /> Add manual entry
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="card p-6 md:p-8 relative overflow-hidden">
       <div
@@ -397,144 +558,37 @@ export default function RevenueBreakdownCard() {
                 <div className="text-sm text-stone-400">No subscriptions in this segment.</div>
               ) : (
                 <div className="space-y-2.5">
-                  {breakdown.map((p) => {
-                    const pct = maxBreakdownAmount > 0 ? (p.amount / maxBreakdownAmount) * 100 : 0
-                    const isOpen = expanded === p.product
-                    return (
-                      <div key={p.product}>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setExpanded(isOpen ? null : p.product)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setExpanded(isOpen ? null : p.product)
-                            }
-                          }}
-                          className="cursor-pointer rounded-lg -mx-2 px-2 py-1 hover:bg-stone-50 transition-colors"
-                        >
-                          <div className="flex items-baseline justify-between gap-3 mb-1">
-                            <span className="flex items-center gap-1.5 min-w-0">
-                              {isOpen
-                                ? <ChevronDown size={13} className="text-stone-400 shrink-0" />
-                                : <ChevronRight size={13} className="text-stone-400 shrink-0" />}
-                              <span className="text-sm text-stone-700 truncate">{p.product}</span>
-                            </span>
-                            <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
-                              {fmtMoney(p.amount)}
-                              <span className="text-stone-400 ml-2">
-                                {p.count} sub{p.count === 1 ? '' : 's'}
-                              </span>
-                            </span>
-                          </div>
-                          <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
-                            <div
-                              className="h-full rounded-full"
-                              style={{ width: `${pct}%`, background: activePill.color }}
-                            />
-                          </div>
-                        </div>
+                  {nonZeroProducts.map(renderProduct)}
 
-                        {isOpen && (
-                          <div className="pl-6 pr-2 pt-2 pb-1 space-y-1.5">
-                            {p.customers.map((c, i) => {
-                              const url = stripeCustomerUrl(c.stripeCustomerId)
-                              // Greyed view (not live revenue) or a $0 one-time → muted amount.
-                              const muted = viewDef.greyed || c.state === 'manual_onetime'
-                              return (
-                                <div
-                                  key={(c.stripeCustomerId || c.name) + i}
-                                  className="flex items-baseline justify-between gap-3"
-                                >
-                                  <span className="min-w-0">
-                                    <span className="flex items-center gap-1.5 min-w-0">
-                                      {url ? (
-                                        <a
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline min-w-0"
-                                          style={{ color: BRAND }}
-                                          title="Open this customer's profile in Stripe Dashboard"
-                                        >
-                                          <span className="truncate">{c.name}</span>
-                                          <ExternalLink size={10} className="shrink-0 opacity-60" />
-                                        </a>
-                                      ) : (
-                                        <span className="text-[12px] text-stone-600 truncate">{c.name}</span>
-                                      )}
-                                      {c.badge && (
-                                        <span
-                                          className="mono-text text-[8.5px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0"
-                                          style={{ color: badgeColor(c.badge), background: `${badgeColor(c.badge)}1A` }}
-                                        >
-                                          {c.badge}
-                                        </span>
-                                      )}
-                                    </span>
-                                    {c.otherProducts?.length > 0 && (
-                                      <span className="block text-[10.5px] text-stone-400 leading-snug">
-                                        also: {c.otherProducts.map(op => {
-                                          const tag = STATE_TAG[op.state]
-                                          return `${op.product} (${fmtMoney(op.mrr)}${tag ? ', ' + tag : ''})`
-                                        }).join(', ')}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="flex items-center gap-2 shrink-0">
-                                    <span
-                                      className={
-                                        'mono-text text-[11px] num-tabular whitespace-nowrap ' +
-                                        (muted ? 'text-stone-400' : 'text-stone-700')
-                                      }
-                                    >
-                                      {fmtMoney(c.amount)}
-                                    </span>
-                                    {c.manualId && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); voidManual(c.manualId) }}
-                                        disabled={voidingId === c.manualId}
-                                        title="Void this manual entry"
-                                        aria-label="Void this manual entry"
-                                        className="text-stone-300 hover:text-rose-600 disabled:opacity-40 transition-colors"
-                                      >
-                                        <X size={12} />
-                                      </button>
-                                    )}
-                                  </span>
-                                </div>
-                              )
-                            })}
-
-                            {/* ---- Add manual entry ---- */}
-                            {formProduct === p.product ? (
-                              <ManualEntryForm
-                                productLabel={p.product}
-                                values={formValues}
-                                setValues={setFormValues}
-                                error={formError}
-                                submitting={submitting}
-                                onSubmit={() => submitManual(p.product)}
-                                onCancel={closeForm}
-                              />
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); openForm(p.product) }}
-                                className="mono-text text-[10.5px] uppercase tracking-wider font-semibold inline-flex items-center gap-1 mt-1 hover:underline"
-                                style={{ color: BRAND }}
-                              >
-                                <Plus size={12} /> Add manual entry
-                              </button>
-                            )}
-                          </div>
-                        )}
+                  {/* ---- Rolled-up $0-in-this-view products ---- */}
+                  {zeroProducts.length > 0 && (
+                    <div>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setZeroOpen((o) => !o)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setZeroOpen((o) => !o)
+                          }
+                        }}
+                        className="cursor-pointer rounded-lg -mx-2 px-2 py-1 hover:bg-stone-50 transition-colors flex items-center gap-1.5"
+                      >
+                        {zeroOpen
+                          ? <ChevronDown size={13} className="text-stone-300 shrink-0" />
+                          : <ChevronRight size={13} className="text-stone-300 shrink-0" />}
+                        <span className="text-sm text-stone-400">
+                          Other — $0 in this view ({zeroProducts.length})
+                        </span>
                       </div>
-                    )
-                  })}
+                      {zeroOpen && (
+                        <div className="space-y-2.5 mt-2.5">
+                          {zeroProducts.map(renderProduct)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -547,7 +601,10 @@ export default function RevenueBreakdownCard() {
               {byStatus.length === 0 ? (
                 <div className="text-sm text-stone-400">No subscriptions found.</div>
               ) : (
-                <div className="overflow-x-auto">
+                // No overflow wrapper here: the table is narrow (3 fixed columns) and never
+                // needs horizontal scroll, and overflow-x-auto would force overflow-y:clip,
+                // slicing off the upward (bottom-full) row tooltips on the first row.
+                <div>
                   <table className="w-full text-left">
                     <thead>
                       <tr className="mono-text text-[10px] uppercase tracking-[0.14em] text-stone-400">
@@ -560,12 +617,15 @@ export default function RevenueBreakdownCard() {
                       {byStatus.map((s) => (
                         <tr key={s.status} className="border-t border-stone-100">
                           <td className="py-2 pr-4">
-                            <span className="inline-flex items-center gap-2 text-sm text-stone-700">
+                            <span className="group relative inline-flex items-center gap-2 text-sm text-stone-700 cursor-default">
                               <span
                                 className="w-2 h-2 rounded-full"
                                 style={{ background: STATUS_COLORS[s.status] || STATUS_COLORS.unknown }}
                               />
                               <span className="capitalize">{fmtStatus(s.status)}</span>
+                              {STATUS_TOOLTIPS[s.status] && (
+                                <PillTooltip>{STATUS_TOOLTIPS[s.status]}</PillTooltip>
+                              )}
                             </span>
                           </td>
                           <td className="py-2 pr-4 text-right mono-text text-[12px] num-tabular text-stone-900">
