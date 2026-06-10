@@ -36,7 +36,16 @@ import { supabase } from '../supabase.js'
 //                                                          (state in past_due | paused | free,
 //                                                           sorted past_due → paused → free, then listMrr desc)
 //    attentionCounts: { past_due, paused, free }
-//    totals:    { activeContracted, netContracted, activeSubs }
+//    allSubRecords: [{ product, name, stripeCustomerId, status, state, listMrr, netMrr,
+//                      committedMrr, collecting, inMrr, inCollecting, badge, manualId,
+//                      otherProducts }]
+//                 (one flat record per subscription across ALL statuses, plus manual
+//                  entries — drives the click-to-filter product breakdown in the UI;
+//                  ADDITIVE, does not feed totals)
+//    totals:    { activeContracted, netContracted, committedContracted, activeSubs }
+//                 (committedContracted = net committed recurring across ALL current subs at
+//                  their discounted price — incl. paused/past_due, excl. 100%-off — plus
+//                  recurring manual entries)
 //    loading, error
 //
 //  Graceful handling:
@@ -79,19 +88,24 @@ function subEconomics(sub) {
   const d = sub.discount || null
   const discountApplies = d && (d.duration === 'forever' || d.duration === 'repeating')
 
+  // Net committed recurring at the discounted (billed) price, regardless of
+  // paused / past_due. 100%-off → 0, partial → net, no/once discount → list.
+  const committedMrr = discountedNet(listMrr, d, discountApplies)
+
   if (paused) {
-    return { listMrr, netMrr: 0, collecting: false, state: 'paused', badge: 'Paused' }
+    return { listMrr, netMrr: 0, committedMrr, collecting: false, state: 'paused', badge: 'Paused' }
   }
   if (status === 'past_due') {
-    return { listMrr, netMrr: 0, collecting: false, state: 'past_due', badge: 'Past Due' }
+    return { listMrr, netMrr: 0, committedMrr, collecting: false, state: 'past_due', badge: 'Past Due' }
   }
   if (discountApplies && d.percent_off === 100) {
-    return { listMrr, netMrr: 0, collecting: false, state: 'free', badge: 'Free' }
+    return { listMrr, netMrr: 0, committedMrr, collecting: false, state: 'free', badge: 'Free' }
   }
   if (status === 'trialing') {
     return {
       listMrr,
       netMrr: discountedNet(listMrr, d, discountApplies),
+      committedMrr,
       collecting: true,
       state: 'trial',
       badge: 'Trial',
@@ -101,6 +115,7 @@ function subEconomics(sub) {
     return {
       listMrr,
       netMrr: listMrr * (1 - d.percent_off / 100),
+      committedMrr,
       collecting: true,
       state: 'discounted',
       badge: `${d.percent_off}% off`,
@@ -109,11 +124,11 @@ function subEconomics(sub) {
   if (discountApplies && d.amount_off > 0) {
     const net = Math.max(0, listMrr - d.amount_off / 100)
     if (net === 0) {
-      return { listMrr, netMrr: 0, collecting: false, state: 'free', badge: 'Free' }
+      return { listMrr, netMrr: 0, committedMrr, collecting: false, state: 'free', badge: 'Free' }
     }
-    return { listMrr, netMrr: net, collecting: true, state: 'discounted', badge: 'discount' }
+    return { listMrr, netMrr: net, committedMrr, collecting: true, state: 'discounted', badge: 'discount' }
   }
-  return { listMrr, netMrr: listMrr, collecting: true, state: 'collecting', badge: null }
+  return { listMrr, netMrr: listMrr, committedMrr, collecting: true, state: 'collecting', badge: null }
 }
 
 export function useRevenueBreakdown() {
@@ -124,7 +139,8 @@ export function useRevenueBreakdown() {
     byStatus: [],
     attention: [],
     attentionCounts: { past_due: 0, paused: 0, free: 0 },
-    totals: { activeContracted: 0, netContracted: 0, activeSubs: 0 },
+    allSubRecords: [],
+    totals: { activeContracted: 0, netContracted: 0, committedContracted: 0, activeSubs: 0 },
   })
 
   const load = useCallback(async () => {
@@ -147,7 +163,8 @@ export function useRevenueBreakdown() {
         byStatus: [],
         attention: [],
         attentionCounts: { past_due: 0, paused: 0, free: 0 },
-        totals: { activeContracted: 0, netContracted: 0, activeSubs: 0 },
+        allSubRecords: [],
+        totals: { activeContracted: 0, netContracted: 0, committedContracted: 0, activeSubs: 0 },
       })
     }
   }, [])
@@ -171,9 +188,13 @@ function aggregate(rows, manualRows = []) {
   const statusMap = new Map()
   // customer-subscriptions needing attention (past_due / paused / free)
   const attention = []
+  // one flat record per subscription across ALL statuses + manual entries.
+  // ADDITIVE — drives the click-to-filter product breakdown; does not feed totals.
+  const allSubRecords = []
 
   let activeContracted = 0
   let netContracted = 0
+  let committedContracted = 0
   let activeSubs = 0
 
   for (const row of rows) {
@@ -207,10 +228,38 @@ function aggregate(rows, manualRows = []) {
       st.mrr += mrr
       statusMap.set(status, st)
 
+      // ---- flat record (all statuses) — ADDITIVE, no effect on totals ----
+      const recEcon = subEconomics(sub)
+      const recProduct = sub.product_label || 'Uncategorized'
+      const recOtherProducts = CURRENT_STATUSES.has(status)
+        ? [...currentByLabel.entries()]
+            .filter(([label]) => label !== recProduct)
+            .map(([label, v]) => ({ product: label, mrr: v.mrr, state: v.state }))
+            .sort((a, b) => b.mrr - a.mrr)
+        : []
+      allSubRecords.push({
+        product: recProduct,
+        name: customerName,
+        stripeCustomerId,
+        status,
+        state: recEcon.state,
+        listMrr: recEcon.listMrr,
+        netMrr: recEcon.netMrr,
+        committedMrr: recEcon.committedMrr,
+        collecting: recEcon.collecting,
+        inMrr: ['active', 'trialing', 'past_due'].includes(status), // paused is 'active'
+        inCollecting: recEcon.collecting === true,
+        badge: recEcon.badge,
+        manualId: null,
+        otherProducts: recOtherProducts,
+      })
+
       // ---- by product (current subs: active / trialing / past_due) ----
       if (CURRENT_STATUSES.has(status)) {
         const product = sub.product_label || 'Uncategorized'
-        const { listMrr, netMrr, collecting, state, badge } = subEconomics(sub)
+        const econ = subEconomics(sub)
+        const { listMrr, netMrr, collecting, state, badge } = econ
+        committedContracted += econ.committedMrr
         const otherProducts = [...currentByLabel.entries()]
           .filter(([label]) => label !== product)
           .map(([label, v]) => ({ product: label, mrr: v.mrr, state: v.state }))
@@ -254,12 +303,24 @@ function aggregate(rows, manualRows = []) {
     }
     if (m.entry_type === 'onetime') {
       pr.customers.push({ ...base, netMrr: 0, collecting: false, state: 'manual_onetime', badge: 'Manual · 1-time' })
+      allSubRecords.push({
+        product, name: base.name, stripeCustomerId: null, status: 'manual', state: 'manual_onetime',
+        listMrr: amount, netMrr: 0, committedMrr: 0, collecting: false, inMrr: false, inCollecting: false,
+        badge: 'Manual · 1-time', manualId: m.id, otherProducts: [],
+      })
     } else {
       pr.netMrr += amount
       pr.contractedMrr += amount
       pr.activeSubs += 1
       netContracted += amount
+      committedContracted += amount
+      activeSubs += 1
       pr.customers.push({ ...base, netMrr: amount, collecting: true, state: 'manual', badge: 'Manual' })
+      allSubRecords.push({
+        product, name: base.name, stripeCustomerId: null, status: 'manual', state: 'manual',
+        listMrr: amount, netMrr: amount, committedMrr: amount, collecting: true, inMrr: true, inCollecting: true,
+        badge: 'Manual', manualId: m.id, otherProducts: [],
+      })
     }
     productMap.set(product, pr)
   }
@@ -292,6 +353,7 @@ function aggregate(rows, manualRows = []) {
     byStatus,
     attention,
     attentionCounts,
-    totals: { activeContracted, netContracted, activeSubs },
+    allSubRecords,
+    totals: { activeContracted, netContracted, committedContracted, activeSubs },
   }
 }

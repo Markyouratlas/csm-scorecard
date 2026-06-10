@@ -60,12 +60,47 @@ function badgeColor(badge) {
 
 const BLANK_MANUAL_FORM = { name: '', type: 'recurring', amount: '', paymentMethod: '', note: '' }
 
-// "Needs attention" filter pills — Past Due first.
-const ATTENTION_PILLS = [
-  { state: 'past_due', label: 'Past Due', color: '#DC2626' },
-  { state: 'paused',   label: 'Paused',   color: '#B45309' },
-  { state: 'free',     label: 'Free',     color: '#78716C' },
-]
+// Each headline pill maps to a view: which records it shows, which dollar field it
+// sums, and whether amounts render muted (segments that aren't live revenue).
+// Keys match the pill `key`s. 'mrr' is home and also keeps manual one-time entries
+// visible (greyed, $0) so they don't disappear from the default view.
+const PILL_VIEWS = {
+  mrr:                { predicate: (r) => r.inMrr || r.state === 'manual_onetime', amountOf: (r) => r.committedMrr, greyed: false },
+  collecting:         { predicate: (r) => r.inCollecting,                          amountOf: (r) => r.netMrr,       greyed: false },
+  trialing:           { predicate: (r) => r.status === 'trialing',                 amountOf: (r) => r.committedMrr, greyed: false },
+  past_due:           { predicate: (r) => r.status === 'past_due',                 amountOf: (r) => r.committedMrr, greyed: true },
+  paused:             { predicate: (r) => r.state === 'paused',                    amountOf: (r) => r.committedMrr, greyed: true },
+  free:               { predicate: (r) => r.state === 'free',                      amountOf: (r) => r.listMrr,      greyed: true },
+  canceled:           { predicate: (r) => r.status === 'canceled',                 amountOf: (r) => r.listMrr,      greyed: true },
+  incomplete_expired: { predicate: (r) => r.status === 'incomplete_expired',       amountOf: (r) => r.listMrr,      greyed: true },
+}
+
+// Group flat records into the product breakdown for the selected view. `amountOf`
+// chooses which dollar field each record contributes. Products sorted by total
+// amount desc; customers within a product by their chosen amount desc.
+function buildBreakdown(records, amountOf) {
+  const map = new Map()
+  for (const r of records) {
+    const pr = map.get(r.product) || { product: r.product, count: 0, amount: 0, customers: [] }
+    const amount = amountOf(r)
+    pr.count += 1
+    pr.amount += amount
+    pr.customers.push({
+      name: r.name,
+      stripeCustomerId: r.stripeCustomerId,
+      amount,
+      state: r.state,
+      badge: r.badge,
+      collecting: r.collecting,
+      manualId: r.manualId,
+      otherProducts: r.otherProducts,
+    })
+    map.set(r.product, pr)
+  }
+  return [...map.values()]
+    .map((p) => ({ ...p, customers: p.customers.sort((a, b) => b.amount - a.amount) }))
+    .sort((a, b) => b.amount - a.amount)
+}
 
 // Short tag shown after a non-active product on the "also:" line.
 // Active/collecting products show no tag.
@@ -77,10 +112,23 @@ const STATE_TAG = {
   discounted: 'discounted',
 }
 
+// Pure-CSS hover tooltip for the headline pills. Parent must be `group relative`.
+// Sits above the pill, ~260px, dark, hidden until group-hover, never intercepts pointer.
+function PillTooltip({ children }) {
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute bottom-full left-0 mb-2 w-[260px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20"
+    >
+      {children}
+    </div>
+  )
+}
+
 export default function RevenueBreakdownCard() {
-  const { byProduct, byStatus, attention, attentionCounts, totals, loading, error, refresh } = useRevenueBreakdown()
+  const { byStatus, attentionCounts, allSubRecords, totals, loading, error, refresh } = useRevenueBreakdown()
   const [expanded, setExpanded] = useState(null)
-  const [attentionFilter, setAttentionFilter] = useState(null) // 'past_due' | 'paused' | 'free' | null
+  const [view, setView] = useState('mrr') // which headline pill drives the breakdown; MRR is home
 
   // Inline "add manual entry" form state. Only one product's form is open at a time.
   const [formProduct, setFormProduct] = useState(null)
@@ -136,13 +184,100 @@ export default function RevenueBreakdownCard() {
     refresh()
   }
 
-  const maxProductMrr = byProduct.reduce((m, p) => Math.max(m, p.netMrr), 0)
-  const maxStatusMrr = byStatus.reduce((m, s) => Math.max(m, s.mrr), 0)
-  const totalAttention = attentionCounts.past_due + attentionCounts.paused + attentionCounts.free
-  const filteredAttention = attentionFilter
-    ? attention.filter(a => a.state === attentionFilter)
-    : []
-  const filterLabel = ATTENTION_PILLS.find(p => p.state === attentionFilter)?.label
+  // Records for the selected view, grouped into the product breakdown.
+  const viewDef = PILL_VIEWS[view] || PILL_VIEWS.mrr
+  const breakdown = buildBreakdown(allSubRecords.filter(viewDef.predicate), viewDef.amountOf)
+  const maxBreakdownAmount = breakdown.reduce((m, p) => Math.max(m, p.amount), 0)
+
+  // ---- Pill headline data ----
+  // Per-status lookups for tooltips / counts (byStatus rows: { status, subs, mrr }).
+  const trialingRow = byStatus.find(s => s.status === 'trialing') || { subs: 0, mrr: 0 }
+  const pastDueRow  = byStatus.find(s => s.status === 'past_due') || { subs: 0, mrr: 0 }
+  const canceledRow = byStatus.find(s => s.status === 'canceled') || { subs: 0, mrr: 0 }
+  const incExpRow   = byStatus.find(s => s.status === 'incomplete_expired') || { subs: 0, mrr: 0 }
+
+  // Two revenue pills (show $), largest first.
+  const revenuePills = [
+    {
+      key: 'mrr',
+      label: 'MRR',
+      value: fmtMoney(totals.committedContracted),
+      color: '#6639A6',
+      primary: true,
+      tooltip:
+        'Net committed recurring across all non-cancelled subscriptions — active, ' +
+        'trialing, paused, and past-due — at their discounted (billed) price, plus recurring ' +
+        'manual entries. Fully-comped (100%-off) accounts count as $0. Includes committed ' +
+        'accounts not currently billing (paused/past-due); excludes canceled.',
+    },
+    {
+      key: 'collecting',
+      label: 'Collecting',
+      value: fmtMoney(totals.netContracted),
+      color: '#15803D',
+      tooltip:
+        "Net recurring we're actively billing right now: active + trialing at billed " +
+        'price, plus recurring manual. Excludes paused, past-due, and 100%-off. Matches Stripe MRR.',
+    },
+  ]
+
+  // Six bucket pills (show counts). All are clickable and drive the breakdown view.
+  const bucketPills = [
+    {
+      key: 'trialing',
+      label: 'Trialing',
+      count: trialingRow.subs,
+      color: '#6639A6',
+      tooltip:
+        `Committed prepaid accounts in their onboarding/trial window (~${fmtMoney(trialingRow.mrr)} at ` +
+        'list). Roll into billing when the trial ends. Counted in MRR.',
+    },
+    {
+      key: 'past_due',
+      label: 'Past Due',
+      count: attentionCounts.past_due,
+      color: '#DC2626',
+      tooltip:
+        `Active subscriptions whose latest charge failed (~${fmtMoney(pastDueRow.mrr)} at risk). ` +
+        'Counted in MRR but not Collecting until recovered — the follow-up list.',
+    },
+    {
+      key: 'paused',
+      label: 'Paused',
+      count: attentionCounts.paused,
+      color: '#B45309',
+      tooltip:
+        'Collection paused (e.g. prepaid window). Counted in MRR (committed) but not currently billing.',
+    },
+    {
+      key: 'free',
+      label: 'Free',
+      count: attentionCounts.free,
+      color: '#78716C',
+      tooltip:
+        'Fully-comped (100%-off) accounts — staff and promos. $0 revenue; shown for visibility.',
+    },
+    {
+      key: 'canceled',
+      label: 'Canceled',
+      count: canceledRow.subs,
+      color: '#78716C',
+      tooltip: 'Churned subscriptions. Not part of MRR.',
+    },
+    {
+      key: 'incomplete_expired',
+      label: 'Incomplete Expired',
+      count: incExpRow.subs,
+      color: '#78716C',
+      tooltip:
+        'Signups whose first payment never completed, so Stripe expired them before they ' +
+        'activated. Never billed; not revenue. Shown so you can follow up.',
+    },
+  ]
+
+  // The pill currently driving the list — used for the section heading + bar color.
+  const allPills = [...revenuePills, ...bucketPills]
+  const activePill = allPills.find((p) => p.key === view) || revenuePills[0]
 
   return (
     <div className="card p-6 md:p-8 relative overflow-hidden">
@@ -181,125 +316,89 @@ export default function RevenueBreakdownCard() {
 
         {!loading && !error && (
           <>
-            {/* ---- Headline total ---- */}
-            <div className="mt-6 flex flex-wrap items-end gap-x-8 gap-y-3">
-              <div>
+            {/* ---- Pill headline ---- */}
+            {/* Two revenue pills (large, show $) then six bucket pills (counts).
+                Every pill is clickable and selects which segment the list renders. */}
+            <div className="mt-6 flex flex-wrap items-end gap-x-6 gap-y-4">
+              {revenuePills.map((p) => {
+                const active = view === p.key
+                return (
+                  <div key={p.key} className="group relative">
+                    <button
+                      type="button"
+                      onClick={() => setView(p.key)}
+                      aria-pressed={active}
+                      className="text-left rounded-2xl border px-4 py-3 cursor-pointer transition-colors"
+                      style={active
+                        ? { borderColor: p.color, background: `${p.color}1A`, boxShadow: `inset 0 0 0 1px ${p.color}` }
+                        : { borderColor: `${p.color}33`, background: `${p.color}0D` }}
+                    >
+                      <div
+                        className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-1"
+                        style={{ color: p.color }}
+                      >
+                        {p.label}
+                      </div>
+                      <div
+                        className="display-text font-medium leading-none num-tabular"
+                        style={{ color: p.color, fontSize: p.primary ? '44px' : '34px' }}
+                      >
+                        {p.value}
+                      </div>
+                    </button>
+                    <PillTooltip>{p.tooltip}</PillTooltip>
+                  </div>
+                )
+              })}
+
+              {/* Kept visible: active subscription count + at-list gross. */}
+              <div className="self-end pb-0.5">
                 <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1">
-                  Active recurring (collecting)
+                  Active subscriptions
                 </div>
-                <div
-                  className="display-text font-medium leading-none num-tabular"
-                  style={{ color: BRAND, fontSize: '44px' }}
-                >
-                  {fmtMoney(totals.netContracted)}
+                <div className="display-text font-medium leading-none num-tabular text-stone-800" style={{ fontSize: '34px' }}>
+                  {(totals.activeSubs || 0).toLocaleString('en-US')}
                 </div>
                 <div className="mono-text text-[10.5px] text-stone-400 mt-1.5">
                   of {fmtMoney(totals.activeContracted)} at list
                 </div>
               </div>
-              <div>
-                <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1">
-                  Active subscriptions
-                </div>
-                <div className="display-text font-medium leading-none num-tabular text-stone-800" style={{ fontSize: '44px' }}>
-                  {(totals.activeSubs || 0).toLocaleString('en-US')}
-                </div>
-              </div>
             </div>
 
-            {/* ---- Needs attention filter strip ---- */}
-            {totalAttention > 0 && (
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <span className="mono-text text-[10px] uppercase tracking-[0.14em] font-semibold text-stone-400 mr-1">
-                  Needs attention
-                </span>
-                {ATTENTION_PILLS.map((pill) => {
-                  const count = attentionCounts[pill.state]
-                  const active = attentionFilter === pill.state
-                  return (
+            {/* ---- Bucket pills (counts) — all clickable, no clear button ---- */}
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              {bucketPills.map((p) => {
+                const active = view === p.key
+                return (
+                  <div key={p.key} className="group relative">
                     <button
-                      key={pill.state}
                       type="button"
-                      onClick={() => setAttentionFilter(active ? null : pill.state)}
+                      onClick={() => setView(p.key)}
                       aria-pressed={active}
-                      className="mono-text text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-full border transition-colors"
+                      className="mono-text text-[10px] uppercase tracking-wider font-semibold px-2.5 py-1 rounded-full border cursor-pointer transition-colors"
                       style={active
-                        ? { color: '#fff', background: pill.color, borderColor: pill.color }
-                        : { color: pill.color, background: `${pill.color}14`, borderColor: `${pill.color}33` }}
+                        ? { color: '#fff', background: p.color, borderColor: p.color }
+                        : { color: p.color, background: `${p.color}14`, borderColor: `${p.color}33` }}
                     >
-                      {pill.label} ({count})
+                      {p.label} ({(p.count || 0).toLocaleString('en-US')})
                     </button>
-                  )
-                })}
-                {attentionFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setAttentionFilter(null)}
-                    className="mono-text text-[10px] uppercase tracking-wider text-stone-400 hover:text-stone-600 underline ml-1"
-                  >
-                    clear
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* ---- By product (current subs) — or attention list when filtered ---- */}
-            <div className="mt-8">
-              <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
-                {attentionFilter ? `${filterLabel} subscriptions` : 'Active recurring by product'}
-              </div>
-              {attentionFilter ? (
-                filteredAttention.length === 0 ? (
-                  <div className="text-sm text-stone-400">None.</div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {filteredAttention.map((a, i) => {
-                      const url = stripeCustomerUrl(a.stripeCustomerId)
-                      return (
-                        <div
-                          key={(a.stripeCustomerId || a.name) + a.product + i}
-                          className="flex items-baseline justify-between gap-3 py-1 border-b border-stone-50 last:border-b-0"
-                        >
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            {url ? (
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[12px] text-stone-600 hover:underline min-w-0"
-                                style={{ color: BRAND }}
-                                title="Open this customer's profile in Stripe Dashboard"
-                              >
-                                <span className="truncate">{a.name}</span>
-                                <ExternalLink size={10} className="shrink-0 opacity-60" />
-                              </a>
-                            ) : (
-                              <span className="text-[12px] text-stone-600 truncate">{a.name}</span>
-                            )}
-                            {a.badge && (
-                              <span
-                                className="mono-text text-[8.5px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0"
-                                style={{ color: badgeColor(a.badge), background: `${badgeColor(a.badge)}1A` }}
-                              >
-                                {a.badge}
-                              </span>
-                            )}
-                            <span className="text-[11px] text-stone-400 truncate">· {a.product}</span>
-                          </span>
-                          <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
-                            {fmtMoney(a.listMrr)}
-                          </span>
-                        </div>
-                      )
-                    })}
+                    <PillTooltip>{p.tooltip}</PillTooltip>
                   </div>
                 )
-              ) : byProduct.length === 0 ? (
-                <div className="text-sm text-stone-400">No active subscriptions.</div>
+              })}
+            </div>
+
+            {/* ---- Selected segment, broken down by product ---- */}
+            <div className="mt-8">
+              <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
+                {activePill.label} · by product
+              </div>
+              {breakdown.length === 0 ? (
+                <div className="text-sm text-stone-400">No subscriptions in this segment.</div>
               ) : (
                 <div className="space-y-2.5">
-                  {byProduct.map((p) => {
-                    const pct = maxProductMrr > 0 ? (p.netMrr / maxProductMrr) * 100 : 0
+                  {breakdown.map((p) => {
+                    const pct = maxBreakdownAmount > 0 ? (p.amount / maxBreakdownAmount) * 100 : 0
                     const isOpen = expanded === p.product
                     return (
                       <div key={p.product}>
@@ -323,16 +422,16 @@ export default function RevenueBreakdownCard() {
                               <span className="text-sm text-stone-700 truncate">{p.product}</span>
                             </span>
                             <span className="mono-text text-[12px] num-tabular text-stone-900 whitespace-nowrap">
-                              {fmtMoney(p.netMrr)}
+                              {fmtMoney(p.amount)}
                               <span className="text-stone-400 ml-2">
-                                {p.activeSubs} sub{p.activeSubs === 1 ? '' : 's'}
+                                {p.count} sub{p.count === 1 ? '' : 's'}
                               </span>
                             </span>
                           </div>
                           <div className="h-2 rounded-full bg-stone-100 overflow-hidden">
                             <div
                               className="h-full rounded-full"
-                              style={{ width: `${pct}%`, background: BRAND }}
+                              style={{ width: `${pct}%`, background: activePill.color }}
                             />
                           </div>
                         </div>
@@ -341,6 +440,8 @@ export default function RevenueBreakdownCard() {
                           <div className="pl-6 pr-2 pt-2 pb-1 space-y-1.5">
                             {p.customers.map((c, i) => {
                               const url = stripeCustomerUrl(c.stripeCustomerId)
+                              // Greyed view (not live revenue) or a $0 one-time → muted amount.
+                              const muted = viewDef.greyed || c.state === 'manual_onetime'
                               return (
                                 <div
                                   key={(c.stripeCustomerId || c.name) + i}
@@ -383,20 +484,14 @@ export default function RevenueBreakdownCard() {
                                     )}
                                   </span>
                                   <span className="flex items-center gap-2 shrink-0">
-                                    {c.state === 'manual_onetime' ? (
-                                      // Captured one-time cash — real revenue, just not MRR. Muted, not struck.
-                                      <span className="mono-text text-[11px] num-tabular text-stone-400 whitespace-nowrap">
-                                        {fmtMoney(c.listMrr)}
-                                      </span>
-                                    ) : c.collecting ? (
-                                      <span className="mono-text text-[11px] num-tabular text-stone-700 whitespace-nowrap">
-                                        {fmtMoney(c.netMrr)}
-                                      </span>
-                                    ) : (
-                                      <span className="mono-text text-[11px] num-tabular text-stone-300 line-through whitespace-nowrap">
-                                        {fmtMoney(c.listMrr)}
-                                      </span>
-                                    )}
+                                    <span
+                                      className={
+                                        'mono-text text-[11px] num-tabular whitespace-nowrap ' +
+                                        (muted ? 'text-stone-400' : 'text-stone-700')
+                                      }
+                                    >
+                                      {fmtMoney(c.amount)}
+                                    </span>
                                     {c.manualId && (
                                       <button
                                         type="button"
@@ -447,7 +542,7 @@ export default function RevenueBreakdownCard() {
             {/* ---- By status (all statuses) ---- */}
             <div className="mt-8">
               <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
-                Subscriptions by status
+                Subscriptions by status · at list price
               </div>
               {byStatus.length === 0 ? (
                 <div className="text-sm text-stone-400">No subscriptions found.</div>
