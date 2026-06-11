@@ -4,3 +4,13 @@ dist
 .env.local
 .vercel
 .DS_Store
+# --- Atlas hygiene additions (scorecard-view-fixes) ---
+# Local production DB dumps — never commit
+backups/
+
+# Supabase CLI scratch (can embed connection strings / tokens)
+supabase/.temp/
+
+# Script outputs — contain customer IDs + financial figures
+*-scan-*.json
+*-preview-*.json
