@@ -13,6 +13,8 @@ import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
 import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
+import { useMrrHistory } from './hooks/useMrrHistory.js'
+import MrrHistoryModal from './MrrHistoryModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -170,6 +172,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
     : new Set(rev.allSubRecords.filter(r => r.inMrr).map(r => r.stripeCustomerId || r.name)).size
   const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
 
+  // Stored monthly MRR snapshots + the live current month layered on top (live wins).
+  const hist = useMrrHistory()
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const seriesMap = new Map(hist.rows.map(r => [r.month_key, r.mrr]))
+  if (liveMrr != null) seriesMap.set(targets.currentMonthKey, liveMrr)
+  const mrrHistorySeries = [...seriesMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mk, mrr]) => ({ month: shortMonthLabel(mk), mrr }))
+
   // For the hero: "annual target" = December of the CURRENT year if available,
   // else December of the year the latest actual lives in, else just take whatever
   // the most-distant target we have is. This gives the most motivating "X of Y" framing.
@@ -205,7 +216,8 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         target={mrrAnnualTarget}
         asOfMonth={liveMrr != null ? null : mrrLatest?.monthKey}
         live={liveMrr != null}
-        series={[]}
+        series={mrrHistorySeries}
+        onEditHistory={canEdit ? () => setHistoryOpen(true) : null}
         customers={liveCustomers ?? customersLatest?.actual}
         customersTarget={customersAnnualTarget}
         arpu={liveArpu ?? arpuLatest?.actual}
@@ -270,6 +282,13 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
       </div>
 
       <RevenueBreakdownCard />
+
+      <MrrHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        rows={hist.rows}
+        onSaved={hist.refresh}
+      />
     </div>
   )
 }
@@ -1140,7 +1159,7 @@ function shortMonthLabel(monthKey) {
 // =============================================================================
 
 function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTarget, arpu,
-                      onClickMrr, onClickCustomers, onClickArpu, canEdit, live }) {
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit, live, onEditHistory }) {
   const pct = target && value ? Math.min(100, (value / target) * 100) : 0
   const hasMrr = value != null
   const hasTarget = target != null
@@ -1227,13 +1246,25 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
 
         {/* RIGHT — monthly MRR trajectory chart */}
         <div className="lg:col-span-7">
-          <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between">
+          <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between gap-3">
             <span>MRR Trajectory · last {series?.length || 0} months</span>
-            {hasChart && (
-              <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
-                {series[0].month} → {series[series.length - 1].month}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {hasChart && (
+                <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
+                  {series[0].month} → {series[series.length - 1].month}
+                </span>
+              )}
+              {onEditHistory && (
+                <button
+                  type="button"
+                  onClick={onEditHistory}
+                  className="normal-case tracking-normal text-[11px] font-semibold hover:underline"
+                  style={{ color: BRAND }}
+                >
+                  Edit history
+                </button>
+              )}
+            </div>
           </div>
           {hasChart ? (
             <div className="h-56 lg:h-64">
