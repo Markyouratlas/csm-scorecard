@@ -11,6 +11,10 @@ import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
+import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
+import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
+import { useMrrHistory } from './hooks/useMrrHistory.js'
+import MrrHistoryModal from './MrrHistoryModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -81,13 +85,21 @@ export default function OdysseyView({ onSwitchToScorecard, profile }) {
             Refreshed {data.meta.fetchedAt.toLocaleTimeString()} · {data.meta.memberCount} members
             {targets.loading && <span className="ml-2">· loading targets…</span>}
           </div>
-          <button onClick={data.refresh}
-            disabled={data.loading}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md hover:bg-stone-100 disabled:opacity-50"
-            style={{ color: BRAND }}>
-            <RefreshCw className={`w-3 h-3 ${data.loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="group relative">
+            <button onClick={data.refresh}
+              disabled={data.loading}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-md hover:bg-stone-100 disabled:opacity-50"
+              style={{ color: BRAND }}>
+              <RefreshCw className={`w-3 h-3 ${data.loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute bottom-full right-0 mb-2 w-[240px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 normal-case tracking-normal"
+            >
+              Reloads the dashboard from the database. Does not pull new data from Stripe — use the Data Sync tab for that.
+            </div>
+          </div>
         </div>
       )}
       {modalMetric && (
@@ -151,6 +163,24 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
   const customersLatest = targets.getLatestActual('total-customers')
   const arpuLatest = targets.getLatestActual('arpu')
 
+  // LIVE Stripe-derived hero actuals (read-only). MRR = net committed recurring across
+  // all current subs; customers = distinct customers with a committed sub (manual recurring
+  // entries count by name); ARPU = MRR / customers.
+  const rev = useRevenueBreakdown()
+  const liveMrr = rev.totals?.committedContracted || null
+  const liveCustomers = liveMrr == null ? null
+    : new Set(rev.allSubRecords.filter(r => r.inMrr).map(r => r.stripeCustomerId || r.name)).size
+  const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
+
+  // Stored monthly MRR snapshots + the live current month layered on top (live wins).
+  const hist = useMrrHistory()
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const seriesMap = new Map(hist.rows.map(r => [r.month_key, r.mrr]))
+  if (liveMrr != null) seriesMap.set(targets.currentMonthKey, liveMrr)
+  const mrrHistorySeries = [...seriesMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mk, mrr]) => ({ month: shortMonthLabel(mk), mrr }))
+
   // For the hero: "annual target" = December of the CURRENT year if available,
   // else December of the year the latest actual lives in, else just take whatever
   // the most-distant target we have is. This gives the most motivating "X of Y" framing.
@@ -182,14 +212,16 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       {/* MRR Hero — prototype-style unified card */}
       <MrrHeroCard
-        value={mrrLatest?.actual}
+        value={liveMrr ?? mrrLatest?.actual}
         target={mrrAnnualTarget}
-        asOfMonth={mrrLatest?.monthKey}
-        series={mrrSeries}
-        customers={customersLatest?.actual}
+        asOfMonth={liveMrr != null ? null : mrrLatest?.monthKey}
+        live={liveMrr != null}
+        series={mrrHistorySeries}
+        onEditHistory={canEdit ? () => setHistoryOpen(true) : null}
+        customers={liveCustomers ?? customersLatest?.actual}
         customersTarget={customersAnnualTarget}
-        arpu={arpuLatest?.actual}
-        onClickMrr={() => openModal('total-mrr', mrrLatest?.actual)}
+        arpu={liveArpu ?? arpuLatest?.actual}
+        onClickMrr={() => openModal('total-mrr', liveMrr ?? mrrLatest?.actual)}
         onClickCustomers={() => openModal('total-customers', customersLatest?.actual)}
         onClickArpu={() => openModal('arpu', arpuLatest?.actual)}
         canEdit={canEdit}
@@ -248,6 +280,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
           format="percent"
           openModal={openModal} />
       </div>
+
+      <RevenueBreakdownCard />
+
+      <MrrHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        rows={hist.rows}
+        onSaved={hist.refresh}
+      />
     </div>
   )
 }
@@ -1118,7 +1159,7 @@ function shortMonthLabel(monthKey) {
 // =============================================================================
 
 function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTarget, arpu,
-                      onClickMrr, onClickCustomers, onClickArpu, canEdit }) {
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit, live, onEditHistory }) {
   const pct = target && value ? Math.min(100, (value / target) * 100) : 0
   const hasMrr = value != null
   const hasTarget = target != null
@@ -1159,7 +1200,9 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
             )}
             <div className="display-text italic text-xl md:text-2xl mt-2 text-stone-500">
               {hasTarget ? <>of {formatMetricValue(target, 'currency')} MRR</> : 'no target set'}
-              {asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
+              {live
+                ? <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· live</span>
+                : asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
             </div>
             {hasTarget && (
               <div className="mt-5 max-w-md">
@@ -1203,13 +1246,25 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
 
         {/* RIGHT — monthly MRR trajectory chart */}
         <div className="lg:col-span-7">
-          <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between">
+          <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between gap-3">
             <span>MRR Trajectory · last {series?.length || 0} months</span>
-            {hasChart && (
-              <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
-                {series[0].month} → {series[series.length - 1].month}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {hasChart && (
+                <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
+                  {series[0].month} → {series[series.length - 1].month}
+                </span>
+              )}
+              {onEditHistory && (
+                <button
+                  type="button"
+                  onClick={onEditHistory}
+                  className="normal-case tracking-normal text-[11px] font-semibold hover:underline"
+                  style={{ color: BRAND }}
+                >
+                  Edit history
+                </button>
+              )}
+            </div>
           </div>
           {hasChart ? (
             <div className="h-56 lg:h-64">
