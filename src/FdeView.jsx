@@ -54,24 +54,53 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
       .eq('user_id', profile.id)
       .eq('week_key', weekKey)
       .maybeSingle()
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         if (cancelled) return
         if (error) console.error('Load error', error)
         const blank = BLANK_WEEK()
         const loaded = data?.data || {}
-        setWeekData({
+        const merged = {
           ...blank,
           ...loaded,
           meetings: { ...blank.meetings, ...(loaded.meetings || {}) },
           pipeline: { ...blank.pipeline, ...(loaded.pipeline || {}) },
           retention: { ...blank.retention, ...(loaded.retention || {}) },
           ttfvCustomers: Array.isArray(loaded.ttfvCustomers) ? loaded.ttfvCustomers : [],
-        })
+        }
+
+        // First-time open of the FDE's OWN current week (no row existed yet):
+        // carry forward the named TTFV customers from the most recent prior
+        // week so the onboarding list doesn't reset to empty each week. Keyed
+        // on "no row existed" - NOT on "ttfvCustomers is empty" - so a week
+        // where the user deliberately cleared the list is never re-seeded.
+        if (!data && !isExecDrillIn && weekKey === currentWeekKey) {
+          const { data: priorRows, error: priorErr } = await supabase
+            .from('weekly_scorecards')
+            .select('week_key, data')
+            .eq('user_id', profile.id)
+            .lt('week_key', currentWeekKey)
+            .order('week_key', { ascending: false })
+            .limit(8)
+          if (cancelled) return
+          if (priorErr) console.error('Carry-forward load error', priorErr)
+          const sourceRow = (priorRows || []).find(r =>
+            Array.isArray(r.data?.ttfvCustomers) &&
+            r.data.ttfvCustomers.some(c => c.name && c.name.trim())
+          )
+          if (sourceRow) {
+            merged.ttfvCustomers = sourceRow.data.ttfvCustomers
+              .filter(c => c.name && c.name.trim())
+              .map(c => ({ ...c })) // clone; keep stage1/stage2/stage3
+          }
+        }
+
+        if (cancelled) return
+        setWeekData(merged)
         setSubmittedAt(data?.submitted_at || null)
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [profile.id, weekKey])
+  }, [profile.id, weekKey, isExecDrillIn, currentWeekKey])
 
   // ----- Auto-save (debounced) — suppressed when locked -----
   const save = useCallback(async (newData) => {
