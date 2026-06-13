@@ -28,7 +28,7 @@ import { fireConfetti } from './confetti'
 // Backward compatibility: older call sites that pass (userId, weekKey, blankFactory)
 // with a CONCRETE weekKey string still work — when the second arg is a non-empty
 // string the hook treats it as the exec-drill-in path.
-export function useScorecard(userId, propWeekKey, blankFactory) {
+export function useScorecard(userId, propWeekKey, blankFactory, carryForward = []) {
   const isExecDrillIn = typeof propWeekKey === 'string' && propWeekKey.length > 0
   const [ownWeekKey, setOwnWeekKey] = useState(getWeekKey())
   const weekKey = isExecDrillIn ? propWeekKey : ownWeekKey
@@ -53,21 +53,59 @@ export function useScorecard(userId, propWeekKey, blankFactory) {
     setLoading(true)
     setSubmittedAt(null)
     setSavedAt(null)
-    supabase
-      .from('weekly_scorecards')
-      .select('data, submitted_at')
-      .eq('user_id', userId)
-      .eq('week_key', weekKey)
-      .maybeSingle()
-      .then(({ data, error }) => {
+
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('weekly_scorecards')
+        .select('data, submitted_at')
+        .eq('user_id', userId)
+        .eq('week_key', weekKey)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) console.error('Load error', error)
+
+      const blank = blankFactory()
+      const loaded = data?.data || {}
+      let merged = deepMerge(blank, loaded)
+
+      // Carry-forward: only for a brand-new current week (no row yet), never
+      // an exec drill-in, and only for fields the caller opted into. Seeds
+      // each field from the most recent prior week that has a non-empty
+      // array for it. A deliberately-cleared week (row exists) is never
+      // re-seeded, because this branch requires `data` to be null.
+      if (!data && !isExecDrillIn && weekKey === currentWeekKey
+          && Array.isArray(carryForward) && carryForward.length > 0) {
+        const { data: priorRows, error: priorErr } = await supabase
+          .from('weekly_scorecards')
+          .select('week_key, data')
+          .eq('user_id', userId)
+          .lt('week_key', currentWeekKey)
+          .order('week_key', { ascending: false })
+          .limit(8)
         if (cancelled) return
-        if (error) console.error('Load error', error)
-        const blank = blankFactory()
-        const loaded = data?.data || {}
-        setWeekData(deepMerge(blank, loaded))
-        setSubmittedAt(data?.submitted_at || null)
-        setLoading(false)
-      })
+        if (priorErr) {
+          console.error('Carry-forward load error', priorErr)
+        } else if (priorRows && priorRows.length > 0) {
+          const seeded = { ...merged }
+          for (const field of carryForward) {
+            for (const row of priorRows) {
+              const val = row.data?.[field]
+              if (Array.isArray(val) && val.length > 0) {
+                seeded[field] = val.map(item => ({ ...item }))
+                break
+              }
+            }
+          }
+          merged = seeded
+        }
+      }
+
+      setWeekData(merged)
+      setSubmittedAt(data?.submitted_at || null)
+      setLoading(false)
+    }
+
+    load()
     return () => { cancelled = true }
   }, [userId, weekKey])
 
