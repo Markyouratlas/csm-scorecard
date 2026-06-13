@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { ChevronLeft, ChevronRight, ArrowLeft, AlertCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Pencil, Eye, Lock } from 'lucide-react'
+import { ScorecardEditContext } from './ScorecardEditContext'
 import CsmView from './CsmView'
 import ImplementationView from './ImplementationView'
 import SupportView from './SupportView'
@@ -22,6 +23,9 @@ import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 //   onBack         — called when the back button is clicked
 export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBack }) {
   const [weekKey, setWeekKey] = useState(getWeekKey())
+  const [editMode, setEditMode] = useState(false)
+
+  React.useEffect(() => { setEditMode(false) }, [weekKey])
 
   const isViewingSelf = targetProfile.id === viewer.id
 
@@ -32,19 +36,34 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
     <div className="min-h-screen">
       {/* Banner — only shown when viewing someone else */}
       {!isViewingSelf && (
-        <div style={{ backgroundColor: '#F5F0FA', borderColor: '#D8C7EE' }} className="border-b px-6 py-3">
+        <div
+          style={editMode
+            ? { backgroundColor: '#FEF3E2', borderColor: '#F5C97B' }
+            : { backgroundColor: '#F5F0FA', borderColor: '#D8C7EE' }}
+          className="border-b px-6 py-3"
+        >
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ color: '#6639a6' }} />
-              <div className="text-sm" style={{ color: '#3D1F66' }}>
-                <strong>Viewing as {targetProfile.name}</strong>
+              <AlertCircle className="w-4 h-4 flex-shrink-0"
+                style={{ color: editMode ? '#B45309' : '#6639a6' }} />
+              <div className="text-sm" style={{ color: editMode ? '#7A3E00' : '#3D1F66' }}>
+                <strong>{editMode ? `Editing ${targetProfile.name}'s scorecard` : `Viewing ${targetProfile.name}`}</strong>
                 <span className="mx-2 opacity-60">·</span>
-                <span className="opacity-80">Any edits will save to their scorecard.</span>
+                <span className="opacity-80">{editMode ? 'Changes auto-save as you type' : 'Read-only'}</span>
               </div>
             </div>
-            <button onClick={onBack} style={{ color: '#3D1F66' }} className="flex items-center gap-1.5 text-sm font-medium hover:opacity-80 px-3 py-1.5 hover:bg-white/40 transition-colors">
-              <ArrowLeft className="w-4 h-4" /> Back to dashboard
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setEditMode(v => !v)}
+                style={{ color: editMode ? '#7A3E00' : '#3D1F66' }}
+                className="flex items-center gap-1.5 text-sm font-medium hover:opacity-80 px-3 py-1.5 hover:bg-white/50 transition-colors border"
+              >
+                {editMode ? <><Eye className="w-4 h-4" /> Done editing</> : <><Pencil className="w-4 h-4" /> Edit scorecard</>}
+              </button>
+              <button onClick={onBack} style={{ color: '#3D1F66' }} className="flex items-center gap-1.5 text-sm font-medium hover:opacity-80 px-3 py-1.5 hover:bg-white/40 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back to dashboard
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -86,14 +105,39 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
           Key=weekKey ensures the component re-mounts when week changes.
           onSignOut signs out the VIEWER's session (the executive who's drilling in),
           not the target user — that's a session-level action on the auth session. */}
-      <ScorecardComponent
-        key={`${targetProfile.id}-${weekKey}`}
-        profile={targetProfile}
-        weekKey={weekKey}
-        onSignOut={onSignOut || (() => {})}
-        onSwitchToManager={onBack}      // "Manager view" doubles as back-to-dashboard
-        onProfileUpdated={() => {}}     // edits to the viewed user's profile not supported here
-      />
+      <ScorecardEditContext.Provider value={editMode}>
+        <div className={!isViewingSelf && !editMode ? 'scorecard-readonly' : undefined}>
+          <ScorecardComponent
+            key={`${targetProfile.id}-${weekKey}`}
+            profile={targetProfile}
+            weekKey={weekKey}
+            onSignOut={onSignOut || (() => {})}
+            onSwitchToManager={onBack}      // "Manager view" doubles as back-to-dashboard
+            onProfileUpdated={() => {}}     // edits to the viewed user's profile not supported here
+          />
+        </div>
+      </ScorecardEditContext.Provider>
+
+      {!isViewingSelf && !editMode && (
+        <>
+          <style>{`
+            .scorecard-readonly input,
+            .scorecard-readonly textarea,
+            .scorecard-readonly select {
+              pointer-events: none !important;
+              background-color: #f5f5f4 !important;
+              color: #78716c !important;
+              cursor: not-allowed !important;
+            }
+          `}</style>
+          <div
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-medium"
+            style={{ backgroundColor: '#3D1F66', color: '#ffffff' }}
+          >
+            <Lock className="w-4 h-4" /> Read-only — click "Edit scorecard" above to make changes
+          </div>
+        </>
+      )}
     </div>
   )
 }
