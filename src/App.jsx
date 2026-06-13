@@ -307,6 +307,7 @@ export default function App() {
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
           onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
+          onProfileUpdated={setProfile}
         />
       </Shell>
     )
@@ -328,6 +329,7 @@ export default function App() {
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={tier === 'executive' ? () => setViewMode('leadership') : null}
           onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
+          onProfileUpdated={setProfile}
         />
       </Shell>
     )

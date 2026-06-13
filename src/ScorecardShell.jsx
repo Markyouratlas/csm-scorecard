@@ -93,7 +93,7 @@ export default function ScorecardShell({
             </div>
           )}
           <HeaderNav
-            currentPage={currentPage}
+            currentPage={currentPage ?? (isExecDrillIn ? undefined : 'self')}
             onSwitchToLeadership={onSwitchToLeadership}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
