@@ -1,11 +1,13 @@
 // ============================================================
-// useCommissions — fetches all commission data from Supabase
+// useCommissions — commission data via React Query (cached)
 // ============================================================
-// PATCHED: realtime subscriptions disabled (page was hanging).
-// All mutations now use simple optimistic-update + reload pattern.
+// Reads are cached at the app-root QueryClient so switching away from and
+// back to the Commissions view renders instantly from cache and refreshes
+// in the background. DB writes are unchanged; mutations refetch on success.
 // ============================================================
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import {
   DEFAULT_CONFIG,
@@ -14,97 +16,68 @@ import {
   indexMatchedDeals,
 } from "./commissionEngine";
 
+async function fetchCommissions() {
+  const [custRes, asgnRes, cfgRes, unmRes, pendRes, ovrRes, profRes] = await Promise.all([
+    supabase.from("commission_customers").select("*").order("start_date", { ascending: false }),
+    supabase.from("commission_assignments").select("*"),
+    supabase.from("commission_config").select("*").eq("id", 1).maybeSingle(),
+    supabase.from("commission_unmatched").select("*").order("created_at", { ascending: false }),
+    supabase.from("commission_pending_deals").select("*"),
+    supabase.from("commission_rep_overrides").select("*"),
+    supabase.from("profiles").select("id, name, role, role_type, team, is_team_lead, manager_id"),
+  ]);
+
+  if (custRes.error) console.error("customers query error:", custRes.error);
+  if (asgnRes.error) console.error("assignments query error:", asgnRes.error);
+  if (cfgRes.error)  console.error("config query error:", cfgRes.error);
+  if (unmRes.error)  console.error("unmatched query error:", unmRes.error);
+  if (pendRes.error) console.error("pending_deals query error:", pendRes.error);
+  if (ovrRes.error)  console.error("rep_overrides query error:", ovrRes.error);
+  if (profRes.error) console.error("profiles query error:", profRes.error);
+
+  const customers = custRes.data || [];
+  let lastSyncAt = null;
+  if (customers.length) {
+    lastSyncAt = customers.reduce((max, c) =>
+      c.last_synced_at && (!max || c.last_synced_at > max) ? c.last_synced_at : max, null);
+  }
+
+  return {
+    customers,
+    assignments: asgnRes.data || [],
+    config: cfgRes.data?.settings || DEFAULT_CONFIG,
+    unmatched: unmRes.data || [],
+    pendingDeals: pendRes.data || [],
+    repOverrides: ovrRes.data || [],
+    profiles: profRes.data || [],
+    lastSyncAt,
+  };
+}
+
 export function useCommissions() {
-  const [customers, setCustomers] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
-  const [unmatched, setUnmatched] = useState([]);
-  const [pendingDeals, setPendingDeals] = useState([]);
-  const [repOverrides, setRepOverrides] = useState([]);
-  const [profiles, setProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const queryClient = useQueryClient();
+  const { data, isPending, error: queryError, refetch } = useQuery({
+    queryKey: ["commissions"],
+    queryFn: fetchCommissions,
+  });
+
   const [syncing, setSyncing] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState(null);
 
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const customers    = data?.customers    ?? [];
+  const assignments  = data?.assignments  ?? [];
+  const config       = data?.config       ?? DEFAULT_CONFIG;
+  const unmatched    = data?.unmatched    ?? [];
+  const pendingDeals = data?.pendingDeals ?? [];
+  const repOverrides = data?.repOverrides ?? [];
+  const profiles     = data?.profiles     ?? [];
+  const lastSyncAt   = data?.lastSyncAt   ?? null;
 
-  // ---- Initial load ----
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [
-        custRes,
-        asgnRes,
-        cfgRes,
-        unmRes,
-        pendRes,
-        ovrRes,
-        profRes,
-      ] = await Promise.all([
-        supabase.from("commission_customers").select("*").order("start_date", { ascending: false }),
-        supabase.from("commission_assignments").select("*"),
-        supabase.from("commission_config").select("*").eq("id", 1).maybeSingle(),
-        supabase.from("commission_unmatched").select("*").order("created_at", { ascending: false }),
-        supabase.from("commission_pending_deals").select("*"),
-        supabase.from("commission_rep_overrides").select("*"),
-        supabase.from("profiles").select("id, name, role, role_type, team, is_team_lead, manager_id"),
-      ]);
+  const loading = isPending;
+  const error = queryError ? (queryError.message || String(queryError)) : null;
 
-      // Log any errors but don't blow up on individual failures
-      if (custRes.error) console.error("customers query error:", custRes.error);
-      if (asgnRes.error) console.error("assignments query error:", asgnRes.error);
-      if (cfgRes.error)  console.error("config query error:", cfgRes.error);
-      if (unmRes.error)  console.error("unmatched query error:", unmRes.error);
-      if (pendRes.error) console.error("pending_deals query error:", pendRes.error);
-      if (ovrRes.error)  console.error("rep_overrides query error:", ovrRes.error);
-      if (profRes.error) console.error("profiles query error:", profRes.error);
-
-      if (!mountedRef.current) return;
-
-      setCustomers(custRes.data || []);
-      setAssignments(asgnRes.data || []);
-      setConfig(cfgRes.data?.settings || DEFAULT_CONFIG);
-      setUnmatched(unmRes.data || []);
-      setPendingDeals(pendRes.data || []);
-      setRepOverrides(ovrRes.data || []);
-      setProfiles(profRes.data || []);
-
-      if (custRes.data?.length) {
-        const latest = custRes.data.reduce((max, c) =>
-          c.last_synced_at && (!max || c.last_synced_at > max) ? c.last_synced_at : max, null);
-        setLastSyncAt(latest);
-      }
-    } catch (e) {
-      console.error("useCommissions load error:", e);
-      if (mountedRef.current) setError(e.message || String(e));
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadAll(); }, [loadAll]);
-
-  // ---- Realtime subscriptions DISABLED ----
-  // Was causing the page to hang in production. Mutations below now just
-  // reload after writing. Can re-enable later once stable.
-
-  // ---- Derived: indexed assignment lookups for the engine ----
   const indexedAssignments = useMemo(() => indexAssignments(assignments), [assignments]);
-
-  // ---- Derived: per-rep override index (rep_name -> sorted array) ----
   const indexedOverrides = useMemo(() => indexOverrides(repOverrides), [repOverrides]);
-
-  // ---- Derived: matched pending deals -> by stripe customer id ----
-  // The engine uses this to look up actual upfront cash collected.
   const matchedDealsByCustomer = useMemo(() => indexMatchedDeals(pendingDeals), [pendingDeals]);
-
-  // ---- Derived: month columns from data ----
   const monthCols = useMemo(() => {
     const set = new Set();
     for (const c of customers) {
@@ -113,48 +86,38 @@ export function useCommissions() {
     return Array.from(set).sort();
   }, [customers]);
 
-  // ---- Mutations (optimistic + reload on success/failure) ----
   const setAssignment = useCallback(async (customer, field, value) => {
     const existing = assignments.find((a) =>
       (customer.stripe_customer_id && a.stripe_customer_id === customer.stripe_customer_id) ||
       (a.email?.toLowerCase() === customer.email?.toLowerCase())
     );
-
     try {
       if (existing) {
         const newAe  = field === "ae"  ? value : existing.ae;
         const newCsm = field === "csm" ? value : existing.csm;
         if (!newAe && !newCsm) {
-          const { error: delErr } = await supabase
-            .from("commission_assignments")
-            .delete()
-            .eq("id", existing.id);
+          const { error: delErr } = await supabase.from("commission_assignments").delete().eq("id", existing.id);
           if (delErr) throw delErr;
         } else {
-          const { error: upErr } = await supabase
-            .from("commission_assignments")
-            .update({ ae: newAe, csm: newCsm })
-            .eq("id", existing.id);
+          const { error: upErr } = await supabase.from("commission_assignments").update({ ae: newAe, csm: newCsm }).eq("id", existing.id);
           if (upErr) throw upErr;
         }
       } else {
-        const { error: insErr } = await supabase
-          .from("commission_assignments")
-          .insert({
-            stripe_customer_id: customer.stripe_customer_id || null,
-            email: customer.email,
-            ae:  field === "ae"  ? value : null,
-            csm: field === "csm" ? value : null,
-          });
+        const { error: insErr } = await supabase.from("commission_assignments").insert({
+          stripe_customer_id: customer.stripe_customer_id || null,
+          email: customer.email,
+          ae:  field === "ae"  ? value : null,
+          csm: field === "csm" ? value : null,
+        });
         if (insErr) throw insErr;
       }
-      await loadAll();
+      await refetch();
     } catch (e) {
       console.error("setAssignment failed:", e);
-      await loadAll();
+      await refetch();
       throw e;
     }
-  }, [assignments, loadAll]);
+  }, [assignments, refetch]);
 
   const bulkAssignAE = useCallback(async (customerList, rep) => {
     const targets = customerList.filter((c) => !c.is_self_serve);
@@ -172,113 +135,80 @@ export function useCommissions() {
       };
     });
     try {
-      const { error: upErr } = await supabase
-        .from("commission_assignments")
-        .upsert(updates, { onConflict: "stripe_customer_id" });
+      const { error: upErr } = await supabase.from("commission_assignments").upsert(updates, { onConflict: "stripe_customer_id" });
       if (upErr) throw upErr;
-      await loadAll();
+      await refetch();
     } catch (e) {
       console.error("bulkAssignAE failed:", e);
-      await loadAll();
+      await refetch();
       throw e;
     }
-  }, [assignments, loadAll]);
+  }, [assignments, refetch]);
 
   const saveConfig = useCallback(async (newConfig) => {
     try {
-      const { error: upErr } = await supabase
-        .from("commission_config")
-        .upsert({ id: 1, settings: newConfig }, { onConflict: "id" });
+      const { error: upErr } = await supabase.from("commission_config").upsert({ id: 1, settings: newConfig }, { onConflict: "id" });
       if (upErr) throw upErr;
-      setConfig(newConfig);
+      queryClient.setQueryData(["commissions"], (old) => old ? { ...old, config: newConfig } : old);
     } catch (e) {
       console.error("saveConfig failed:", e);
       throw e;
     }
-  }, []);
+  }, [queryClient]);
 
   const resolveUnmatched = useCallback(async (id, resolution) => {
     try {
-      const { error: upErr } = await supabase
-        .from("commission_unmatched")
-        .update({
-          status: resolution.status,
-          resolution_note: resolution.note,
-          resolved_at: new Date().toISOString(),
-        })
-        .eq("id", id);
+      const { error: upErr } = await supabase.from("commission_unmatched").update({
+        status: resolution.status,
+        resolution_note: resolution.note,
+        resolved_at: new Date().toISOString(),
+      }).eq("id", id);
       if (upErr) throw upErr;
-      await loadAll();
+      await refetch();
     } catch (e) {
       console.error("resolveUnmatched failed:", e);
       throw e;
     }
-  }, [loadAll]);
+  }, [refetch]);
 
-  // ---- Stripe sync trigger ----
-  //
-  // The Edge Function now returns 202 immediately and runs the sync in the
-  // background (necessary for accounts with thousands of customers — the
-  // sync can take 2-5 minutes, way past Supabase's 60-150s function timeout).
-  //
-  // After the function accepts the request, we POLL commission_customers
-  // every 10s for an updated `last_synced_at`, and reload when it changes.
-  // We stop polling after 8 minutes or once data refreshes.
   const triggerStripeSync = useCallback(async () => {
     setSyncing(true);
-
-    // Capture the most recent last_synced_at before kicking off the sync.
-    // We'll watch for it to change as the signal that background work landed.
     let baselineLastSynced = lastSyncAt || null;
-
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke("stripe-sync");
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("stripe-sync");
       if (fnErr) throw fnErr;
-      if (data?.error) throw new Error(data.error);
-
-      // If the function returned synchronously (old behavior or zero-customer case),
-      // we're done — reload immediately.
-      if (data?.customers_upserted !== undefined) {
-        await loadAll();
-        return data;
+      if (fnData?.error) throw new Error(fnData.error);
+      if (fnData?.customers_upserted !== undefined) {
+        await refetch();
+        return fnData;
       }
-
-      // Otherwise it's the 202 accepted path. Poll for the data to update.
       const pollStart = Date.now();
-      const maxWaitMs = 8 * 60 * 1000; // 8 minutes
+      const maxWaitMs = 8 * 60 * 1000;
       const pollIntervalMs = 10_000;
-
       while (Date.now() - pollStart < maxWaitMs) {
         await new Promise((r) => setTimeout(r, pollIntervalMs));
-
-        // Check if any customer row has been touched since our baseline
         const { data: latestRow } = await supabase
           .from("commission_customers")
           .select("last_synced_at")
           .order("last_synced_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-
         const latest = latestRow?.last_synced_at || null;
         if (latest && latest !== baselineLastSynced) {
-          // Data updated — reload the dashboard
-          await loadAll();
-          return { ...data, polled_until: new Date().toISOString() };
+          await refetch();
+          return { ...fnData, polled_until: new Date().toISOString() };
         }
       }
-
-      // Timeout — sync probably still running, but we stop polling.
-      // The user can hit refresh later to pick up the eventual update.
       console.warn("Stripe sync polling timeout — data may still be syncing in background");
-      await loadAll();
-      return { ...data, timed_out: true };
+      await refetch();
+      return { ...fnData, timed_out: true };
     } catch (e) {
       console.error("Stripe sync failed:", e);
       throw e;
     } finally {
       setSyncing(false);
     }
-  }, [loadAll, lastSyncAt]);
+  }, [refetch, lastSyncAt]);
 
   return {
     customers,
@@ -301,6 +231,6 @@ export function useCommissions() {
     saveConfig,
     resolveUnmatched,
     triggerStripeSync,
-    reload: loadAll,
+    reload: refetch,
   };
 }
