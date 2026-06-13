@@ -134,9 +134,9 @@ export default function App() {
     if (viewMode === 'leadership' && currentTier !== 'executive') {
       setViewMode('self')
     }
-    // Commissions is gated to managers (exec or team_lead). If a user gets
-    // demoted while on commissions, bounce them to self.
-    if (viewMode === 'commissions' && currentTier !== 'executive' && currentTier !== 'team_lead') {
+    // Commissions is gated to executives only. If a user gets demoted while
+    // on commissions, bounce them to self.
+    if (viewMode === 'commissions' && currentTier !== 'executive') {
       setViewMode('self')
     }
   }, [profile, viewMode])
@@ -161,8 +161,8 @@ export default function App() {
 
   const tier = accessTier(profile)
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
-  // Commissions visibility = same tier as manager view (executives + team leads).
-  const canSeeCommissions = canSeeManagerView
+  // Commissions visibility = executives only.
+  const canSeeCommissions = tier === 'executive'
 
   // Leadership team members who haven't been promoted to executive yet
   // see a "waiting for approval" screen instead of an irrelevant scorecard.
