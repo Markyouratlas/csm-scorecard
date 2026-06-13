@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  LayoutDashboard, Users, UserCircle2, LogOut, Award, Clock, Quote,
+  LayoutDashboard, Users, UserCircle2, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
-  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Plug, Zap, Check,
+  Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Check,
   ChevronLeft, ChevronRight, ChevronDown, Phone, Handshake
 } from 'lucide-react'
 import { supabase } from './supabase'
@@ -17,12 +17,15 @@ import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, D
 
 import ScorecardViewer from './ScorecardViewer'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
+import HeaderNav from './HeaderNav'
+import SettingsModal from './SettingsModal'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions }) {
+export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
+  const [showSettings, setShowSettings] = useState(false)
 
   // For team leads, lock the visible team to their own
   const visibleTeams = useMemo(() => {
@@ -146,45 +149,18 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
                 {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
               </button>
             )}
-            {onSwitchToLeadership && (
-              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
-                style={{ background: 'rgba(102, 57, 166, 0.08)', color: '#6639A6' }} title="Leadership Dashboard">
-                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
-              </button>
-            )}
-            {onSwitchToApiGuide && (
-              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup">
-                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
-              </button>
-            )}
-            {onSwitchToFeatureRequests && (
-              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
-                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
-              </button>
-            )}
-            {onSwitchToIntegrations && (
-              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
-                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
-              </button>
-            )}
-            {onSwitchToCancellations && (
-              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
-                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
-              </button>
-            )}
-            {onSwitchToCommissions && (
-              <button onClick={onSwitchToCommissions} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Commissions">
-                <DollarSign className="w-4 h-4" /> <span className="hidden lg:inline">Commissions</span>
-              </button>
-            )}
-            {!isLeadershipRole(profile.role_type) && (
-              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <UserCircle2 className="w-4 h-4" /> My scorecard
-              </button>
-            )}
-            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <LogOut className="w-4 h-4" /> Sign out
-            </button>
+            <HeaderNav
+              currentPage="manager"
+              onSwitchToLeadership={onSwitchToLeadership}
+              onSwitchToIntegrations={onSwitchToIntegrations}
+              onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+              onSwitchToCancellations={onSwitchToCancellations}
+              onSwitchToCommissions={onSwitchToCommissions}
+              onSwitchToApiGuide={onSwitchToApiGuide}
+              onSwitchToSelf={isLeadershipRole(profile.role_type) ? null : onSwitchToSelf}
+              onOpenSettings={() => setShowSettings(true)}
+              onSignOut={onSignOut}
+            />
           </div>
         </div>
       </header>
@@ -233,6 +209,14 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
         {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          profile={profile}
+          onClose={() => setShowSettings(false)}
+          onSaved={onProfileUpdated}
+        />
+      )}
     </div>
   )
 }
