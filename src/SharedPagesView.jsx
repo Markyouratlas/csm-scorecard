@@ -8,6 +8,7 @@ import {
 import confetti from 'canvas-confetti'
 import { supabase } from './supabase'
 import AtlasLogo from './AtlasLogo'
+import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
 import { CANCELLATION_CATEGORIES, cancellationCategoryLabel } from './constants'
@@ -103,64 +104,19 @@ export default function SharedPagesView({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <HeaderButton
-              active={page === 'feature_requests'}
-              onClick={onSwitchToFeatureRequests}
-              icon={Lightbulb}
-              label="Feature Requests"
-            />
-            <HeaderButton
-              active={page === 'integrations'}
-              onClick={onSwitchToIntegrations}
-              icon={Plug}
-              label="Integrations"
-            />
-            {canSeeCancellations && onSwitchToCancellations && (
-              <HeaderButton
-                active={page === 'cancellations'}
-                onClick={onSwitchToCancellations}
-                icon={UserMinus}
-                label="Cancellations"
-              />
-            )}
-            {onSwitchToCommissions && (
-              <HeaderButton
-                active={false}
-                onClick={onSwitchToCommissions}
-                icon={DollarSign}
-                label="Commissions"
-              />
-            )}
-            <div className="hidden md:block h-6 w-px bg-stone-200 mx-1" />
-            {canSeeLeadership && onSwitchToLeadership && (
-              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
-                style={{ background: 'rgba(102, 57, 166, 0.08)', color: '#6639A6' }} title="Leadership Dashboard">
-                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
-              </button>
-            )}
-            {onSwitchToApiGuide && (
-              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup">
-                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
-              </button>
-            )}
-            {onSwitchToSelf && (
-              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <UserCircle2 className="w-4 h-4" /> My scorecard
-              </button>
-            )}
-            {canSeeManagerView && onSwitchToManager && (
-              <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <LayoutDashboard className="w-4 h-4" /> Manager view
-              </button>
-            )}
-            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
-              <SettingsIcon className="w-4 h-4" />
-            </button>
-            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <LogOut className="w-4 h-4" /> Sign out
-            </button>
-          </div>
+          <HeaderNav
+            currentPage={page}
+            onSwitchToLeadership={canSeeLeadership ? onSwitchToLeadership : null}
+            onSwitchToIntegrations={onSwitchToIntegrations}
+            onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToCancellations={canSeeCancellations ? onSwitchToCancellations : null}
+            onSwitchToCommissions={onSwitchToCommissions}
+            onSwitchToApiGuide={onSwitchToApiGuide}
+            onSwitchToManager={canSeeManagerView ? onSwitchToManager : null}
+            onSwitchToSelf={onSwitchToSelf}
+            onOpenSettings={() => setShowSettings(true)}
+            onSignOut={onSignOut}
+          />
         </div>
       </header>
 
@@ -174,18 +130,6 @@ export default function SharedPagesView({
         <SettingsModal profile={profile} onClose={() => setShowSettings(false)} onSaved={onProfileUpdated} />
       )}
     </div>
-  )
-}
-
-function HeaderButton({ active, onClick, icon: Icon, label }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm ${active ? 'text-white' : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100/60'}`}
-      style={active ? { background: 'rgba(102, 57, 166, 0.85)' } : undefined}
-    >
-      <Icon className="w-4 h-4" /> <span className="hidden sm:inline">{label}</span>
-    </button>
   )
 }
 
