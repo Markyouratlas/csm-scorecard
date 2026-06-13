@@ -4,6 +4,7 @@ import { getRoleLabel } from './teams'
 import { formatWeekLabel, stepWeek } from './dateUtils'
 import SettingsModal from './SettingsModal'
 import AtlasLogo from './AtlasLogo'
+import HeaderNav from './HeaderNav'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 
 // Brand purple — used for the Leadership entry point so it stands out
@@ -40,7 +41,12 @@ export default function ScorecardShell({
   onSwitchToCancellations,
   onSwitchToApiGuide,
   onSwitchToLeadership,
+  onSwitchToCommissions,
+  onSwitchToSelf,
   onProfileUpdated,
+  currentPage,
+  title,
+  subtitle,
   children,
 }) {
   const [showSettings, setShowSettings] = useState(false)
@@ -53,61 +59,54 @@ export default function ScorecardShell({
     <div className="min-h-screen">
       <header ref={headerRef} className="glass-nav glass-nav-strip sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <AtlasLogo height={28} />
-            <div className="hidden md:block h-8 w-px bg-stone-300" />
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
-                {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+          {title ? (
+            // Page-title variant (SharedPagesView style) — used by non-scorecard
+            // pages mounted in the shell (e.g. Commissions).
+            <div className="flex items-center gap-4">
+              <AtlasLogo height={32} />
+              <div className="border-l border-stone-300 pl-4">
+                <div className="display-font text-lg font-medium text-stone-900 leading-tight">
+                  {title}
+                </div>
+                {subtitle && (
+                  <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
+                    {subtitle}
+                  </div>
+                )}
               </div>
-              <div>
-                <div className="display-font text-base font-medium text-stone-900 leading-tight">{profile.name}</div>
-                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
-                  {profile.title || getRoleLabel(profile.team, profile.role_type)}
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <AtlasLogo height={28} />
+              <div className="hidden md:block h-8 w-px bg-stone-300" />
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
+                  {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+                <div>
+                  <div className="display-font text-base font-medium text-stone-900 leading-tight">{profile.name}</div>
+                  <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">
+                    {profile.title || getRoleLabel(profile.team, profile.role_type)}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          )}
+          <HeaderNav
+            currentPage={currentPage}
+            onSwitchToLeadership={onSwitchToLeadership}
+            onSwitchToIntegrations={onSwitchToIntegrations}
+            onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToCancellations={onSwitchToCancellations}
+            onSwitchToCommissions={onSwitchToCommissions}
+            onSwitchToApiGuide={onSwitchToApiGuide}
+            onSwitchToManager={onSwitchToManager}
+            onSwitchToSelf={onSwitchToSelf}
+            onOpenSettings={() => setShowSettings(true)}
+            onSignOut={onSignOut}
+          >
             <SaveIndicator saving={saving} savedAt={savedAt} />
-            {onSwitchToLeadership && (
-              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
-                style={{ background: BRAND_SOFT, color: BRAND }} title="Leadership Dashboard">
-                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
-              </button>
-            )}
-            {onSwitchToApiGuide && (
-              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Setup Guide">
-                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
-              </button>
-            )}
-            {onSwitchToFeatureRequests && (
-              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
-                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
-              </button>
-            )}
-            {onSwitchToIntegrations && (
-              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
-                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
-              </button>
-            )}
-            {onSwitchToCancellations && (
-              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
-                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
-              </button>
-            )}
-            {onSwitchToManager && (
-              <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <LayoutDashboard className="w-4 h-4" /> Manager view
-              </button>
-            )}
-            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
-              <SettingsIcon className="w-4 h-4" />
-            </button>
-            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <LogOut className="w-4 h-4" /> Sign out
-            </button>
-          </div>
+          </HeaderNav>
         </div>
       </header>
 

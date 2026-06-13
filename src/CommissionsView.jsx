@@ -148,7 +148,7 @@ export default function CommissionsView({
 
   if (c.loading) {
     return (
-      <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav}>
+      <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav} currentPage="commissions" title="Commissions" subtitle="Executives only">
         <div className="max-w-7xl mx-auto px-6 py-12 text-center text-stone-500 text-sm">
           Loading commission data…
         </div>
@@ -157,7 +157,7 @@ export default function CommissionsView({
   }
   if (c.error) {
     return (
-      <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav}>
+      <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav} currentPage="commissions" title="Commissions" subtitle="Executives only">
         <div className="max-w-7xl mx-auto px-6 py-12">
           <div className="bg-red-50 border border-red-200 px-5 py-4 text-sm text-red-900">
             <strong>Failed to load commission data.</strong> {c.error}
@@ -185,11 +185,15 @@ export default function CommissionsView({
   ];
 
   return (
-    <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav}>
+    <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav} currentPage="commissions" title="Commissions" subtitle="Executives only">
       <div className="max-w-7xl mx-auto px-6 py-6">
         <div className="mb-6">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-medium">Atlas</div>
-          <h1 className="font-serif italic text-3xl text-stone-900 mt-0.5">Commission Tracker</h1>
+          <div className="mono-font text-xs uppercase tracking-[0.2em] text-stone-500 mb-3">
+            Executives · Commission Tracker
+          </div>
+          <h1 className="display-font text-5xl md:text-7xl font-medium leading-[1] tracking-tight text-stone-900">
+            What the team is <em className="display-font-i font-normal" style={{ color: '#6639a6' }}>earning</em>
+          </h1>
           <div className="text-xs text-stone-500 mt-1">
             {c.customers.length} customers · {c.monthCols.length} months
             {c.lastSyncAt && <> · last synced {new Date(c.lastSyncAt).toLocaleString()}</>}
