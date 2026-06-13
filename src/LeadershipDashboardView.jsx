@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  LogOut, LayoutDashboard, Settings as SettingsIcon, UserCircle2,
-  Lightbulb, Plug, Crown, Clock, Activity,
-  Zap, ChevronRight, AlertCircle, RefreshCw, UserMinus,
-  Info, Sparkles, Eye, DollarSign,
+  Crown, Clock, Activity,
+  Zap, ChevronRight, AlertCircle, RefreshCw,
+  Info, Sparkles, Eye,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
+import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
 import OdysseyView from './OdysseyView'
@@ -117,49 +117,19 @@ export default function LeadershipDashboardView({
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {onSwitchToApiGuide && (
-              <button onClick={onSwitchToApiGuide} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="API Integrations">
-                <Zap className="w-4 h-4" /> <span className="hidden lg:inline">API Setup</span>
-              </button>
-            )}
-            {onSwitchToFeatureRequests && (
-              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
-                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
-              </button>
-            )}
-            {onSwitchToIntegrations && (
-              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
-                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
-              </button>
-            )}
-            {onSwitchToCancellations && (
-              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
-                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
-              </button>
-            )}
-            {onSwitchToCommissions && (
-              <button onClick={onSwitchToCommissions} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Commissions">
-                <DollarSign className="w-4 h-4" /> <span className="hidden lg:inline">Commissions</span>
-              </button>
-            )}
-            {onSwitchToSelf && (
-              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <UserCircle2 className="w-4 h-4" /> My scorecard
-              </button>
-            )}
-            {canSeeManagerView && onSwitchToManager && (
-              <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <LayoutDashboard className="w-4 h-4" /> Manager view
-              </button>
-            )}
-            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
-              <SettingsIcon className="w-4 h-4" />
-            </button>
-            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <LogOut className="w-4 h-4" /> Sign out
-            </button>
-          </div>
+          <HeaderNav
+            currentPage="leadership"
+            onSwitchToLeadership={null}
+            onSwitchToIntegrations={onSwitchToIntegrations}
+            onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToCancellations={onSwitchToCancellations}
+            onSwitchToCommissions={onSwitchToCommissions}
+            onSwitchToApiGuide={onSwitchToApiGuide}
+            onSwitchToManager={canSeeManagerView ? onSwitchToManager : null}
+            onSwitchToSelf={onSwitchToSelf}
+            onOpenSettings={() => setShowSettings(true)}
+            onSignOut={onSignOut}
+          />
         </div>
       </header>
 
