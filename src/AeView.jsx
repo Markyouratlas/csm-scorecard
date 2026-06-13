@@ -20,7 +20,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
-  } = useScorecard(profile.id, propWeekKey, BLANK_AE_WEEK)
+  } = useScorecard(profile.id, propWeekKey, BLANK_AE_WEEK, ['deals'])
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
 

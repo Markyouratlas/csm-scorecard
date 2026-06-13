@@ -16,7 +16,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
-  } = useScorecard(profile.id, propWeekKey, BLANK_GROWTH_WEEK)
+  } = useScorecard(profile.id, propWeekKey, BLANK_GROWTH_WEEK, ['experiments'])
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
 

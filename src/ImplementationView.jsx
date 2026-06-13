@@ -61,7 +61,7 @@ export default function ImplementationView({ profile, onSignOut, onSwitchToManag
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
-  } = useScorecard(profile.id, propWeekKey, BLANK_IMPLEMENTATION_WEEK)
+  } = useScorecard(profile.id, propWeekKey, BLANK_IMPLEMENTATION_WEEK, ['projects'])
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('tickets')
 
