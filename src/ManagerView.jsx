@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Phone, Handshake
 } from 'lucide-react'
 import { supabase } from './supabase'
+import { useQuery } from '@tanstack/react-query'
 import {
   sum, BLANK_WEEK, PIPELINE_STAGES, MEETING_CATEGORIES, avgTtfv, customerTtfv,
   cancellationCategoryLabel
@@ -20,6 +21,21 @@ import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
+
+async function fetchManagerData(weekKey) {
+  const { data: profiles, error: pErr } = await supabase
+    .from('profiles').select('*').order('created_at', { ascending: true })
+  if (pErr) console.error(pErr)
+  const { data: scorecards, error: sErr } = await supabase
+    .from('weekly_scorecards').select('*').eq('week_key', weekKey)
+  if (sErr) console.error(sErr)
+  const scorecardData = {}; const submittedMap = {}
+  ;(scorecards || []).forEach(s => {
+    scorecardData[s.user_id] = s.data
+    submittedMap[s.user_id] = s.submitted_at || null
+  })
+  return { allProfiles: profiles || [], scorecardData, submittedMap }
+}
 
 export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const tier = accessTier(profile)
@@ -35,12 +51,6 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
 
   // Default tab: 'overview' for execs, the lead's team key for leads
   const [tab, setTab] = useState(() => isExec ? 'overview' : profile.team)
-  const [allProfiles, setAllProfiles] = useState([])
-  const [scorecardData, setScorecardData] = useState({})
-  // Map of user_id → submitted_at ISO string (or null). Used to render the
-  // "Submitted ✓" badge on team rows so leads/execs can see who's wrapped up.
-  const [submittedMap, setSubmittedMap] = useState({})
-  const [loading, setLoading] = useState(true)
   // When set, we're viewing one specific member's scorecard (not the dashboard).
   // Persisted to sessionStorage so executives drilling into a specific member's
   // scorecard don't lose their place when switching browser tabs.
@@ -63,35 +73,32 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
   const currentWeekKey = getWeekKey()
   const isViewingCurrentWeek = weekKey === currentWeekKey
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    const { data: profiles, error: pErr } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
-    if (pErr) console.error(pErr)
-    const { data: scorecards, error: sErr } = await supabase.from('weekly_scorecards').select('*').eq('week_key', weekKey)
-    if (sErr) console.error(sErr)
-    const map = {}; const subMap = {}
-    ;(scorecards || []).forEach(s => {
-      map[s.user_id] = s.data
-      subMap[s.user_id] = s.submitted_at || null
-    })
-    setAllProfiles(profiles || [])
-    setScorecardData(map)
-    setSubmittedMap(subMap)
-    // Rehydrate viewingMember from sessionStorage if we're not already viewing
-    // someone. This makes executives "stick" on a specific member's scorecard
-    // across tab switches.
+  // Manager dashboard data (all profiles + this week's scorecards), cached at
+  // the app-root QueryClient and keyed by weekKey so switching weeks and
+  // returning renders from cache and refreshes in the background.
+  const { data: managerData, isPending, refetch } = useQuery({
+    queryKey: ['manager', weekKey],
+    queryFn: () => fetchManagerData(weekKey),
+  })
+
+  const allProfiles = managerData?.allProfiles ?? []
+  const scorecardData = managerData?.scorecardData ?? {}
+  // user_id → submitted_at; drives the "Submitted" badge.
+  const submittedMap = managerData?.submittedMap ?? {}
+  const loading = isPending
+  const reload = refetch
+
+  // Rehydrate viewingMember from sessionStorage once profiles are loaded, so an
+  // exec drilling into a member "sticks" across tab switches. The `prev ||`
+  // guard ensures it never overrides a current selection.
+  useEffect(() => {
     try {
       const savedId = sessionStorage.getItem('atlas:viewingMemberId')
-      if (savedId && (profiles || []).length) {
-        // Use a functional setter to avoid stomping if user clicked into someone
-        // during the load window.
-        setViewingMemberRaw(prev => prev || (profiles.find(p => p.id === savedId) || null))
+      if (savedId && allProfiles.length) {
+        setViewingMemberRaw(prev => prev || (allProfiles.find(p => p.id === savedId) || null))
       }
     } catch {}
-    setLoading(false)
-  }, [weekKey])
-
-  useEffect(() => { loadAll() }, [loadAll])
+  }, [allProfiles])
 
   // Filter profiles for team leads — they only see their team
   // Also filter out archived users unless showArchived is enabled
@@ -119,7 +126,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
         onSignOut={onSignOut}
         onBack={() => {
           setViewingMember(null)
-          loadAll()  // refresh data when returning, in case edits were made
+          reload()  // refresh data when returning, in case edits were made
         }}
       />
     )
@@ -207,7 +214,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
           <ComingSoonRange range={timeRange} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
-        {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={loadAll} isExec={isExec} />}
+        {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={reload} isExec={isExec} />}
       </div>
 
       {showSettings && (
