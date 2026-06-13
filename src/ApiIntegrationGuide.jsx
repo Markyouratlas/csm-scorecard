@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react'
 import {
-  LogOut, LayoutDashboard, Settings as SettingsIcon, UserCircle2,
-  Lightbulb, Plug, Crown, ChevronRight, ChevronDown, Search, Check, Clock,
+  ChevronRight, ChevronDown, Search, Check, Clock,
   AlertCircle, Megaphone, Briefcase, HeartHandshake, Code, Headphones,
   TrendingUp, Activity, FileSpreadsheet, Sparkles, Calendar, Target,
   CreditCard, BarChart3, Globe, Database, Mail, Phone, GitPullRequest,
-  Zap, ShieldCheck, Lock, Server, ExternalLink, Copy, UserMinus, DollarSign
+  Zap, ShieldCheck, Lock, Server, ExternalLink, Copy, DollarSign
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
+import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
@@ -318,50 +318,19 @@ export default function ApiIntegrationGuide({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {canSeeLeadership && onSwitchToLeadership && (
-              <button onClick={onSwitchToLeadership} className="hidden md:flex items-center gap-2 text-sm transition-colors px-3 py-2 rounded-sm hover:opacity-80"
-                style={{ background: BRAND_SOFT, color: BRAND }} title="Leadership Dashboard">
-                <Crown className="w-4 h-4" /> <span className="hidden lg:inline">Leadership</span>
-              </button>
-            )}
-            {onSwitchToFeatureRequests && (
-              <button onClick={onSwitchToFeatureRequests} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Feature Requests">
-                <Lightbulb className="w-4 h-4" /> <span className="hidden lg:inline">Feature Requests</span>
-              </button>
-            )}
-            {onSwitchToIntegrations && (
-              <button onClick={onSwitchToIntegrations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Integrations">
-                <Plug className="w-4 h-4" /> <span className="hidden lg:inline">Integrations</span>
-              </button>
-            )}
-            {onSwitchToCancellations && (
-              <button onClick={onSwitchToCancellations} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Cancellations">
-                <UserMinus className="w-4 h-4" /> <span className="hidden lg:inline">Cancellations</span>
-              </button>
-            )}
-            {onSwitchToCommissions && (
-              <button onClick={onSwitchToCommissions} className="hidden md:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Commissions">
-                <DollarSign className="w-4 h-4" /> <span className="hidden lg:inline">Commissions</span>
-              </button>
-            )}
-            {onSwitchToSelf && (
-              <button onClick={onSwitchToSelf} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <UserCircle2 className="w-4 h-4" /> My scorecard
-              </button>
-            )}
-            {canSeeManagerView && onSwitchToManager && (
-              <button onClick={onSwitchToManager} className="hidden sm:flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-                <LayoutDashboard className="w-4 h-4" /> Manager view
-              </button>
-            )}
-            <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm" title="Settings">
-              <SettingsIcon className="w-4 h-4" />
-            </button>
-            <button onClick={onSignOut} className="flex items-center gap-2 text-sm text-stone-600 hover:text-stone-900 transition-colors px-3 py-2 hover:bg-stone-100 rounded-sm">
-              <LogOut className="w-4 h-4" /> Sign out
-            </button>
-          </div>
+          <HeaderNav
+            currentPage="api_guide"
+            onSwitchToLeadership={canSeeLeadership ? onSwitchToLeadership : null}
+            onSwitchToIntegrations={onSwitchToIntegrations}
+            onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToCancellations={onSwitchToCancellations}
+            onSwitchToCommissions={onSwitchToCommissions}
+            onSwitchToApiGuide={null}
+            onSwitchToManager={canSeeManagerView ? onSwitchToManager : null}
+            onSwitchToSelf={onSwitchToSelf}
+            onOpenSettings={() => setShowSettings(true)}
+            onSignOut={onSignOut}
+          />
         </div>
       </header>
 
