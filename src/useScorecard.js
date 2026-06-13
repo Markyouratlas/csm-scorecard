@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
 import { getWeekKey, stepWeek } from './dateUtils'
 import { fireConfetti } from './confetti'
+import { useScorecardEditable } from './ScorecardEditContext'
 
 // Generic hook used by every role's scorecard view.
 //
@@ -29,6 +30,7 @@ import { fireConfetti } from './confetti'
 // with a CONCRETE weekKey string still work — when the second arg is a non-empty
 // string the hook treats it as the exec-drill-in path.
 export function useScorecard(userId, propWeekKey, blankFactory, carryForward = []) {
+  const editable = useScorecardEditable()
   const isExecDrillIn = typeof propWeekKey === 'string' && propWeekKey.length > 0
   const [ownWeekKey, setOwnWeekKey] = useState(getWeekKey())
   const weekKey = isExecDrillIn ? propWeekKey : ownWeekKey
@@ -129,11 +131,12 @@ export function useScorecard(userId, propWeekKey, blankFactory, carryForward = [
   }, [userId, weekKey])
 
   useEffect(() => {
+    if (!editable) return
     if (!weekData || loading) return
     if (isLocked) return
     const t = setTimeout(() => save(weekData), 800)
     return () => clearTimeout(t)
-  }, [weekData, loading, save, isLocked])
+  }, [weekData, loading, save, isLocked, editable])
 
   // Submit / Unsubmit
   const submit = useCallback(async () => {

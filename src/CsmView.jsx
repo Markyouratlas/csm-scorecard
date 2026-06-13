@@ -21,6 +21,7 @@ import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 import CommissionsTab from './CommissionsTab'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
+import { useScorecardEditable } from './ScorecardEditContext'
 
 export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')
@@ -32,6 +33,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   const [savedAt, setSavedAt] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
   const headerRef = useGlassInteraction()
+  const editable = useScorecardEditable()
 
   // If propWeekKey is supplied (exec drilling in via ScorecardViewer), the
   // parent owns week navigation and we mirror it. Otherwise the user is on
@@ -133,11 +135,12 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   }, [profile.id, weekKey])
 
   useEffect(() => {
+    if (!editable) return
     if (!weekData || loading) return
     if (isLocked) return // Locked weeks don't auto-save
     const t = setTimeout(() => save(weekData), 800)
     return () => clearTimeout(t)
-  }, [weekData, loading, save, isLocked])
+  }, [weekData, loading, save, isLocked, editable])
 
   // ----- Submit / Unsubmit -----
   // Submit: writes submitted_at = now() on this week's row. Unsubmit: clears
