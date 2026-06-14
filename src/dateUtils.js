@@ -1,25 +1,44 @@
-// Returns the start-of-week date string (Monday) for a given date.
-// Used as the unique key for weekly scorecard entries.
+const COMPANY_TZ = 'America/Toronto'
+const WEEKDAY_TO_ISO = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }
+
+// year/month/day + weekday of `date` AS OBSERVED IN COMPANY_TZ (DST-safe via Intl).
+function companyTzParts(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: COMPANY_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  }).formatToParts(date)
+  const get = (t) => parts.find((p) => p.type === t)?.value
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    weekday: get('weekday'),
+  }
+}
+
+// Start-of-week (Monday) date string for a given date, computed in COMPANY_TZ.
 export function getWeekKey(date = new Date()) {
-  const d = new Date(date)
-  const day = d.getDay() // 0 = Sun, 1 = Mon ...
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // adjust to Monday 
-  const monday = new Date(d.setDate(diff))
-  monday.setHours(0, 0, 0, 0)
-  return monday.toISOString().slice(0, 10) // YYYY-MM-DD
+  const { year, month, day, weekday } = companyTzParts(date)
+  const back = (WEEKDAY_TO_ISO[weekday] || 1) - 1 // days since Monday
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  dt.setUTCDate(dt.getUTCDate() - back)
+  return dt.toISOString().slice(0, 10) // YYYY-MM-DD (Monday)
 }
 
 export function formatWeekLabel(weekKey) {
-  const d = new Date(weekKey + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const [y, m, d] = weekKey.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return dt.toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
 }
 
-// Returns weekKey for the week N weeks before/after the given week.
-// stepWeek('2026-04-27', -1) → '2026-04-20'
+// weekKey N weeks before/after — pure UTC calendar math, never drifts.
 export function stepWeek(weekKey, n) {
-  const d = new Date(weekKey + 'T00:00:00')
-  d.setDate(d.getDate() + n * 7)
-  return d.toISOString().slice(0, 10)
+  const [y, m, d] = weekKey.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + n * 7)
+  return dt.toISOString().slice(0, 10)
 }
 
 // Generate the last N week keys, ending at the current week (inclusive).

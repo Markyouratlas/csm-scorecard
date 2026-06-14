@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
+import { getWeekKey, stepWeek } from './dateUtils'
 
 // Returns the current month key in YYYY-MM format.
 export function getMonthKey(date = new Date()) {
@@ -19,22 +20,19 @@ export function formatMonthLabel(monthKey) {
 // We include any week whose Monday is in this month.
 export function weekKeysInMonth(monthKey) {
   const [y, m] = monthKey.split('-').map(Number)
-  const firstOfMonth = new Date(y, m - 1, 1)
-  const lastOfMonth  = new Date(y, m, 0)
-  // Find first Monday on/after first of month
-  const start = new Date(firstOfMonth)
-  while (start.getDay() !== 1) start.setDate(start.getDate() + 1)
+  // Last calendar day of the month as a YYYY-MM-DD string. ISO date strings
+  // compare lexicographically, so the loop bound needs no Date/timezone math.
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  const lastDayStr = `${monthKey}-${String(lastDay).padStart(2, '0')}`
+  // Canonical Monday key for the week containing the 1st (noon-UTC anchor keeps
+  // the company-tz calendar date on the intended day). Reuses getWeekKey so this
+  // is guaranteed consistent with how week_keys are actually stored.
+  let cursor = getWeekKey(new Date(Date.UTC(y, m - 1, 1, 12)))
   const keys = []
-  const cursor = new Date(start)
-  while (cursor <= lastOfMonth) {
-    keys.push(toIso(cursor))
-    cursor.setDate(cursor.getDate() + 7)
+  while (cursor <= lastDayStr) {
+    keys.push(cursor)
+    cursor = stepWeek(cursor, 1)
   }
-  // Edge case: if the month starts mid-week, also include the Monday before the 1st
-  // (because users might enter their week-of data under that earlier Monday key)
-  const prevMon = new Date(firstOfMonth)
-  while (prevMon.getDay() !== 1) prevMon.setDate(prevMon.getDate() - 1)
-  if (toIso(prevMon) !== keys[0]) keys.unshift(toIso(prevMon))
   return keys
 }
 
