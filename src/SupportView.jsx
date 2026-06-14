@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, Headphones, AlertTriangle, Smile, Award, Clock, Star, Plus, Trash2, FileText, Calendar } from 'lucide-react'
+import { Loader2, Headphones, AlertTriangle, Smile, Award, Clock, Star, Plus, Trash2, FileText, Calendar, Activity, Ticket } from 'lucide-react'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -35,14 +35,16 @@ export default function SupportView({ profile, onSignOut, onSwitchToManager, onS
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
 
   const workDays = workDayIdxs.map(i => weekData.daily[i])
-  const totalClosed = workDays.reduce((s, d) => s + (Number(d.ticketsClosed) || 0), 0)
-  const avgResponse = avgDays(workDays, 'firstResponseHours', 'ticketsReceived')
+  const totalClosed = sumDays(weekData.daily, 'completed')
+  const totalNew = sumDays(weekData.daily, 'newTickets')
+  const totalResolved = sumDays(weekData.daily, 'resolvedNoNotification') + totalClosed
+  const resolutionRate = totalNew > 0 ? Math.round((totalResolved / totalNew) * 100) : null
 
   const csatScores = workDayIdxs.map(i => weekData.csat.daily[i]).filter(v => v !== null && v !== undefined && v !== '' && !isNaN(Number(v)))
   const avgCsat = csatScores.length ? csatScores.reduce((s, v) => s + Number(v), 0) / csatScores.length : null
 
   const sections = [
-    { id: 'tickets',     label: 'Daily Tickets',  icon: Headphones },
+    { id: 'tickets',     label: 'Daily Tickets',  icon: Ticket },
     { id: 'escalations', label: 'Escalations',    icon: AlertTriangle },
     { id: 'csat',        label: 'CSAT Tracking',  icon: Smile },
     { id: 'monthly',     label: 'Monthly View',   icon: Calendar },
@@ -66,12 +68,12 @@ export default function SupportView({ profile, onSignOut, onSwitchToManager, onS
       <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
         <NorthStarTile label="Tickets Closed" value={totalClosed} sublabel="North star metric" color="#0F766E" icon={Award} />
         <NorthStarTile
-          label="Avg Response Time"
-          value={avgResponse !== null ? avgResponse.toFixed(1) : '—'}
-          unit={avgResponse !== null ? 'hrs' : ''}
-          sublabel={avgResponse !== null ? (avgResponse <= 4 ? '✓ Fast (≤4h target)' : '↑ Above 4h target') : 'Awaiting data'}
+          label="Resolution Rate"
+          value={resolutionRate !== null ? resolutionRate : '—'}
+          unit={resolutionRate !== null ? '%' : ''}
+          sublabel={resolutionRate !== null ? `${totalResolved} resolved / ${totalNew} new` : 'Awaiting data'}
           color="#1C1917"
-          icon={Clock}
+          icon={Activity}
         />
         <NorthStarTile
           label="Avg CSAT"
@@ -108,10 +110,14 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
   }
 
   const fields = [
-    { key: 'ticketsReceived',     label: 'Received' },
-    { key: 'ticketsClosed',       label: 'Closed' },
-    { key: 'firstResponseHours',  label: 'Avg Response (hrs)', isFloat: true },
-    { key: 'backlogEod',          label: 'Backlog (EOD)' },
+    { key: 'sodTickets',             label: 'SOD Tickets',         snapshot: true },
+    { key: 'newTickets',             label: 'New Tickets' },
+    { key: 'eodTickets',             label: 'EOD Tickets',         snapshot: true },
+    { key: 'pending',                label: 'Pending',             snapshot: true },
+    { key: 'waitingCustomer',        label: 'Waiting on Customer', snapshot: true },
+    { key: 'resolvedNoNotification', label: 'Resolved (no notif)' },
+    { key: 'cancellations',          label: 'Cancellations' },
+    { key: 'completed',              label: 'Completed' },
   ]
 
   return (
@@ -151,12 +157,11 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
           <tr className="bg-stone-900 text-stone-50">
             <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Weekly Total</td>
             {fields.map(f => {
-              if (f.key === 'firstResponseHours') {
-                const avg = avgDays(workDayIdxs.map(i => weekData.daily[i]), f.key, 'ticketsReceived')
-                return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{avg !== null ? avg.toFixed(1) : '—'}</td>
-              }
-              const total = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di][f.key]) || 0), 0)
-              return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{total}</td>
+              const last = workDayIdxs[workDayIdxs.length - 1]
+              const val = f.snapshot
+                ? (Number(weekData.daily[last]?.[f.key]) || 0)
+                : workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di][f.key]) || 0), 0)
+              return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{val}</td>
             })}
           </tr>
         </tbody>
@@ -309,29 +314,24 @@ function SupportMonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
   if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
 
-  let totalClosed = 0, totalReceived = 0
-  let respSum = 0, daysWithResp = 0
+  let totalClosed = 0, totalNew = 0, totalResolved = 0
   let csatSum = 0, daysWithCsat = 0
   let totalEscalations = 0
   for (const w of weeks) {
     const data = w.data || {}
     for (const d of (data.daily || [])) {
-      totalClosed += Number(d.ticketsClosed) || 0
-      totalReceived += Number(d.ticketsReceived) || 0
-      const r = Number(d.firstResponseHours) || 0
-      const recv = Number(d.ticketsReceived) || 0
-      if (recv > 0 && r > 0) { respSum += r; daysWithResp += 1 }
+      totalClosed += Number(d.completed) || 0
+      totalNew += Number(d.newTickets) || 0
+      totalResolved += Number(d.resolvedNoNotification) || 0
     }
     for (const v of (data.csat?.daily || [])) {
-      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v)) && Number(v) > 0) {
-        csatSum += Number(v); daysWithCsat += 1
-      }
+      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) { csatSum += Number(v); daysWithCsat += 1 }
     }
     totalEscalations += (data.escalations || []).length
   }
-  const avgResp = daysWithResp > 0 ? respSum / daysWithResp : null
+  totalResolved += totalClosed
+  const resolutionRate = totalNew > 0 ? Math.round((totalResolved / totalNew) * 100) : null
   const avgCsat = daysWithCsat > 0 ? csatSum / daysWithCsat : null
-  const taskCompletion = totalReceived > 0 ? (totalClosed / totalReceived) * 100 : null
 
   return (
     <div className="bg-white border border-stone-200 p-6">
@@ -339,12 +339,11 @@ function SupportMonthlyView({ profile, monthKey, targets }) {
       <div className="text-sm text-stone-600 mb-4">{formatMonthLabel(monthKey)} · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} of data</div>
       <MtdLegend />
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <MtdCard label="Tickets Closed"        value={totalClosed}     target={targets.tickets_closed} />
-        <MtdCard label="Avg Response Time"     value={avgResp}         target={targets.avg_response_hours} help="Hours, lower is better" />
-        <MtdCard label="Avg CSAT"              value={avgCsat}         target={targets.csat_score} help="1–5 score" />
-        <MtdCard label="Task Completion Rate"  value={taskCompletion}  target={targets.task_completion_pct} unit="pct" help="Closed / Received" />
-        <MtdCard label="Escalations"           value={totalEscalations} target={null} help="Lower is better" />
-        <MtdCard label="Tickets Received"      value={totalReceived}   target={null} />
+        <MtdCard label="Tickets Closed"  value={totalClosed}      target={targets.tickets_closed} />
+        <MtdCard label="Resolution Rate" value={resolutionRate}   target={targets.resolution_rate_pct} unit="pct" help="(Resolved + Completed) / New" />
+        <MtdCard label="Avg CSAT"        value={avgCsat}          target={targets.csat_score} help="1–5 score" />
+        <MtdCard label="New Tickets"     value={totalNew}         target={null} />
+        <MtdCard label="Escalations"     value={totalEscalations} target={null} help="Lower is better" />
       </div>
     </div>
   )

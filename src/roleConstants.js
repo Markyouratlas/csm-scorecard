@@ -36,10 +36,14 @@ export const BLANK_SUPPORT_WEEK = () => ({
   notes: '',
 })
 const blankSupportDay = () => ({
-  ticketsReceived: 0,
-  ticketsClosed: 0,
-  firstResponseHours: 0,    // average hours
-  backlogEod: 0,
+  sodTickets: 0,
+  newTickets: 0,
+  eodTickets: 0,
+  pending: 0,
+  waitingCustomer: 0,
+  resolvedNoNotification: 0,
+  cancellations: 0,
+  completed: 0,
 })
 
 // ----- Account Executive -----
