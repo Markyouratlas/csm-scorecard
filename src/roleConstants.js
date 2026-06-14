@@ -1,8 +1,9 @@
 // Blank scorecard shapes per role. Each role's view file imports its own.
 
 // ----- Implementation Specialist -----
-// Mon-Fri: SOD tickets, new tickets, EOD tickets, pending, waiting on customer,
-// resolved (no notification), cancellations, completed
+// Mon-Fri daily tracker: new onboardings, follow-up requests, completed,
+// ongoing clients, backlog, and partner (StitchOps) new/active/completed.
+// partner* keys are partner-neutral so the displayed name can change w/o migration.
 export const BLANK_IMPLEMENTATION_WEEK = () => ({
   daily: [
     blankImplDay(), blankImplDay(), blankImplDay(),
@@ -12,14 +13,14 @@ export const BLANK_IMPLEMENTATION_WEEK = () => ({
   notes: '',
 })
 const blankImplDay = () => ({
-  sodTickets: 0,
-  newTickets: 0,
-  eodTickets: 0,
-  pending: 0,
-  waitingCustomer: 0,
-  resolvedNoNotification: 0,
-  cancellations: 0,
+  newOnboardings: 0,
+  followUpRequests: 0,
   completed: 0,
+  ongoingClients: 0,
+  backlog: 0,
+  partnerNew: 0,
+  partnerActive: 0,
+  partnerCompleted: 0,
 })
 
 // ----- Customer Support Associate -----

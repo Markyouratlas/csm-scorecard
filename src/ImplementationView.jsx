@@ -71,15 +71,16 @@ export default function ImplementationView({ profile, onSignOut, onSwitchToManag
 
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
 
-  const totalCompleted = sumDays(weekData.daily, 'completed')
-  const totalNew = sumDays(weekData.daily, 'newTickets')
-  const totalResolved = sumDays(weekData.daily, 'resolvedNoNotification') + totalCompleted
-  const resolutionRate = totalNew > 0 ? Math.round((totalResolved / totalNew) * 100) : null
   const lastWorkDay = workDayIdxs[workDayIdxs.length - 1]
-  const eodPending = weekData.daily[lastWorkDay]?.pending || 0
+  const totalOnboardings = sumDays(weekData.daily, 'newOnboardings')
+  const totalCompleted = sumDays(weekData.daily, 'completed')
+  const eodBacklog = weekData.daily[lastWorkDay]?.backlog || 0
+  const partnerActive = weekData.daily[lastWorkDay]?.partnerActive || 0
+  const partnerNewWk = sumDays(weekData.daily, 'partnerNew')
+  const partnerCompletedWk = sumDays(weekData.daily, 'partnerCompleted')
 
   const sections = [
-    { id: 'tickets',  label: 'Daily Tickets', icon: Ticket },
+    { id: 'tickets',  label: 'Daily Tracker', icon: Ticket },
     { id: 'projects', label: 'Projects',      icon: FolderKanban },
     { id: 'monthly',  label: 'Monthly View',  icon: Calendar },
     { id: 'notes',    label: 'Notes',         icon: FileText },
@@ -100,22 +101,16 @@ export default function ImplementationView({ profile, onSignOut, onSwitchToManag
       />
 
       {/* North star tiles */}
-      <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
-        <NorthStarTile label="Tickets Completed" value={totalCompleted} sublabel="North star metric" color="#0F766E" icon={Award} />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
+        <NorthStarTile label="New Onboardings" value={totalOnboardings} sublabel="Brand-new customers this week" color="#0F766E" icon={Zap} />
+        <NorthStarTile label="Completed" value={totalCompleted} sublabel="Implementations finished" color="#1C1917" icon={Award} />
+        <NorthStarTile label="Backlog" value={eodBacklog} sublabel="Still owed at end of week" color="#A16207" icon={Layers} />
         <NorthStarTile
-          label="Resolution Rate"
-          value={resolutionRate !== null ? resolutionRate : '—'}
-          unit={resolutionRate !== null ? '%' : ''}
-          sublabel={resolutionRate !== null ? `${totalResolved} resolved / ${totalNew} new` : 'Awaiting data'}
-          color="#1C1917"
+          label="StitchOps Active"
+          value={partnerActive}
+          sublabel={`${partnerNewWk} new · ${partnerCompletedWk} completed this week`}
+          color="#6639A6"
           icon={Activity}
-        />
-        <NorthStarTile
-          label="Pending Backlog (EOD)"
-          value={eodPending}
-          sublabel="Tickets still owed at end of week"
-          color="#A16207"
-          icon={Layers}
         />
       </div>
 
@@ -149,21 +144,21 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
   }
 
   const fields = [
-    { key: 'sodTickets',             label: 'SOD Tickets' },
-    { key: 'newTickets',             label: 'New Tickets' },
-    { key: 'eodTickets',             label: 'EOD Tickets' },
-    { key: 'pending',                label: 'Pending' },
-    { key: 'waitingCustomer',        label: 'Waiting on Customer' },
-    { key: 'resolvedNoNotification', label: 'Resolved (no notif)' },
-    { key: 'cancellations',          label: 'Cancellations' },
-    { key: 'completed',              label: 'Completed' },
+    { key: 'newOnboardings',   label: 'New Onboardings' },
+    { key: 'followUpRequests', label: 'Follow-up Requests' },
+    { key: 'completed',        label: 'Completed' },
+    { key: 'ongoingClients',   label: 'Ongoing Clients',     snapshot: true },
+    { key: 'backlog',          label: 'Backlog',             snapshot: true },
+    { key: 'partnerNew',       label: 'StitchOps New' },
+    { key: 'partnerActive',    label: 'StitchOps Active',    snapshot: true },
+    { key: 'partnerCompleted', label: 'StitchOps Completed' },
   ]
 
   return (
     <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
-      <div className="display-font text-2xl font-medium text-stone-900 mb-1">Daily ticket flow</div>
-      <p className="text-sm text-stone-600 mb-6">Log your ticket counts each day. Weekly totals at the bottom update automatically.</p>
-      <table className="w-full text-sm min-w-[760px]">
+      <div className="display-font text-2xl font-medium text-stone-900 mb-1">Daily tracker</div>
+      <p className="text-sm text-stone-600 mb-6">Log your daily activity. Weekly totals at the bottom update automatically.</p>
+      <table className="w-full text-sm min-w-[860px]">
         <thead>
           <tr className="border-b border-stone-200">
             <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
@@ -196,8 +191,11 @@ function TicketsSection({ weekData, update, workDayIdxs, weekKey }) {
           <tr className="bg-stone-900 text-stone-50">
             <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Weekly Total</td>
             {fields.map(f => {
-              const total = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di][f.key]) || 0), 0)
-              return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{total}</td>
+              const last = workDayIdxs[workDayIdxs.length - 1]
+              const val = f.snapshot
+                ? (Number(weekData.daily[last]?.[f.key]) || 0)
+                : workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di][f.key]) || 0), 0)
+              return <td key={f.key} className="py-3 px-2 text-center num-tabular font-bold">{val}</td>
             })}
           </tr>
         </tbody>
@@ -710,10 +708,14 @@ function ImplMonthlyView({ profile, monthKey, targets }) {
   if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
 
   // MTD ticket aggregates
-  let totalCompleted = 0, totalNew = 0
+  let totalCompleted = 0, totalOnboardings = 0, totalFollowUp = 0
+  let partnerNew = 0, partnerCompleted = 0
   for (const w of weeks) for (const d of (w.data?.daily || [])) {
     totalCompleted += Number(d.completed) || 0
-    totalNew += Number(d.newTickets) || 0
+    totalOnboardings += Number(d.newOnboardings) || 0
+    totalFollowUp += Number(d.followUpRequests) || 0
+    partnerNew += Number(d.partnerNew) || 0
+    partnerCompleted += Number(d.partnerCompleted) || 0
   }
 
   // Latest projects snapshot (carried forward in scorecards)
@@ -744,12 +746,15 @@ function ImplMonthlyView({ profile, monthKey, targets }) {
       <div className="text-sm text-stone-600 mb-4">{formatMonthLabel(monthKey)} · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} of data</div>
       <MtdLegend />
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <MtdCard label="Tickets Completed"           value={totalCompleted}      target={targets.tickets_completed} />
+        <MtdCard label="Completed"                   value={totalCompleted}      target={targets.tickets_completed} />
         <MtdCard label="2-Day SLA Hit Rate"          value={newSlaRate}          target={targets.two_day_sla_pct} unit="pct" help={`${tracked.length} project${tracked.length === 1 ? '' : 's'} with info-received → activated tracked`} />
         <MtdCard label="Channel Partners"            value={channelPartnerProjects.length} target={null} help="Active channel partner implementations" />
         <MtdCard label="On-Time Activation (Std)"    value={standardOnTimeRate}  target={targets.standard_activation_pct} unit="pct" help={`${standardActivated.length} customer${standardActivated.length === 1 ? '' : 's'}, legacy 14-day SLA`} />
         <MtdCard label="On-Time Activation (Ent)"    value={enterpriseOnTimeRate} target={targets.enterprise_activation_pct} unit="pct" help={`${enterpriseActivated.length} customer${enterpriseActivated.length === 1 ? '' : 's'}, legacy 30-day SLA`} />
-        <MtdCard label="New Tickets" value={totalNew} target={null} />
+        <MtdCard label="New Onboardings" value={totalOnboardings} target={null} help="Brand-new customers" />
+        <MtdCard label="Follow-up Requests" value={totalFollowUp} target={null} help="Existing customers circling back" />
+        <MtdCard label="StitchOps New" value={partnerNew} target={null} />
+        <MtdCard label="StitchOps Completed" value={partnerCompleted} target={null} />
         <MtdCard label="Active Implementations" value={(latestProjects || []).filter(p => p.status === 'in_progress').length} target={null} />
         <MtdCard label="Stuck" value={(latestProjects || []).filter(p => p.status === 'stuck').length} target={null} help="Lower is better" />
       </div>
