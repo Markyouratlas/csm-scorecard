@@ -48,9 +48,10 @@ function formatValue(name, value) {
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })
 }
 
-function MetricCard({ metric }) {
+function MetricCard({ metric, currentMonth }) {
   const { name, latest } = metric
   const value = latest?.value ?? null
+  const inProgress = metric.latest?.monthKey === currentMonth
   return (
     <div className="dashboard-card">
       <div className="mono-font" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em', color: '#78716c' }}>
@@ -60,7 +61,7 @@ function MetricCard({ metric }) {
         {formatValue(name, value)}
       </div>
       <div className="mono-font" style={{ fontSize: 10, color: '#a8a29e', marginTop: 4 }}>
-        {monthTag(latest?.monthKey)}
+        {monthTag(latest?.monthKey)}{inProgress && <span style={{ color: '#B45309', marginLeft: 4 }}>· MTD</span>}
       </div>
     </div>
   )
@@ -68,6 +69,10 @@ function MetricCard({ metric }) {
 
 export default function ProfitwellAllMetrics() {
   const { loading, error, metrics } = useProfitwellMetrics()
+
+  // "Now" — local getters are safe here (not a stored date-only string).
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
   return (
     <section style={{ marginTop: 8 }}>
@@ -79,7 +84,7 @@ export default function ProfitwellAllMetrics() {
           Everything ProfitWell tracks
         </div>
         <div style={{ fontSize: 13, color: '#78716c', marginTop: 4 }}>
-          The full raw feed, synced from ProfitWell. Latest complete month shown.
+          The full raw feed from ProfitWell. The current month is month-to-date and still updating.
         </div>
       </div>
 
@@ -109,7 +114,7 @@ export default function ProfitwellAllMetrics() {
       {!loading && !error && metrics.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           {metrics.map(metric => (
-            <MetricCard key={metric.name} metric={metric} />
+            <MetricCard key={metric.name} metric={metric} currentMonth={currentMonth} />
           ))}
         </div>
       )}
