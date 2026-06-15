@@ -41,10 +41,16 @@ export function useProfitwellMetrics() {
   const load = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }))
     try {
+      // Only the most recent months are needed for this "latest value" panel
+      // (with room for a short trend later). Newest-first + a bounded limit means
+      // we never drag full history across the wire and never hit Supabase's
+      // default 1000-row cap as months accumulate. 500 rows >> the metric count,
+      // so every metric's latest month is always included.
       const { data, error } = await supabase
         .from('profitwell_metrics')
         .select('*')
-        .order('month_key', { ascending: true })
+        .order('month_key', { ascending: false })
+        .limit(500)
 
       if (error) throw error
 
@@ -63,8 +69,8 @@ export function useProfitwellMetrics() {
       const metrics = Object.keys(byName)
         .sort((a, b) => a.localeCompare(b))
         .map(name => {
-          // Rows arrive month_key asc, so history is already oldest → newest.
           const history = byName[name]
+          history.sort((a, b) => a.monthKey.localeCompare(b.monthKey))
           const latest = history.reduce(
             (best, e) => (best == null || e.monthKey > best.monthKey ? e : best),
             null,
