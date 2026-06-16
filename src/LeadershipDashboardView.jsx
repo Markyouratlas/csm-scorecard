@@ -14,6 +14,7 @@ import ProfitwellAllMetrics from './ProfitwellAllMetrics'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
+import { useMetaAds } from './hooks/useMetaAds.js'
 
 // Atlas brand
 const BRAND = '#6639A6'
@@ -214,6 +215,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
   // Until Stripe is wired, we show the new-MRR-closed-this-month from AE
   // deals as a partial signal — flagged as such.
   const newMrrClosedMonth = metrics?.revenue?.newMrrClosedMonth
+  const [metaPreset, setMetaPreset] = useState('last_7d')
+  const metaAds = useMetaAds(metaPreset)
 
   return (
     <div className="space-y-10">
@@ -403,6 +406,80 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
         <AwaitingCard label="NRR" awaiting="ProfitWell" color={BRAND} calc="Net Revenue Retention: (Starting + Expansion − Churn − Contraction) ÷ Starting." />
         <AwaitingCard label="CAC" awaiting="Stripe + Ads" color={BRAND} calc="Total S&M spend ÷ new customers acquired in the same period." />
         <AwaitingCard label="LTV : CAC" awaiting="ProfitWell" color={BRAND} calc="Lifetime value ÷ Customer Acquisition Cost. Target ≥ 3:1." />
+      </div>
+
+      {/* META ADS — live from Graph API */}
+      <SectionHeading
+        eyebrow="Paid Ads · Meta"
+        title="Campaign Performance"
+        color="#1877F2"
+      />
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {['today', 'last_7d', 'last_30d', 'last_90d'].map(preset => (
+          <button
+            key={preset}
+            onClick={() => setMetaPreset(preset)}
+            className="px-3 py-1 text-xs font-semibold rounded-full transition-all"
+            style={{
+              background: metaPreset === preset ? '#1877F2' : 'rgba(24,119,242,0.08)',
+              color: metaPreset === preset ? 'white' : '#1877F2',
+              border: '1px solid rgba(24,119,242,0.25)',
+            }}
+          >
+            {preset === 'today' ? 'Today' : preset === 'last_7d' ? '7 days' : preset === 'last_30d' ? '30 days' : '90 days'}
+          </button>
+        ))}
+        {metaAds.summary?.fetchedAt && (
+          <span className="mono-font text-[10px] text-stone-400 uppercase tracking-widest ml-2">
+            as of {metaAds.summary.fetchedAt}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard label="Total Spend" value={metaAds.summary?.totalSpend} prefix="$" color="#1877F2" loading={metaAds.loading} calc="Total ad spend across all campaigns for the selected period." />
+        <MetricCard label="Impressions" value={metaAds.summary?.totalImpressions} color="#1877F2" loading={metaAds.loading} calc="Total times your ads were shown." />
+        <MetricCard label="Clicks" value={metaAds.summary?.totalClicks} color="#1877F2" loading={metaAds.loading} calc="Total inline link clicks across all campaigns." />
+        <MetricCard label="Reach" value={metaAds.summary?.totalReach} color="#1877F2" loading={metaAds.loading} calc="Unique accounts that saw your ads at least once." />
+        <MetricCard label="Avg CPM" value={metaAds.summary?.avgCpm} prefix="$" color="#1877F2" loading={metaAds.loading} calc="Average cost per 1,000 impressions across active campaigns." />
+        <MetricCard label="Avg CTR" value={metaAds.summary?.avgCtr} unit="%" color="#1877F2" loading={metaAds.loading} calc="Average click-through rate across campaigns." />
+      </div>
+      <div className="grid grid-cols-1 gap-3 mt-3">
+        <div className="dashboard-card p-0 overflow-hidden" style={{ minHeight: 'auto' }}>
+          <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
+            <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">
+              All Campaigns · {metaAds.summary?.totalCampaignCount ?? '—'} total · {metaAds.summary?.activeCampaignCount ?? '—'} active
+            </div>
+          </div>
+          {metaAds.loading ? (
+            <div className="px-5 py-8 text-center text-stone-400 text-sm">Loading…</div>
+          ) : metaAds.rows.length === 0 ? (
+            <div className="px-5 py-8 text-center text-stone-400 text-sm">No data for this period</div>
+          ) : (
+            <div className="divide-y divide-stone-50">
+              {metaAds.rows.map(row => (
+                <div key={row.campaign_id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-stone-50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold mono-font uppercase tracking-wider flex-shrink-0"
+                      style={{
+                        background: row.status === 'ACTIVE' ? 'rgba(16,185,129,0.12)' : 'rgba(26,15,46,0.06)',
+                        color: row.status === 'ACTIVE' ? '#047857' : '#6F6884',
+                      }}
+                    >
+                      {row.status === 'ACTIVE' ? 'Live' : 'Paused'}
+                    </span>
+                    <span className="text-sm text-stone-800 font-medium truncate">{row.campaign_name}</span>
+                  </div>
+                  <div className="flex items-center gap-6 flex-shrink-0 mono-font text-[11px] text-stone-600">
+                    <span>${(row.spend || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <span>{(row.impressions || 0).toLocaleString()} impr</span>
+                    <span>{(row.ctr || 0).toFixed(2)}% CTR</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <ProfitwellAllMetrics />
