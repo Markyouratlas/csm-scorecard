@@ -10,6 +10,7 @@ import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
 import OdysseyView from './OdysseyView'
+import ProfitwellAllMetrics from './ProfitwellAllMetrics'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
@@ -403,6 +404,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
         <AwaitingCard label="CAC" awaiting="Stripe + Ads" color={BRAND} calc="Total S&M spend ÷ new customers acquired in the same period." />
         <AwaitingCard label="LTV : CAC" awaiting="ProfitWell" color={BRAND} calc="Lifetime value ÷ Customer Acquisition Cost. Target ≥ 3:1." />
       </div>
+
+      <ProfitwellAllMetrics />
 
       {/* PRODUCT + GROWTH side-by-side on wide screens */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
