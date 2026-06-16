@@ -479,15 +479,15 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
                   <button
                     type="button"
                     onClick={() => setMetaPausedOpen(o => !o)}
-                    className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors"
+                    className="w-full px-5 py-3 flex items-center gap-1.5 hover:bg-stone-50 transition-colors"
                   >
+                    <ChevronRight
+                      className="w-4 h-4 text-stone-400 transition-transform shrink-0"
+                      style={{ transform: metaPausedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                    />
                     <span className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-400">
                       {metaAds.rows.filter(r => r.status !== 'ACTIVE').length} paused campaigns
                     </span>
-                    <ChevronRight
-                      className="w-4 h-4 text-stone-400 transition-transform"
-                      style={{ transform: metaPausedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
-                    />
                   </button>
                   {metaPausedOpen && (
                     <div className="divide-y divide-stone-50 border-t border-stone-50">
@@ -623,6 +623,10 @@ function MetaCampaignRow({ row, expanded, onToggle }) {
         className="w-full px-5 py-3 flex items-center justify-between gap-4 hover:bg-stone-50 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
+          <ChevronRight
+            className="w-3.5 h-3.5 text-stone-300 transition-transform flex-shrink-0"
+            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          />
           <span
             className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold mono-font uppercase tracking-wider flex-shrink-0"
             style={{
@@ -633,10 +637,6 @@ function MetaCampaignRow({ row, expanded, onToggle }) {
             {isLive ? 'Live' : 'Paused'}
           </span>
           <span className="text-sm text-stone-800 font-medium truncate">{row.campaign_name}</span>
-          <ChevronRight
-            className="w-3.5 h-3.5 text-stone-300 transition-transform flex-shrink-0"
-            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
-          />
         </div>
         <div className="flex items-center gap-6 flex-shrink-0 mono-font text-[11px] text-stone-600">
           <span>${(row.spend || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
