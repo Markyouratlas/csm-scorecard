@@ -22,7 +22,13 @@ export function useMetaAds(datePreset = 'last_7d') {
           latestByCampaign.set(row.campaign_id, row)
         }
       }
-      const rows = [...latestByCampaign.values()]
+      // Show ALL live campaigns; show paused campaigns only if they had real
+      // activity in this period (spend or impressions). This keeps the list
+      // relevant to the selected time window.
+      const hadActivity = (r) => (r.spend && r.spend > 0) || (r.impressions && r.impressions > 0)
+      const rows = [...latestByCampaign.values()].filter(
+        r => r.status === 'ACTIVE' || hadActivity(r)
+      )
 
       // Summary totals across all campaigns
       const activeCampaigns = rows.filter(r => r.status === 'ACTIVE')
