@@ -572,6 +572,13 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
 
 function DailyView({ data, targets, canEdit, openModal }) {
   const td = data.today || {}
+  const metaToday = useMetaAds('today')
+  const metaSpendToday = metaToday.summary?.totalSpend ?? null
+  const metaLeadsToday = metaToday.summary?.totalLeads ?? null
+  const adSpendTodayValue = metaSpendToday ?? td.adSpendToday
+  const adSpendTodaySource = metaSpendToday != null ? 'meta' : null
+  const paidLeadsTodayValue = metaLeadsToday ?? td.paidLeadsToday
+  const paidLeadsTodaySource = metaLeadsToday != null ? 'meta' : null
   const now = new Date()
   const dayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -616,9 +623,9 @@ function DailyView({ data, targets, canEdit, openModal }) {
         description="Spend efficiency and demo flow from paid channels today."
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <DailyTile label="Ad Spend" value={td.adSpendToday} prefix="$" color={DEPTS.marketing.color} hint="today" />
+        <DailyTile label="Ad Spend" value={adSpendTodayValue} prefix="$" color={DEPTS.marketing.color} hint="today" source={adSpendTodaySource} />
         <DailyTile label="Cost / Click" value={td.cpcToday} prefix="$" color={DEPTS.marketing.color} hint="today" awaiting={td.cpcToday == null && 'Click tracking'} />
-        <DailyTile label="Paid Leads" value={td.paidLeadsToday} color={DEPTS.marketing.color} hint="today" />
+        <DailyTile label="Paid Leads" value={paidLeadsTodayValue} color={DEPTS.marketing.color} hint="today" source={paidLeadsTodaySource} />
         <DailyTile label="Organic Leads" value={td.organicLeadsToday} color={DEPTS.marketing.color} hint="today" />
         <DailyTile label="Website Visitors" value={td.websiteVisitorsToday} color={DEPTS.marketing.color} hint="today" />
         <DailyTile label="MRR Closed" value={null} prefix="$" color={DEPTS.marketing.color} awaiting={data.awaiting?.newMRR} />
@@ -654,7 +661,7 @@ function DailyView({ data, targets, canEdit, openModal }) {
   )
 }
 
-function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint, awaiting }) {
+function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint, awaiting, source }) {
   const isMissing = awaiting || value == null
   return (
     <div className="card p-4 flex flex-col" style={{ minHeight: 110 }}>
@@ -672,6 +679,9 @@ function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint
       )}
       {hint && !isMissing && (
         <div className="mono-text text-[10px] text-stone-400 mt-2 uppercase tracking-widest">{hint}</div>
+      )}
+      {source && !isMissing && (
+        <div className="mono-text text-[9px] text-stone-400 mt-1 uppercase tracking-[0.14em]">via {sourceLabel(source)}</div>
       )}
     </div>
   )
@@ -871,13 +881,19 @@ function TrackingGuide() {
 
 function StrategicInitiatives({ data, targets, openModal }) {
   const w = data.thisWeek || {}
+  const metaSI = useMetaAds('last_7d')
+  const siSpend = metaSI.summary?.totalSpend ?? null
+  const siLeads = metaSI.summary?.totalLeads ?? null
+  const siCostPerLead = (siSpend != null && siLeads)
+    ? Math.round((siSpend / siLeads) * 100) / 100
+    : w.costPerLeadWeek
   const initiatives = [
     {
       name: 'Paid Acquisition',
       metric: 'Cost / Lead',
-      value: w.costPerLeadWeek != null ? `$${w.costPerLeadWeek}` : null,
+      value: siCostPerLead != null ? `$${siCostPerLead.toLocaleString()}` : null,
       deptKey: 'marketing',
-      info: 'Total ad spend ÷ paid leads this week.',
+      info: 'Meta ad spend ÷ Meta leads, last 7 days (falls back to scorecard).',
     },
     {
       name: 'Sales Velocity',
