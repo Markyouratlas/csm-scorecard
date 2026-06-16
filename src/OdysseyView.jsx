@@ -174,6 +174,27 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
     : new Set(rev.allSubRecords.filter(r => r.inMrr).map(r => r.stripeCustomerId || r.name)).size
   const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
 
+  // Single source of truth for each live-backed stat. Precedence:
+  //   1. a CURRENT-MONTH manual override (source='manual') — wins, so a user edit sticks
+  //   2. the live Stripe value
+  //   3. the most recent stored actual
+  // NOTE: hero ARPU and the standalone Unit-Economics ARPU tile BOTH read `arpuStat`
+  // (same object), so editing ARPU in either place updates both — they cannot diverge.
+  const resolveStat = (metricKey, liveValue) => {
+    const cur = targets.getMonthValue(metricKey, targets.currentMonthKey)
+    if (cur?.actual != null && cur.source === 'manual') {
+      return { value: cur.actual, status: 'edited', source: 'manual', asOfMonth: null }
+    }
+    if (liveValue != null) {
+      return { value: liveValue, status: 'live', source: 'stripe', asOfMonth: null }
+    }
+    const latest = targets.getLatestActual(metricKey)
+    return { value: latest?.actual ?? null, status: latest?.actual != null ? 'asof' : 'none', source: latest?.source ?? null, asOfMonth: latest?.monthKey ?? null }
+  }
+  const mrrStat = resolveStat('total-mrr', liveMrr)
+  const customersStat = resolveStat('total-customers', liveCustomers)
+  const arpuStat = resolveStat('arpu', liveArpu)
+
   // Stored monthly MRR snapshots + the live current month layered on top (live wins).
   const hist = useMrrHistory()
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -214,18 +235,20 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       {/* MRR Hero — prototype-style unified card */}
       <MrrHeroCard
-        value={liveMrr ?? mrrLatest?.actual}
+        value={mrrStat.value}
         target={mrrAnnualTarget}
-        asOfMonth={liveMrr != null ? null : mrrLatest?.monthKey}
-        live={liveMrr != null}
+        asOfMonth={mrrStat.asOfMonth}
+        status={mrrStat.status}
         series={mrrHistorySeries}
         onEditHistory={canEdit ? () => setHistoryOpen(true) : null}
-        customers={liveCustomers ?? customersLatest?.actual}
+        customers={customersStat.value}
+        customersEdited={customersStat.status === 'edited'}
         customersTarget={customersAnnualTarget}
-        arpu={liveArpu ?? arpuLatest?.actual}
-        onClickMrr={() => openModal('total-mrr', liveMrr ?? mrrLatest?.actual)}
-        onClickCustomers={() => openModal('total-customers', liveCustomers ?? customersLatest?.actual)}
-        onClickArpu={() => openModal('arpu', liveArpu ?? arpuLatest?.actual)}
+        arpu={arpuStat.value}
+        arpuEdited={arpuStat.status === 'edited'}
+        onClickMrr={() => openModal('total-mrr', mrrStat.value)}
+        onClickCustomers={() => openModal('total-customers', customersStat.value)}
+        onClickArpu={() => openModal('arpu', arpuStat.value)}
         canEdit={canEdit}
       />
 
@@ -265,7 +288,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         title="The numbers under the hood"
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard metricKey="arpu" label="ARPU" value={liveArpu ?? arpuLatest?.actual} prefix="$" format="currency" source={liveArpu != null ? 'stripe' : arpuLatest?.source} openModal={openModal} />
+        <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} openModal={openModal} />
         <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting="Finance" openModal={openModal} />
         <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
         <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Meta" openModal={openModal} />
@@ -301,6 +324,13 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
   const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
   const nrrW = targets.getLatestActual('net-rev-retention')
   const churnW = targets.getLatestActual('churn-pct')
+  // Same precedence as the Executive arpuStat (manual override → live → stored). This reads the
+  // SAME atlas_targets row, so the weekly ARPU matches the hero/Unit-Economics ARPU; it refreshes
+  // on tab switch rather than the same render tick.
+  const arpuCur = targets.getMonthValue('arpu', targets.currentMonthKey)
+  const arpuManual = arpuCur?.actual != null && arpuCur.source === 'manual'
+  const arpuValue = arpuManual ? arpuCur.actual : (liveArpu ?? targets.getLatestActual('arpu')?.actual)
+  const arpuSource = arpuManual ? 'manual' : (liveArpu != null ? 'stripe' : targets.getLatestActual('arpu')?.source)
 
   return (
     <div className="space-y-10 fade-in">
@@ -439,10 +469,10 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <MetricCard
           metricKey="arpu"
           label="ARPU"
-          value={liveArpu ?? targets.getLatestActual('arpu')?.actual}
+          value={arpuValue}
           prefix="$"
           format="currency"
-          source={liveArpu != null ? 'stripe' : targets.getLatestActual('arpu')?.source}
+          source={arpuSource}
           openModal={openModal}
         />
       </div>
@@ -1169,8 +1199,8 @@ function shortMonthLabel(monthKey) {
 //  their own click handlers that open their respective metric modals.
 // =============================================================================
 
-function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTarget, arpu,
-                      onClickMrr, onClickCustomers, onClickArpu, canEdit, live, onEditHistory }) {
+function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdited, customersTarget, arpu, arpuEdited,
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit, status, onEditHistory }) {
   const pct = target && value ? Math.min(100, (value / target) * 100) : 0
   const hasMrr = value != null
   const hasTarget = target != null
@@ -1211,7 +1241,9 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
             )}
             <div className="display-text italic text-xl md:text-2xl mt-2 text-stone-500">
               {hasTarget ? <>of {formatMetricValue(target, 'currency')} MRR</> : 'no target set'}
-              {live
+              {status === 'edited'
+                ? <span className="mono-text not-italic text-[10.5px] ml-2 uppercase tracking-widest" style={{ color: '#B45309' }}>· edited</span>
+                : status === 'live'
                 ? <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· live</span>
                 : asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
             </div>
@@ -1234,14 +1266,14 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersTar
             <HeroSubStat
               label="Customers"
               value={customers != null ? Math.round(customers).toLocaleString() : null}
-              target={customersTarget != null ? `target ${Math.round(customersTarget).toLocaleString()}` : 'no target'}
+              target={customersEdited ? 'manually set' : (customersTarget != null ? `target ${Math.round(customersTarget).toLocaleString()}` : 'no target')}
               onClick={onClickCustomers}
               canEdit={canEdit}
             />
             <HeroSubStat
               label="ARPU"
               value={arpu != null ? formatMetricValue(arpu, 'currency') : null}
-              target={arpu != null ? 'per customer / mo' : 'awaiting Stripe'}
+              target={arpuEdited ? 'manually set' : (arpu != null ? 'per customer / mo' : 'awaiting Stripe')}
               onClick={onClickArpu}
               canEdit={canEdit}
             />
