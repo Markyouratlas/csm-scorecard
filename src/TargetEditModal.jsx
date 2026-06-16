@@ -57,6 +57,7 @@ export default function TargetEditModal({
   const [notes, setNotes] = useState(monthValue.notes || '')
   const [editingActual, setEditingActual] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [saveStatus, setSaveStatus] = useState(null) // 'success' | 'error' | null
   const [errorMsg, setErrorMsg] = useState(null)
 
@@ -126,6 +127,25 @@ export default function TargetEditModal({
       setSaveStatus('error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleReset() {
+    if (!canEdit) return
+    setResetting(true)
+    setErrorMsg(null)
+    setSaveStatus(null)
+    try {
+      await targetsHook.resetActual(metricKey, currentMonth, userId)
+      setEditingActual(false)
+      setSaveStatus('success')
+      setTimeout(() => setSaveStatus(null), 2500)
+    } catch (e) {
+      console.error('Reset actual error:', e)
+      setErrorMsg(e.message || 'Reset failed')
+      setSaveStatus('error')
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -225,8 +245,22 @@ export default function TargetEditModal({
                 </div>
               )}
               {monthValue.source && !editingActual && (
-                <div className="mt-2 text-[10px] mono-text uppercase tracking-widest text-stone-400">
-                  source: {monthValue.source.replace('_', ' ')}
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="text-[10px] mono-text uppercase tracking-widest text-stone-400">
+                    source: {monthValue.source.replace('_', ' ')}
+                  </div>
+                  {canEdit && (monthValue.source === 'manual' || monthValue.source === 'manual_backfill') && (
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      disabled={resetting}
+                      title="Clear this manual override so the metric reverts to its live/synced source (Stripe or ProfitWell)."
+                      className="text-[10px] font-semibold mono-text uppercase tracking-widest disabled:opacity-50"
+                      style={{ color: BRAND }}
+                    >
+                      {resetting ? 'Resetting…' : '↺ Reset to source'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -165,6 +165,40 @@ export function useAtlasTargets() {
     return data
   }, [])
 
+  const resetActual = useCallback(async (metricKey, monthKey, userId) => {
+    const dateKey = `${monthKey}-01`
+    const payload = {
+      metric_key: metricKey,
+      month_key: dateKey,
+      actual_value: null,
+      actual_source: null,
+      updated_at: new Date().toISOString(),
+    }
+    if (userId) payload.updated_by = userId
+    const { data, error } = await supabase
+      .from('atlas_targets')
+      .upsert(payload, { onConflict: 'metric_key,month_key' })
+      .select()
+      .single()
+    if (error) throw error
+    setState(s => {
+      const next = { ...s.targets }
+      if (!next[metricKey]) next[metricKey] = {}
+      next[metricKey] = {
+        ...next[metricKey],
+        [monthKey]: {
+          actual: null,
+          target: data.target_value != null ? Number(data.target_value) : null,
+          source: null,
+          notes: data.notes || null,
+          updatedAt: data.updated_at,
+        },
+      }
+      return { ...s, targets: next }
+    })
+    return data
+  }, [])
+
   return {
     loading: state.loading,
     error: state.error,
@@ -176,6 +210,7 @@ export function useAtlasTargets() {
     getAnnualTarget,
     getMonthHistory,
     save,
+    resetActual,
     refresh: load,
     currentMonthKey: currentMonthKey(),
   }

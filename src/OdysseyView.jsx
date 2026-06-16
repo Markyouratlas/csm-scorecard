@@ -224,8 +224,8 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         customersTarget={customersAnnualTarget}
         arpu={liveArpu ?? arpuLatest?.actual}
         onClickMrr={() => openModal('total-mrr', liveMrr ?? mrrLatest?.actual)}
-        onClickCustomers={() => openModal('total-customers', customersLatest?.actual)}
-        onClickArpu={() => openModal('arpu', arpuLatest?.actual)}
+        onClickCustomers={() => openModal('total-customers', liveCustomers ?? customersLatest?.actual)}
+        onClickArpu={() => openModal('arpu', liveArpu ?? arpuLatest?.actual)}
         canEdit={canEdit}
       />
 
