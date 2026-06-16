@@ -29,6 +29,7 @@ export default function TargetEditModal({
   metricKey,
   monthKey,
   initialActual,
+  liveActual,
   targetsHook,
   canEdit = false,
   userId = null,
@@ -45,7 +46,7 @@ export default function TargetEditModal({
   const history = targetsHook.getMonthHistory(metricKey)
 
   // Resolve actual: prefer atlas_targets value, fall back to caller-provided initialActual
-  const displayActual = monthValue.actual ?? initialActual ?? null
+  const displayActual = monthValue.actual ?? liveActual ?? initialActual ?? null
   const displayTarget = monthValue.target ?? null
 
   const [targetInput, setTargetInput] = useState(
@@ -155,7 +156,7 @@ export default function TargetEditModal({
     .map(h => ({
       ...h,
       actual: h.monthKey === currentMonth && h.actual == null
-        ? initialActual ?? null
+        ? (liveActual ?? initialActual) ?? null
         : h.actual,
     }))
 

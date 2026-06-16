@@ -48,8 +48,8 @@ export default function OdysseyView({ onSwitchToScorecard, profile }) {
   const tier = accessTier(profile)
   const canEdit = tier === 'executive'
 
-  function openTargetModal(metricKey, initialActual) {
-    setModalMetric({ metricKey, initialActual })
+  function openTargetModal(metricKey, initialActual, liveActual) {
+    setModalMetric({ metricKey, initialActual, liveActual })
   }
 
   function closeTargetModal() {
@@ -106,6 +106,7 @@ export default function OdysseyView({ onSwitchToScorecard, profile }) {
         <TargetEditModal
           metricKey={modalMetric.metricKey}
           initialActual={modalMetric.initialActual}
+          liveActual={modalMetric.liveActual}
           targetsHook={targets}
           canEdit={canEdit}
           userId={profile?.id}
@@ -246,9 +247,9 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         customersTarget={customersAnnualTarget}
         arpu={arpuStat.value}
         arpuEdited={arpuStat.status === 'edited'}
-        onClickMrr={() => openModal('total-mrr', mrrStat.value)}
-        onClickCustomers={() => openModal('total-customers', customersStat.value)}
-        onClickArpu={() => openModal('arpu', arpuStat.value)}
+        onClickMrr={() => openModal('total-mrr', mrrStat.value, liveMrr)}
+        onClickCustomers={() => openModal('total-customers', customersStat.value, liveCustomers)}
+        onClickArpu={() => openModal('arpu', arpuStat.value, liveArpu)}
         canEdit={canEdit}
       />
 
@@ -288,7 +289,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         title="The numbers under the hood"
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} openModal={openModal} />
+        <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} liveValue={liveArpu} openModal={openModal} />
         <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting="Finance" openModal={openModal} />
         <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
         <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Meta" openModal={openModal} />
@@ -473,6 +474,7 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           prefix="$"
           format="currency"
           source={arpuSource}
+          liveValue={liveArpu}
           openModal={openModal}
         />
       </div>
@@ -946,9 +948,9 @@ function SectionHeader({ deptKey, eyebrow, title, description }) {
   )
 }
 
-function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format, source }) {
+function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format, source, liveValue }) {
   const clickable = metricKey && openModal
-  const handleClick = () => clickable && openModal(metricKey, value)
+  const handleClick = () => clickable && openModal(metricKey, value, liveValue)
   const Wrapper = clickable ? 'button' : 'div'
   const wrapperProps = clickable
     ? { onClick: handleClick, type: 'button', className: 'card p-4 flex flex-col text-left w-full hover:shadow-md hover:border-stone-400 transition-all relative group', style: { minHeight: 170 } }
