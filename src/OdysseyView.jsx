@@ -162,6 +162,8 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
   const mrrLatest = targets.getLatestActual('total-mrr')
   const customersLatest = targets.getLatestActual('total-customers')
   const arpuLatest = targets.getLatestActual('arpu')
+  const nrr = targets.getLatestActual('net-rev-retention')
+  const churn = targets.getLatestActual('churn-pct')
 
   // LIVE Stripe-derived hero actuals (read-only). MRR = net committed recurring across
   // all current subs; customers = distinct customers with a committed sub (manual recurring
@@ -229,12 +231,9 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       {/* Annual metrics that depend on ProfitWell */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1"
-          awaiting={data.awaiting?.ltvCac} openModal={openModal} />
-        <NumberBlock metricKey="gross-margin" label="Gross Margin" value={null} suffix="%"
-          awaiting={data.awaiting?.grossMargin} openModal={openModal} />
-        <NumberBlock metricKey="net-rev-retention" label="Net Rev Retention" value={null} suffix="%"
-          awaiting={data.awaiting?.netRevRetention} openModal={openModal} />
+        <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1" awaiting="Meta" openModal={openModal} />
+        <NumberBlock metricKey="gross-margin" label="Gross Margin" value={null} suffix="%" awaiting="Finance" openModal={openModal} />
+        <NumberBlock metricKey="net-rev-retention" label="Net Rev Retention" value={nrr?.actual} format="percent" awaiting={nrr?.actual == null ? 'ProfitWell' : undefined} source={nrr?.source} openModal={openModal} />
       </div>
 
       <SectionHeader
@@ -266,19 +265,12 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         title="The numbers under the hood"
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard metricKey="arpu" label="ARPU" value={arpuLatest?.actual} prefix="$" format="currency"
-          openModal={openModal} />
-        <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting={data.awaiting?.grossMargin}
-          openModal={openModal} />
-        <MetricCard metricKey="cac" label="CAC" awaiting={data.awaiting?.cac} openModal={openModal} />
-        <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting={data.awaiting?.cacPayback}
-          openModal={openModal} />
-        <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting={data.awaiting?.ltvCac}
-          openModal={openModal} />
-        <MetricCard metricKey="churn-pct" label="Churn %"
-          value={targets.getLatestActual('churn-pct')?.actual}
-          format="percent"
-          openModal={openModal} />
+        <MetricCard metricKey="arpu" label="ARPU" value={liveArpu ?? arpuLatest?.actual} prefix="$" format="currency" source={liveArpu != null ? 'stripe' : arpuLatest?.source} openModal={openModal} />
+        <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting="Finance" openModal={openModal} />
+        <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
+        <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Meta" openModal={openModal} />
+        <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting="Meta" openModal={openModal} />
+        <MetricCard metricKey="churn-pct" label="Churn %" value={churn?.actual} format="percent" source={churn?.source} openModal={openModal} />
       </div>
 
       <RevenueBreakdownCard />
@@ -300,6 +292,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 function WeeklyView({ data, targets, canEdit, openModal }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
+
+  // LIVE Stripe-derived ARPU (mirrors how ExecutiveView derives it).
+  const rev = useRevenueBreakdown()
+  const liveMrr = rev.totals?.committedContracted || null
+  const liveCustomers = liveMrr == null ? null
+    : new Set(rev.allSubRecords.filter(r => r.inMrr).map(r => r.stripeCustomerId || r.name)).size
+  const liveArpu = (liveMrr != null && liveCustomers) ? liveMrr / liveCustomers : null
+  const nrrW = targets.getLatestActual('net-rev-retention')
+  const churnW = targets.getLatestActual('churn-pct')
 
   return (
     <div className="space-y-10 fade-in">
@@ -364,7 +365,7 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           trend={t.paidLeads}
           openModal={openModal}
         />
-        <MetricCard metricKey="cac" label="CAC" awaiting={data.awaiting?.cac} openModal={openModal} />
+        <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
         <MetricCard label="Cost / Booked Demo" awaiting={data.awaiting?.costPerDemo} />
       </div>
 
@@ -438,9 +439,10 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <MetricCard
           metricKey="arpu"
           label="ARPU"
-          value={targets.getLatestActual('arpu')?.actual}
+          value={liveArpu ?? targets.getLatestActual('arpu')?.actual}
           prefix="$"
           format="currency"
+          source={liveArpu != null ? 'stripe' : targets.getLatestActual('arpu')?.source}
           openModal={openModal}
         />
       </div>
@@ -456,8 +458,14 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <MetricCard metricKey="churn-pct" label="Churn Rate"
           value={targets.getLatestActual('churn-pct')?.actual}
           format="percent"
+          source={churnW?.source}
           openModal={openModal} />
-        <MetricCard metricKey="net-rev-retention" label="Net Rev Retention" awaiting={data.awaiting?.NRR} openModal={openModal} />
+        <MetricCard metricKey="net-rev-retention" label="Net Rev Retention"
+          value={nrrW?.actual}
+          format="percent"
+          awaiting={nrrW?.actual == null ? 'ProfitWell' : undefined}
+          source={nrrW?.source}
+          openModal={openModal} />
         <MetricCard label="Implementations" awaiting={data.awaiting?.implementations} />
         <MetricCard label="Tickets Resolved" awaiting={data.awaiting?.ticketsResolved} />
         <MetricCard label="Time-To-First-Value" awaiting={data.awaiting?.timeToValue} />
@@ -908,7 +916,7 @@ function SectionHeader({ deptKey, eyebrow, title, description }) {
   )
 }
 
-function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format }) {
+function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format, source }) {
   const clickable = metricKey && openModal
   const handleClick = () => clickable && openModal(metricKey, value)
   const Wrapper = clickable ? 'button' : 'div'
@@ -962,6 +970,9 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
         </div>
         {trend && Math.abs(change) > 0.05 && <DeltaPill change={change} positive={positive} />}
       </div>
+      {source && value != null && (
+        <div className="mono-text text-[9px] uppercase tracking-[0.14em] text-stone-400 mt-2">via {sourceLabel(source)}</div>
+      )}
       {trend && trend.some(v => v > 0) && (
         <div className="mt-auto pt-3 -mx-1">
           <Sparkline data={trend} color={color} />
@@ -971,11 +982,11 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
   )
 }
 
-function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint, metricKey, openModal, format }) {
+function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint, metricKey, openModal, format, source }) {
   return (
     <MetricCard label={label} value={value} prefix={prefix} suffix={suffix}
       color={color} trend={trend} awaiting={awaiting} invertDelta={invertDelta}
-      metricKey={metricKey} openModal={openModal} format={format} />
+      metricKey={metricKey} openModal={openModal} format={format} source={source} />
   )
 }
 
@@ -1400,6 +1411,14 @@ function fmtNum(n) {
   }
   if (Number.isInteger(num)) return num.toLocaleString()
   return num.toLocaleString(undefined, { maximumFractionDigits: 1 })
+}
+
+function sourceLabel(code) {
+  if (!code) return null
+  if (code === 'profitwell') return 'ProfitWell'
+  if (code === 'stripe') return 'Stripe'
+  if (code === 'manual' || code === 'manual_backfill') return 'Manual'
+  return code
 }
 
 // =============================================================================
