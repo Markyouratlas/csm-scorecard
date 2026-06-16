@@ -216,6 +216,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
   // deals as a partial signal — flagged as such.
   const newMrrClosedMonth = metrics?.revenue?.newMrrClosedMonth
   const [metaPreset, setMetaPreset] = useState('last_7d')
+  const [metaPausedOpen, setMetaPausedOpen] = useState(false)
+  const [metaExpandedId, setMetaExpandedId] = useState(null)
   const metaAds = useMetaAds(metaPreset)
 
   return (
@@ -447,7 +449,7 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
         <div className="dashboard-card p-0 overflow-hidden" style={{ minHeight: 'auto' }}>
           <div className="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
             <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">
-              All Campaigns · {metaAds.summary?.totalCampaignCount ?? '—'} total · {metaAds.summary?.activeCampaignCount ?? '—'} active
+              Campaigns · {metaAds.summary?.totalCampaignCount ?? '—'} total · {metaAds.summary?.activeCampaignCount ?? '—'} active
             </div>
           </div>
           {metaAds.loading ? (
@@ -455,28 +457,52 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           ) : metaAds.rows.length === 0 ? (
             <div className="px-5 py-8 text-center text-stone-400 text-sm">No data for this period</div>
           ) : (
-            <div className="divide-y divide-stone-50">
-              {metaAds.rows.map(row => (
-                <div key={row.campaign_id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-stone-50 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold mono-font uppercase tracking-wider flex-shrink-0"
-                      style={{
-                        background: row.status === 'ACTIVE' ? 'rgba(16,185,129,0.12)' : 'rgba(26,15,46,0.06)',
-                        color: row.status === 'ACTIVE' ? '#047857' : '#6F6884',
-                      }}
-                    >
-                      {row.status === 'ACTIVE' ? 'Live' : 'Paused'}
+            <div>
+              {/* LIVE campaigns — always shown */}
+              <div className="divide-y divide-stone-50">
+                {metaAds.rows.filter(r => r.status === 'ACTIVE').map(row => (
+                  <MetaCampaignRow
+                    key={row.campaign_id}
+                    row={row}
+                    expanded={metaExpandedId === row.campaign_id}
+                    onToggle={() => setMetaExpandedId(id => id === row.campaign_id ? null : row.campaign_id)}
+                  />
+                ))}
+                {metaAds.rows.filter(r => r.status === 'ACTIVE').length === 0 && (
+                  <div className="px-5 py-6 text-center text-stone-400 text-sm">No live campaigns this period</div>
+                )}
+              </div>
+
+              {/* PAUSED campaigns — collapsed behind a chevron */}
+              {metaAds.rows.filter(r => r.status !== 'ACTIVE').length > 0 && (
+                <div className="border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={() => setMetaPausedOpen(o => !o)}
+                    className="w-full px-5 py-3 flex items-center justify-between hover:bg-stone-50 transition-colors"
+                  >
+                    <span className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-400">
+                      {metaAds.rows.filter(r => r.status !== 'ACTIVE').length} paused campaigns
                     </span>
-                    <span className="text-sm text-stone-800 font-medium truncate">{row.campaign_name}</span>
-                  </div>
-                  <div className="flex items-center gap-6 flex-shrink-0 mono-font text-[11px] text-stone-600">
-                    <span>${(row.spend || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                    <span>{(row.impressions || 0).toLocaleString()} impr</span>
-                    <span>{(row.ctr || 0).toFixed(2)}% CTR</span>
-                  </div>
+                    <ChevronRight
+                      className="w-4 h-4 text-stone-400 transition-transform"
+                      style={{ transform: metaPausedOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                    />
+                  </button>
+                  {metaPausedOpen && (
+                    <div className="divide-y divide-stone-50 border-t border-stone-50">
+                      {metaAds.rows.filter(r => r.status !== 'ACTIVE').map(row => (
+                        <MetaCampaignRow
+                          key={row.campaign_id}
+                          row={row}
+                          expanded={metaExpandedId === row.campaign_id}
+                          onToggle={() => setMetaExpandedId(id => id === row.campaign_id ? null : row.campaign_id)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -577,6 +603,90 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
 // =============================================================================
 //  Hero — the executive view's headline number
 // =============================================================================
+
+// =============================================================================
+//  MetaCampaignRow — one campaign row, click name to expand full detail inline
+// =============================================================================
+function MetaCampaignRow({ row, expanded, onToggle }) {
+  const isLive = row.status === 'ACTIVE'
+  // Pull lead/conversion counts out of the actions array if present
+  const actions = Array.isArray(row.actions) ? row.actions : []
+  const actionRows = actions
+    .map(a => ({ label: prettyActionType(a.action_type), value: Number(a.value) || 0 }))
+    .filter(a => a.value > 0)
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full px-5 py-3 flex items-center justify-between gap-4 hover:bg-stone-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold mono-font uppercase tracking-wider flex-shrink-0"
+            style={{
+              background: isLive ? 'rgba(16,185,129,0.12)' : 'rgba(26,15,46,0.06)',
+              color: isLive ? '#047857' : '#6F6884',
+            }}
+          >
+            {isLive ? 'Live' : 'Paused'}
+          </span>
+          <span className="text-sm text-stone-800 font-medium truncate">{row.campaign_name}</span>
+          <ChevronRight
+            className="w-3.5 h-3.5 text-stone-300 transition-transform flex-shrink-0"
+            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          />
+        </div>
+        <div className="flex items-center gap-6 flex-shrink-0 mono-font text-[11px] text-stone-600">
+          <span>${(row.spend || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          <span>{(row.impressions || 0).toLocaleString()} impr</span>
+          <span>{(row.ctr || 0).toFixed(2)}% CTR</span>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-4 pt-1 bg-stone-50/60">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mt-2">
+            <MetaDetailStat label="Spend" value={row.spend != null ? `$${row.spend.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'} />
+            <MetaDetailStat label="Impressions" value={row.impressions != null ? row.impressions.toLocaleString() : '—'} />
+            <MetaDetailStat label="Reach" value={row.reach != null ? row.reach.toLocaleString() : '—'} />
+            <MetaDetailStat label="Link Clicks" value={row.inline_link_clicks != null ? row.inline_link_clicks.toLocaleString() : '—'} />
+            <MetaDetailStat label="CPM" value={row.cpm != null ? `$${row.cpm.toFixed(2)}` : '—'} />
+            <MetaDetailStat label="CTR" value={row.ctr != null ? `${row.ctr.toFixed(2)}%` : '—'} />
+            <MetaDetailStat label="Link CTR" value={row.inline_link_click_ctr != null ? `${row.inline_link_click_ctr.toFixed(2)}%` : '—'} />
+            <MetaDetailStat label="Campaign ID" value={row.campaign_id} mono />
+          </div>
+          {actionRows.length > 0 && (
+            <div className="mt-4">
+              <div className="mono-font text-[9.5px] uppercase tracking-[0.16em] font-semibold text-stone-400 mb-2">Conversions & Actions</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
+                {actionRows.map(a => (
+                  <MetaDetailStat key={a.label} label={a.label} value={a.value.toLocaleString()} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MetaDetailStat({ label, value, mono }) {
+  return (
+    <div>
+      <div className="mono-font text-[9px] uppercase tracking-[0.14em] text-stone-400 mb-0.5">{label}</div>
+      <div className={`text-sm text-stone-800 ${mono ? 'mono-font text-[11px]' : 'font-medium'}`}>{value}</div>
+    </div>
+  )
+}
+
+function prettyActionType(type) {
+  if (!type) return 'Action'
+  return String(type)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
 
 function ExecutiveHero({ profile, newMrrClosedMonth, loading, meta, refresh }) {
   return (
