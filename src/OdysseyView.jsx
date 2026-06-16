@@ -14,6 +14,7 @@ import TargetEditModal from './TargetEditModal.jsx'
 import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
 import { useMrrHistory } from './hooks/useMrrHistory.js'
+import { useMetaAds } from './hooks/useMetaAds.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 
 // =============================================================================
@@ -316,6 +317,16 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 function WeeklyView({ data, targets, canEdit, openModal }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
+  const meta7d = useMetaAds('last_7d')
+  const metaSpend = meta7d.summary?.totalSpend ?? null
+  const metaLeads = meta7d.summary?.totalLeads ?? null
+  // Meta wins; fall back to the scorecard-derived weekly values when Meta is null.
+  const adSpendValue = metaSpend ?? w.totalAdSpendWeek
+  const adSpendSource = metaSpend != null ? 'meta' : null
+  const paidLeadsValue = metaLeads ?? w.paidLeadsWeek
+  const paidLeadsSource = metaLeads != null ? 'meta' : null
+  const costPerLeadValue = (metaSpend != null && metaLeads) ? Math.round((metaSpend / metaLeads) * 100) / 100 : w.costPerLeadWeek
+  const costPerLeadSource = (metaSpend != null && metaLeads) ? 'meta' : null
 
   // LIVE Stripe-derived ARPU (mirrors how ExecutiveView derives it).
   const rev = useRevenueBreakdown()
@@ -355,11 +366,12 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <NumberBlock
           metricKey="cost-per-lead"
           label="Cost / Lead"
-          value={w.costPerLeadWeek}
+          value={costPerLeadValue}
           prefix="$"
           color={DEPTS.marketing.color}
           trend={t.costPerLead}
           invertDelta
+          source={costPerLeadSource}
           openModal={openModal}
         />
         <NumberBlock
@@ -373,11 +385,12 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <NumberBlock
           metricKey="total-ad-spend"
           label="Total Ad Spend"
-          value={w.totalAdSpendWeek}
+          value={adSpendValue}
           prefix="$"
           color={DEPTS.marketing.color}
           trend={t.totalAdSpend}
           invertDelta
+          source={adSpendSource}
           openModal={openModal}
         />
         <NumberBlock
@@ -391,12 +404,13 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <NumberBlock
           metricKey="paid-leads"
           label="Paid Ad Leads"
-          value={w.paidLeadsWeek}
+          value={paidLeadsValue}
           color={DEPTS.marketing.color}
           trend={t.paidLeads}
+          source={paidLeadsSource}
           openModal={openModal}
         />
-        <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
+        <MetricCard metricKey="cac" label="CAC" awaiting="Attribution" openModal={openModal} />
         <MetricCard label="Cost / Booked Demo" awaiting={data.awaiting?.costPerDemo} />
       </div>
 
@@ -1451,6 +1465,7 @@ function sourceLabel(code) {
   if (!code) return null
   if (code === 'profitwell') return 'ProfitWell'
   if (code === 'stripe') return 'Stripe'
+  if (code === 'meta') return 'Meta'
   if (code === 'manual' || code === 'manual_backfill') return 'Manual'
   return code
 }
