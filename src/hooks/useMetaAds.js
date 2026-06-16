@@ -34,6 +34,16 @@ export function useMetaAds(datePreset = 'last_7d') {
       const activeCampaigns = rows.filter(r => r.status === 'ACTIVE')
       const summary = {
         totalSpend: rows.reduce((s, r) => s + (r.spend || 0), 0),
+        totalLeads: rows.reduce((sum, r) => {
+          const actions = Array.isArray(r.actions) ? r.actions : []
+          const lead = actions.find(a => a.action_type === 'lead')
+          return sum + (lead ? Number(lead.value) || 0 : 0)
+        }, 0),
+        totalRegistrations: rows.reduce((sum, r) => {
+          const actions = Array.isArray(r.actions) ? r.actions : []
+          const reg = actions.find(a => a.action_type === 'complete_registration')
+          return sum + (reg ? Number(reg.value) || 0 : 0)
+        }, 0),
         totalImpressions: rows.reduce((s, r) => s + (r.impressions || 0), 0),
         totalClicks: rows.reduce((s, r) => s + (r.inline_link_clicks || 0), 0),
         totalReach: rows.reduce((s, r) => s + (r.reach || 0), 0),

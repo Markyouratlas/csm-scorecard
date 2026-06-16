@@ -352,7 +352,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           prefix="$"
           color="#3B82F6"
           loading={loading}
-          calc="Total ad spend logged this week across Growth + Ad Strategist roles."
+          source="Scorecard"
+          calc="Total ad spend logged this week across Growth + Ad Strategist roles (manual entry)."
         />
         <MetricCard
           label="Visitors"
@@ -392,6 +393,40 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           loading={loading}
 
           calc="Ad spend ÷ paid leads, this week."
+        />
+        <MetricCard
+          label="Ad Spend"
+          value={metaAds.summary?.totalSpend}
+          prefix="$"
+          color="#1877F2"
+          loading={metaAds.loading}
+          source="Meta"
+          calc="Live ad spend from Meta across all campaigns for the selected period."
+        />
+        <MetricCard
+          label="Paid Leads"
+          value={metaAds.summary?.totalLeads}
+          color="#1877F2"
+          loading={metaAds.loading}
+          source="Meta"
+          calc="Meta 'lead' events summed across all campaigns for the selected period."
+        />
+        <MetricCard
+          label="Registrations"
+          value={metaAds.summary?.totalRegistrations}
+          color="#1877F2"
+          loading={metaAds.loading}
+          source="Meta"
+          calc="Meta 'complete_registration' events (form completions) summed across all campaigns."
+        />
+        <MetricCard
+          label="Cost / Registration"
+          value={metaAds.summary?.totalRegistrations ? Math.round((metaAds.summary.totalSpend / metaAds.summary.totalRegistrations) * 100) / 100 : null}
+          prefix="$"
+          color="#1877F2"
+          loading={metaAds.loading}
+          source="Meta"
+          calc="Meta ad spend ÷ registrations for the selected period."
         />
       </div>
 
@@ -765,7 +800,7 @@ function SectionHeading({ eyebrow, title, color }) {
 //  MetricCard — number + (optional) sparkline + tooltip
 // =============================================================================
 
-function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loading, calc }) {
+function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loading, calc, source }) {
   const isReady = !loading && value !== null && value !== undefined
   const formatted = isReady ? formatNumber(value) : null
 
@@ -774,6 +809,11 @@ function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loadi
       <div className="flex items-center gap-1.5 mb-3">
         <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">{label}</div>
         <InfoTooltip content={calc} />
+        {source && (
+          <span className="ml-auto mono-font text-[8.5px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded" style={{ color: '#1877F2', background: 'rgba(24,119,242,0.10)' }}>
+            {source}
+          </span>
+        )}
       </div>
 
       <div className="display-font font-medium leading-none num-tabular" style={{ fontSize: 'clamp(28px, 4vw, 40px)', color }}>
