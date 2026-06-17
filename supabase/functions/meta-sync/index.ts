@@ -5,6 +5,12 @@ const API_VERSION = 'v21.0'
 const DATE_PRESETS = ['today', 'last_7d', 'last_30d', 'last_90d']
 const FIELDS = 'spend,impressions,reach,cpm,ctr,inline_link_clicks,inline_link_click_ctr,actions'
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
 async function runSync(token: string) {
   try {
     const supabase = createClient(
@@ -146,11 +152,16 @@ async function runSync(token: string) {
 }
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders })
+  }
+
   const token = Deno.env.get('META_ACCESS_TOKEN')
   if (!token) {
     return new Response(JSON.stringify({ ok: false, error: 'META_ACCESS_TOKEN not set' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 
@@ -160,6 +171,6 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify({ ok: true, status: 'sync started' }), {
     status: 202,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 })
