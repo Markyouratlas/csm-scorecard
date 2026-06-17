@@ -145,9 +145,13 @@ async function runSync(token: string) {
 
     if (error) throw error
 
-    console.log(JSON.stringify({ ok: true, rows: rows.length, dailyRows: dailyRows.length, adsetRows: adsetRows.length, campaigns: campaigns.length }))
+    const result = { ok: true, rows: rows.length, dailyRows: dailyRows.length, adsetRows: adsetRows.length, campaigns: campaigns.length }
+    console.log(JSON.stringify(result))
+    return result
   } catch (err) {
-    console.error('meta-sync background error:', err instanceof Error ? err.message : String(err))
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('meta-sync error:', message)
+    return { ok: false, error: message }
   }
 }
 
@@ -165,12 +169,12 @@ Deno.serve(async (req) => {
     })
   }
 
-  // Kick off the sync in the background so the HTTP call returns immediately
-  // (pg_cron/pg_net have a 5s timeout; the full sync takes ~25s).
-  EdgeRuntime.waitUntil(runSync(token))
+  // Run the full sync and wait for it to finish, so the result is reliable.
+  // (~25s. pg_cron callers must use a longer pg_net timeout than the 5s default.)
+  const result = await runSync(token)
 
-  return new Response(JSON.stringify({ ok: true, status: 'sync started' }), {
-    status: 202,
+  return new Response(JSON.stringify(result), {
+    status: result.ok ? 200 : 500,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 })
