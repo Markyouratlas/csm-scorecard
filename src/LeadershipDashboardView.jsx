@@ -15,6 +15,8 @@ import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
 import { useMetaAds } from './hooks/useMetaAds.js'
+import { useMetaDaily } from './hooks/useMetaDaily.js'
+import { Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, BarChart } from 'recharts'
 
 // Atlas brand
 const BRAND = '#6639A6'
@@ -218,7 +220,9 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
   const [metaPreset, setMetaPreset] = useState('last_7d')
   const [metaPausedOpen, setMetaPausedOpen] = useState(false)
   const [metaExpandedId, setMetaExpandedId] = useState(null)
+  const [metaTrendDays, setMetaTrendDays] = useState(30)
   const metaAds = useMetaAds(metaPreset)
+  const metaDaily = useMetaDaily(metaTrendDays)
 
   return (
     <div className="space-y-10">
@@ -538,6 +542,72 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
                   )}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* META DAILY TRENDS */}
+      <div className="grid grid-cols-1 gap-3 mt-3">
+        <div className="dashboard-card" style={{ minHeight: 'auto' }}>
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">
+              Daily Trend · Spend & Clicks
+            </div>
+            <div className="flex items-center gap-1.5">
+              {[7, 30, 90].map(d => (
+                <button key={d} onClick={() => setMetaTrendDays(d)}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full transition-all"
+                  style={{
+                    background: metaTrendDays === d ? '#1877F2' : 'rgba(24,119,242,0.08)',
+                    color: metaTrendDays === d ? 'white' : '#1877F2',
+                    border: '1px solid rgba(24,119,242,0.25)',
+                  }}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+          {metaDaily.loading ? (
+            <div className="h-[280px] flex items-center justify-center text-stone-400 text-sm">Loading…</div>
+          ) : metaDaily.series.length === 0 ? (
+            <div className="h-[280px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
+          ) : (
+            <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={metaDaily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#9c96a8' }} tickFormatter={(v) => `$${v}`} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#9c96a8' }} />
+                  <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} formatter={(value, name) => name === 'spend' ? [`$${value}`, 'Spend'] : [value, 'Link Clicks']} />
+                  <Area yAxisId="left" type="monotone" dataKey="spend" stroke="#1877F2" fill="rgba(24,119,242,0.12)" strokeWidth={2} />
+                  <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="#10B981" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        <div className="dashboard-card" style={{ minHeight: 'auto' }}>
+          <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-4">
+            Daily Spend
+          </div>
+          {metaDaily.loading ? (
+            <div className="h-[220px] flex items-center justify-center text-stone-400 text-sm">Loading…</div>
+          ) : metaDaily.series.length === 0 ? (
+            <div className="h-[220px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
+          ) : (
+            <div style={{ width: '100%', height: 220 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={metaDaily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: '#9c96a8' }} tickFormatter={(v) => `$${v}`} />
+                  <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} formatter={(v) => [`$${v}`, 'Spend']} />
+                  <Bar dataKey="spend" fill="#1877F2" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
