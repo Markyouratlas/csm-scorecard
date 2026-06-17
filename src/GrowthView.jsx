@@ -526,7 +526,8 @@ function MetaLiveSection() {
         ) : daily.series.length === 0 ? (
           <div className="h-[300px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <div style={{ width: '100%', height: 300 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={daily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" />
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
@@ -540,6 +541,7 @@ function MetaLiveSection() {
               <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="#10B981" strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
+          </div>
         )}
       </div>
 
@@ -552,7 +554,8 @@ function MetaLiveSection() {
         ) : daily.series.length === 0 ? (
           <div className="h-[240px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
         ) : (
-          <ResponsiveContainer width="100%" height={240}>
+          <div style={{ width: '100%', height: 240 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={daily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
@@ -561,6 +564,7 @@ function MetaLiveSection() {
               <Bar dataKey="spend" fill={META_BLUE} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </div>
         )}
       </div>
 
