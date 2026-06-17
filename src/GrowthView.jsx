@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react'
 import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock } from 'lucide-react'
-import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart } from 'recharts'
+import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
+import { useMetaAdSets } from './hooks/useMetaAdSets.js'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -53,6 +54,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
     { id: 'meta-live',   label: 'Meta Live',     icon: Activity },
+    { id: 'ad-sets',     label: 'Ad Sets',       icon: Layers },
     { id: 'monthly',     label: 'Monthly View',  icon: Calendar },
     { id: 'channels',    label: 'Channels',      icon: Layers },
     { id: 'experiments', label: 'Experiments',   icon: FlaskConical },
@@ -96,6 +98,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
         {section === 'meta-live' && <MetaLiveSection />}
+        {section === 'ad-sets' && <AdSetsSection />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'channels' && <ChannelsSection weekData={weekData} update={update} />}
         {section === 'experiments' && <ExperimentsSection weekData={weekData} update={update} />}
@@ -603,6 +606,162 @@ function MetaAwaitingTile({ label, awaiting }) {
       <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md mono-font text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#6639A6', background: 'rgba(102,57,166,0.08)' }}>
         <Clock className="w-3 h-3" /> Awaiting {awaiting}
       </div>
+    </div>
+  )
+}
+
+function AdSetsSection() {
+  const [days, setDays] = useState(30)
+  const { adSets, groups, loading } = useMetaAdSets(days)
+
+  const fmtMoney = (v) => v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  const fmtPct = (v) => v == null ? '—' : `${Number(v).toFixed(2)}%`
+  const fmtNum = (v) => v == null ? '—' : Number(v).toLocaleString()
+
+  const cpmData = adSets.map(a => ({ name: a.adset_name, cpm: a.cpm, audience: a.audience }))
+
+  return (
+    <div className="space-y-6">
+      {/* Header + period toggle */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
+          <div>
+            <div className="display-font text-2xl font-medium text-stone-900">Ad Set Performance</div>
+            <p className="text-sm text-stone-600 mt-1">Cold vs. Warm audience breakdown.</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {[{ d: 0, label: 'Today' }, { d: 7, label: '7 Days' }, { d: 30, label: '30 Days' }, { d: 90, label: '90 Days' }].map(({ d, label }) => (
+              <button key={d} onClick={() => setDays(d)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: days === d ? META_BLUE : 'rgba(24,119,242,0.08)',
+                  color: days === d ? 'white' : META_BLUE,
+                  border: '1px solid rgba(24,119,242,0.25)',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="h-[160px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-4">
+            <AudienceCard title="Cold Traffic" dotColor="#1877F2" group={groups?.Cold} fmtMoney={fmtMoney} fmtPct={fmtPct} fmtNum={fmtNum} />
+            <AudienceCard title="Warm (Retargeting)" dotColor="#10B981" group={groups?.Warm} fmtMoney={fmtMoney} fmtPct={fmtPct} fmtNum={fmtNum} />
+          </div>
+        )}
+      </div>
+
+      {/* CPM by Ad Set */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">CPM by Ad Set</div>
+        <p className="text-sm text-stone-600 mb-4">Cost per 1,000 impressions — lower is better.</p>
+        {loading ? (
+          <div className="h-[260px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : cpmData.length === 0 ? (
+          <div className="h-[260px] flex items-center justify-center text-stone-400 text-sm">No ad set data yet</div>
+        ) : (
+          <div style={{ width: '100%', height: Math.max(220, cpmData.length * 56) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={cpmData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#9c96a8' }} tickFormatter={(v) => `$${v}`} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#6b6878' }} width={180} />
+                <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} formatter={(v) => [`$${v}`, 'CPM']} />
+                <Bar dataKey="cpm" radius={[0, 3, 3, 0]}>
+                  {cpmData.map((entry, i) => (
+                    <Cell key={i} fill={entry.audience === 'Warm' ? '#10B981' : '#1877F2'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* All Ad Sets table */}
+      <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">All Ad Sets</div>
+        <p className="text-sm text-stone-600 mb-4">Detailed breakdown by ad set.</p>
+        {loading ? (
+          <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : adSets.length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No ad set data yet</div>
+        ) : (
+          <table className="w-full text-sm min-w-[860px]">
+            <thead>
+              <tr className="border-b border-stone-200">
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Ad Set</th>
+                <th className="text-left py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Audience</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Spend</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">CPM</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Total CTR</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Link CTR</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Impressions</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Conversions</th>
+                <th className="text-right py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Test Drive</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adSets.map(a => (
+                <tr key={a.adset_id} className="border-b border-stone-100">
+                  <td className="py-3 px-3 font-medium text-stone-800">{a.adset_name}</td>
+                  <td className="py-3 px-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold mono-font uppercase tracking-wider"
+                      style={{
+                        background: a.audience === 'Warm' ? 'rgba(16,185,129,0.12)' : a.audience === 'Cold' ? 'rgba(24,119,242,0.12)' : 'rgba(120,113,108,0.12)',
+                        color: a.audience === 'Warm' ? '#047857' : a.audience === 'Cold' ? '#1877F2' : '#78716C',
+                      }}>
+                      {a.audience}
+                    </span>
+                  </td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtMoney(a.spend)}</td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtMoney(a.cpm)}</td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtPct(a.totalCtr)}</td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtPct(a.linkCtr)}</td>
+                  <td className="py-3 px-2 text-right num-tabular text-stone-500">{fmtNum(a.impressions)}</td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtNum(a.conversions)}</td>
+                  <td className="py-3 px-2 text-right num-tabular">{fmtNum(a.testDrive)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AudienceCard({ title, dotColor, group, fmtMoney, fmtPct, fmtNum }) {
+  if (!group) return null
+  return (
+    <div className="border border-stone-200 rounded-lg p-5" style={{ background: 'rgba(24,119,242,0.02)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: dotColor }} />
+          <span className="display-font text-lg font-medium text-stone-900">{title}</span>
+        </div>
+        <span className="mono-font text-[10px] uppercase tracking-wider text-stone-400">{group.count} ad sets</span>
+      </div>
+      <div className="grid grid-cols-3 gap-y-4 gap-x-2">
+        <AudienceStat label="Spend" value={fmtMoney(group.spend)} />
+        <AudienceStat label="Avg CPM" value={fmtMoney(group.avgCpm)} />
+        <AudienceStat label="Total CTR" value={fmtPct(group.totalCtr)} />
+        <AudienceStat label="Link CTR" value={fmtPct(group.linkCtr)} />
+        <AudienceStat label="Test Drive" value={fmtNum(group.testDrive)} />
+        <AudienceStat label="Conversions" value={fmtNum(group.conversions)} />
+      </div>
+    </div>
+  )
+}
+
+function AudienceStat({ label, value }) {
+  return (
+    <div>
+      <div className="mono-font text-[9px] uppercase tracking-[0.12em] text-stone-400 mb-1">{label}</div>
+      <div className="display-font text-xl font-medium" style={{ color: META_BLUE }}>{value}</div>
     </div>
   )
 }
