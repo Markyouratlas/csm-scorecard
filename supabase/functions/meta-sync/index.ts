@@ -18,6 +18,7 @@ async function runSync(token: string) {
     const campJson = await campRes.json()
     if (campJson.error) throw new Error(`Meta API: ${campJson.error.message}`)
     const campaigns = campJson.data || []
+    const syncedAt = new Date().toISOString()
 
     // 2. For each campaign + date preset, fetch insights directly
     const rows = []
@@ -76,6 +77,7 @@ async function runSync(token: string) {
           inline_link_clicks: day.inline_link_clicks ? parseInt(day.inline_link_clicks) : null,
           inline_link_click_ctr: day.inline_link_click_ctr ? parseFloat(day.inline_link_click_ctr) : null,
           actions: day.actions || null,
+          synced_at: syncedAt,
         })
       }
     }
@@ -115,6 +117,7 @@ async function runSync(token: string) {
           inline_link_clicks: row.inline_link_clicks ? parseInt(row.inline_link_clicks) : null,
           inline_link_click_ctr: row.inline_link_click_ctr ? parseFloat(row.inline_link_click_ctr) : null,
           actions: row.actions || null,
+          synced_at: syncedAt,
         })
       }
 
