@@ -5,11 +5,8 @@ const API_VERSION = 'v21.0'
 const DATE_PRESETS = ['today', 'last_7d', 'last_30d', 'last_90d']
 const FIELDS = 'spend,impressions,reach,cpm,ctr,inline_link_clicks,inline_link_click_ctr,actions'
 
-Deno.serve(async (req) => {
+async function runSync(token: string) {
   try {
-    const token = Deno.env.get('META_ACCESS_TOKEN')
-    if (!token) throw new Error('META_ACCESS_TOKEN not set')
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -139,13 +136,27 @@ Deno.serve(async (req) => {
 
     if (error) throw error
 
-    return new Response(JSON.stringify({ ok: true, rows: rows.length, dailyRows: dailyRows.length, adsetRows: adsetRows.length, campaigns: campaigns.length }), {
-      headers: { 'Content-Type': 'application/json' },
-    })
+    console.log(JSON.stringify({ ok: true, rows: rows.length, dailyRows: dailyRows.length, adsetRows: adsetRows.length, campaigns: campaigns.length }))
   } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: String(err) }), {
+    console.error('meta-sync background error:', err instanceof Error ? err.message : String(err))
+  }
+}
+
+Deno.serve(async (req) => {
+  const token = Deno.env.get('META_ACCESS_TOKEN')
+  if (!token) {
+    return new Response(JSON.stringify({ ok: false, error: 'META_ACCESS_TOKEN not set' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     })
   }
+
+  // Kick off the sync in the background so the HTTP call returns immediately
+  // (pg_cron/pg_net have a 5s timeout; the full sync takes ~25s).
+  EdgeRuntime.waitUntil(runSync(token))
+
+  return new Response(JSON.stringify({ ok: true, status: 'sync started' }), {
+    status: 202,
+    headers: { 'Content-Type': 'application/json' },
+  })
 })
