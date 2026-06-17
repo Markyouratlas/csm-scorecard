@@ -90,6 +90,48 @@ Deno.serve(async (req) => {
       if (dailyError) throw dailyError
     }
 
+    // 2.6 Ad-set daily time-series — last 90 days, one row per ad set per day.
+    // Pulled at the account level with level=adset so we get adset_id/adset_name.
+    const adsetUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/insights?fields=${FIELDS},adset_id,adset_name,campaign_id,campaign_name&level=adset&time_range=${encodeURIComponent(timeRange)}&time_increment=1&limit=500&access_token=${token}`
+
+    const adsetRows = []
+    let adsetNext = adsetUrl
+    let adsetPages = 0
+    while (adsetNext && adsetPages < 20) {
+      const adsetRes = await fetch(adsetNext)
+      const adsetJson = await adsetRes.json()
+      if (adsetJson.error) throw new Error(`Meta adset API: ${adsetJson.error.message}`)
+
+      for (const row of (adsetJson.data || [])) {
+        adsetRows.push({
+          campaign_id: row.campaign_id || null,
+          campaign_name: row.campaign_name || null,
+          adset_id: row.adset_id,
+          adset_name: row.adset_name || row.adset_id,
+          status: null,
+          date_start: row.date_start,
+          spend: row.spend ? parseFloat(row.spend) : null,
+          impressions: row.impressions ? parseInt(row.impressions) : null,
+          reach: row.reach ? parseInt(row.reach) : null,
+          cpm: row.cpm ? parseFloat(row.cpm) : null,
+          ctr: row.ctr ? parseFloat(row.ctr) : null,
+          inline_link_clicks: row.inline_link_clicks ? parseInt(row.inline_link_clicks) : null,
+          inline_link_click_ctr: row.inline_link_click_ctr ? parseFloat(row.inline_link_click_ctr) : null,
+          actions: row.actions || null,
+        })
+      }
+
+      adsetNext = adsetJson.paging?.next || null
+      adsetPages++
+    }
+
+    if (adsetRows.length > 0) {
+      const { error: adsetError } = await supabase
+        .from('meta_ad_sets_daily')
+        .upsert(adsetRows, { onConflict: 'adset_id,date_start' })
+      if (adsetError) throw adsetError
+    }
+
     // 3. Upsert all rows
     const { error } = await supabase
       .from('meta_ads_metrics')
@@ -97,7 +139,7 @@ Deno.serve(async (req) => {
 
     if (error) throw error
 
-    return new Response(JSON.stringify({ ok: true, rows: rows.length, dailyRows: dailyRows.length, campaigns: campaigns.length }), {
+    return new Response(JSON.stringify({ ok: true, rows: rows.length, dailyRows: dailyRows.length, adsetRows: adsetRows.length, campaigns: campaigns.length }), {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {
