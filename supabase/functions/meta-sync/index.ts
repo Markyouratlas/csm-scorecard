@@ -24,7 +24,6 @@ async function runSync(token: string) {
     const campJson = await campRes.json()
     if (campJson.error) throw new Error(`Meta API: ${campJson.error.message}`)
     const campaigns = campJson.data || []
-    const syncedAt = new Date().toISOString()
 
     // 2. For each campaign + date preset, fetch insights directly
     const rows = []
@@ -83,10 +82,13 @@ async function runSync(token: string) {
           inline_link_clicks: day.inline_link_clicks ? parseInt(day.inline_link_clicks) : null,
           inline_link_click_ctr: day.inline_link_click_ctr ? parseFloat(day.inline_link_click_ctr) : null,
           actions: day.actions || null,
-          synced_at: syncedAt,
         })
       }
     }
+
+    // Stamp completion time so "last synced" reflects when data actually landed.
+    const syncedAt = new Date().toISOString()
+    for (const r of dailyRows) r.synced_at = syncedAt
 
     if (dailyRows.length > 0) {
       const { error: dailyError } = await supabase
