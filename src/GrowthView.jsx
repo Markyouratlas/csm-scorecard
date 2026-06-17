@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock } from 'lucide-react'
+import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart } from 'recharts'
+import { useMetaAds } from './hooks/useMetaAds.js'
+import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -49,6 +52,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
+    { id: 'meta-live',   label: 'Meta Live',     icon: Activity },
     { id: 'monthly',     label: 'Monthly View',  icon: Calendar },
     { id: 'channels',    label: 'Channels',      icon: Layers },
     { id: 'experiments', label: 'Experiments',   icon: FlaskConical },
@@ -91,6 +95,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
+        {section === 'meta-live' && <MetaLiveSection />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'channels' && <ChannelsSection weekData={weekData} update={update} />}
         {section === 'experiments' && <ExperimentsSection weekData={weekData} update={update} />}
@@ -433,6 +438,167 @@ function NotesSection({ weekData, update }) {
       <textarea rows={10} value={weekData.notes || ''} onChange={(e) => update(d => ({ ...d, notes: e.target.value }))}
         placeholder="Channel mix changes, big wins, what's not working..."
         className="w-full py-3 px-4 border border-stone-300 focus:border-stone-900 transition-colors text-sm leading-relaxed" />
+    </div>
+  )
+}
+
+const META_BLUE = '#1877F2'
+
+function MetaLiveSection() {
+  const [preset, setPreset] = useState('last_7d')
+  const meta = useMetaAds(preset)
+  const [trendDays, setTrendDays] = useState(30)
+  const daily = useMetaDaily(trendDays)
+  const s = meta.summary
+
+  const fmtMoney = (v) => v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  const fmtNum = (v) => v == null ? '—' : Number(v).toLocaleString()
+  const fmtPct = (v) => v == null ? '—' : `${Number(v).toFixed(2)}%`
+
+  return (
+    <div className="space-y-6">
+      {/* Header + period toggle */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
+          <div>
+            <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Overview</div>
+            <p className="text-sm text-stone-600 mt-1">Live Meta Ads performance across all campaigns.</p>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {['today', 'last_7d', 'last_30d', 'last_90d'].map(p => (
+              <button key={p} onClick={() => setPreset(p)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: preset === p ? META_BLUE : 'rgba(24,119,242,0.08)',
+                  color: preset === p ? 'white' : META_BLUE,
+                  border: '1px solid rgba(24,119,242,0.25)',
+                }}>
+                {p === 'today' ? 'Today' : p === 'last_7d' ? '7 Days' : p === 'last_30d' ? '30 Days' : 'All Time'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Meta Ads Performance tiles */}
+        <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-6 mb-3">Meta Ads Performance</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <MetaTile label="Spend" value={fmtMoney(s?.totalSpend)} sub="Total ad spend" loading={meta.loading} />
+          <MetaTile label="CPM" value={fmtMoney(s?.avgCpm)} sub="Cost / 1,000 impr" loading={meta.loading} />
+          <MetaTile label="Total CTR" value={fmtPct(s?.avgCtr)} sub="All clicks ÷ impr" loading={meta.loading} />
+          <MetaTile label="Link Clicks" value={fmtNum(s?.totalClicks)} sub="Clicks to landing" loading={meta.loading} />
+          <MetaTile label="Impressions" value={fmtNum(s?.totalImpressions)} sub={`Reach: ${fmtNum(s?.totalReach)}`} loading={meta.loading} />
+          <MetaTile label="Registrations" value={fmtNum(s?.totalRegistrations)} sub="Complete registrations" loading={meta.loading} />
+        </div>
+
+        {/* Booked Calls & Conversions */}
+        <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-8 mb-3">Booked Calls & Conversions</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MetaTile label="Custom Conversions" value={fmtNum(s?.totalRegistrations)} sub="Complete registrations" loading={meta.loading} />
+          <MetaTile label="Paid Leads" value={fmtNum(s?.totalLeads)} sub="Meta lead events" loading={meta.loading} />
+          <MetaAwaitingTile label="Booked Calls" awaiting="Cal.com" />
+          <MetaAwaitingTile label="Cost / Booked Call" awaiting="Cal.com" />
+        </div>
+      </div>
+
+      {/* 30-Day Trend — spend + clicks */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
+          <div>
+            <div className="display-font text-xl font-medium text-stone-900">Daily Trend</div>
+            <p className="text-sm text-stone-600 mt-1">Daily spend and link clicks over time.</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => setTrendDays(d)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: trendDays === d ? META_BLUE : 'rgba(24,119,242,0.08)',
+                  color: trendDays === d ? 'white' : META_BLUE,
+                  border: '1px solid rgba(24,119,242,0.25)',
+                }}>
+                {d} Days
+              </button>
+            ))}
+          </div>
+        </div>
+        {daily.loading ? (
+          <div className="h-[300px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : daily.series.length === 0 ? (
+          <div className="h-[300px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={daily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#9c96a8' }} tickFormatter={(v) => `$${v}`} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#9c96a8' }} />
+              <RTooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                formatter={(value, name) => name === 'spend' ? [`$${value}`, 'Spend'] : [value, 'Link Clicks']}
+              />
+              <Area yAxisId="left" type="monotone" dataKey="spend" stroke={META_BLUE} fill="rgba(24,119,242,0.12)" strokeWidth={2} />
+              <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="#10B981" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Daily Spend bar chart */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">Daily Spend</div>
+        <p className="text-sm text-stone-600 mb-4">Spend per day across all campaigns.</p>
+        {daily.loading ? (
+          <div className="h-[240px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : daily.series.length === 0 ? (
+          <div className="h-[240px] flex items-center justify-center text-stone-400 text-sm">No daily data yet</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={daily.series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: '#9c96a8' }} tickFormatter={(v) => `$${v}`} />
+              <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} formatter={(v) => [`$${v}`, 'Spend']} />
+              <Bar dataKey="spend" fill={META_BLUE} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Cost Per Booked Call trend — awaiting Cal.com */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">Cost Per Booked Call Trend</div>
+        <p className="text-sm text-stone-600 mb-4">Cumulative spend ÷ cumulative bookings over time.</p>
+        <div className="h-[200px] flex flex-col items-center justify-center text-center border-2 border-dashed border-stone-200 rounded-lg">
+          <Clock className="w-5 h-5 text-stone-300 mb-2" />
+          <div className="text-sm font-medium text-stone-500">Awaiting Cal.com integration</div>
+          <div className="text-xs text-stone-400 mt-1 max-w-sm">Booking data will appear here once Cal.com is connected, enabling cost-per-booked-call tracking.</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MetaTile({ label, value, sub, loading }) {
+  return (
+    <div className="border border-stone-200 rounded-lg p-4" style={{ background: 'rgba(24,119,242,0.02)' }}>
+      <div className="mono-font text-[10px] uppercase tracking-[0.12em] font-semibold text-stone-500 mb-2">{label}</div>
+      {loading ? (
+        <div className="h-7 flex items-center"><Loader2 className="w-4 h-4 animate-spin text-stone-300" /></div>
+      ) : (
+        <div className="display-font text-2xl font-medium" style={{ color: META_BLUE }}>{value}</div>
+      )}
+      {sub && <div className="text-[10px] text-stone-400 mt-1">{sub}</div>}
+    </div>
+  )
+}
+
+function MetaAwaitingTile({ label, awaiting }) {
+  return (
+    <div className="border border-stone-200 rounded-lg p-4 bg-stone-50/40">
+      <div className="mono-font text-[10px] uppercase tracking-[0.12em] font-semibold text-stone-500 mb-2">{label}</div>
+      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md mono-font text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#6639A6', background: 'rgba(102,57,166,0.08)' }}>
+        <Clock className="w-3 h-3" /> Awaiting {awaiting}
+      </div>
     </div>
   )
 }
