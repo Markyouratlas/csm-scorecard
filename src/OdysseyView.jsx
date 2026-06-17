@@ -893,28 +893,28 @@ function StrategicInitiatives({ data, targets, openModal }) {
       metric: 'Cost / Lead',
       value: siCostPerLead != null ? `$${siCostPerLead.toLocaleString()}` : null,
       deptKey: 'marketing',
-      info: 'Meta ad spend ÷ Meta leads, last 7 days (falls back to scorecard).',
+      info: 'Meta ad spend ÷ Meta "lead" events, last 7 days. Source: Meta Ads API. Note: counts Meta\'s strict lead event (not form registrations).',
     },
     {
       name: 'Sales Velocity',
       metric: 'Close Rate',
       value: w.closeRatePct != null ? `${w.closeRatePct}%` : null,
       deptKey: 'sales',
-      info: 'Closes ÷ demos completed this week.',
+      info: 'Won deals ÷ (won + lost) this month. Source: AE weekly scorecards.',
     },
     {
       name: 'Engineering Output',
       metric: 'PRs Deployed',
       value: w.prsDeployedWeek != null ? `${w.prsDeployedWeek}` : null,
       deptKey: 'product',
-      info: 'Pull requests deployed to production this week by all engineers.',
+      info: 'Pull requests deployed to production this week, summed across all engineers. Source: Engineer weekly scorecards.',
     },
     {
       name: 'Activation Loop',
       metric: 'Closes',
       value: w.trialSignupsWeek != null ? `${w.trialSignupsWeek}` : null,
       deptKey: 'growth',
-      info: 'Total Closes / Trial Signups this week across AE + Growth.',
+      info: 'Total closes this week across AE + Growth. Source: weekly scorecards.',
     },
   ]
 
@@ -929,6 +929,17 @@ function StrategicInitiatives({ data, targets, openModal }) {
                 style={{ color: dept.color }}>
                 {dept.name}
               </div>
+              {init.info && (
+                <div className="group relative">
+                  <Info className="w-3.5 h-3.5 text-stone-300 hover:text-stone-500 cursor-help transition-colors" />
+                  <div
+                    role="tooltip"
+                    className="pointer-events-none absolute bottom-full right-0 mb-2 w-[240px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 normal-case tracking-normal font-normal"
+                  >
+                    {init.info}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="display-text text-lg font-medium text-stone-900 mb-2">{init.name}</div>
             <div className="flex items-end justify-between gap-2">
