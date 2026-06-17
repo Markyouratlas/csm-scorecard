@@ -3,7 +3,7 @@ import { supabase } from '../supabase.js'
 
 // Reads the daily time-series table and shapes it for charts.
 // Aggregates across ALL campaigns per calendar day.
-export function useMetaDaily(days = 30) {
+export function useMetaDaily(days = 30, refreshKey = 0) {
   const [state, setState] = useState({ loading: true, error: null, series: [], totals: null })
 
   const load = useCallback(async () => {
@@ -54,7 +54,7 @@ export function useMetaDaily(days = 30) {
       console.error('useMetaDaily:', e)
       setState({ loading: false, error: e, series: [], totals: null })
     }
-  }, [days])
+  }, [days, refreshKey])
 
   useEffect(() => { load() }, [load])
   return { ...state, refresh: load }

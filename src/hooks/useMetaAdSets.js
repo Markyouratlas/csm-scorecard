@@ -15,7 +15,7 @@ function actionValue(actions, type) {
 }
 
 // Reads ad-set daily rows over a window, aggregates per ad set.
-export function useMetaAdSets(days = 30) {
+export function useMetaAdSets(days = 30, refreshKey = 0) {
   const [state, setState] = useState({ loading: true, error: null, adSets: [], groups: null })
 
   const load = useCallback(async () => {
@@ -91,7 +91,7 @@ export function useMetaAdSets(days = 30) {
       console.error('useMetaAdSets:', e)
       setState({ loading: false, error: e, adSets: [], groups: null })
     }
-  }, [days])
+  }, [days, refreshKey])
 
   useEffect(() => { load() }, [load])
   return { ...state, refresh: load }

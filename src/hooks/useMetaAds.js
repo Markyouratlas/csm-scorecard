@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase.js'
 
-export function useMetaAds(datePreset = 'last_7d') {
+export function useMetaAds(datePreset = 'last_7d', refreshKey = 0) {
   const [state, setState] = useState({ loading: true, error: null, rows: [], summary: null })
 
   const load = useCallback(async () => {
@@ -63,7 +63,7 @@ export function useMetaAds(datePreset = 'last_7d') {
       console.error('useMetaAds:', e)
       setState({ loading: false, error: e, rows: [], summary: null })
     }
-  }, [datePreset])
+  }, [datePreset, refreshKey])
 
   useEffect(() => { load() }, [load])
 
