@@ -256,7 +256,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       {/* Annual metrics that depend on ProfitWell */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1" awaiting="Meta" openModal={openModal} />
+        <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1" awaiting="Attribution" openModal={openModal} />
         <NumberBlock metricKey="gross-margin" label="Gross Margin" value={null} suffix="%" awaiting="Finance" openModal={openModal} />
         <NumberBlock metricKey="net-rev-retention" label="Net Rev Retention" value={nrr?.actual} format="percent" awaiting={nrr?.actual == null ? 'ProfitWell' : undefined} source={nrr?.source} openModal={openModal} />
       </div>
@@ -292,9 +292,9 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} liveValue={liveArpu} openModal={openModal} />
         <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting="Finance" openModal={openModal} />
-        <MetricCard metricKey="cac" label="CAC" awaiting="Meta" openModal={openModal} />
-        <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Meta" openModal={openModal} />
-        <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting="Meta" openModal={openModal} />
+        <MetricCard metricKey="cac" label="CAC" awaiting="Attribution" openModal={openModal} />
+        <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Attribution" openModal={openModal} />
+        <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting="Attribution" openModal={openModal} />
         <MetricCard metricKey="churn-pct" label="Churn %" value={churn?.actual} format="percent" source={churn?.source} openModal={openModal} />
       </div>
 
@@ -575,6 +575,11 @@ function DailyView({ data, targets, canEdit, openModal }) {
   const metaToday = useMetaAds('today')
   const metaSpendToday = metaToday.summary?.totalSpend ?? null
   const metaLeadsToday = metaToday.summary?.totalLeads ?? null
+  const metaClicksToday = metaToday.summary?.totalClicks ?? null
+  const cpcTodayValue = (metaSpendToday != null && metaClicksToday)
+    ? Math.round((metaSpendToday / metaClicksToday) * 100) / 100
+    : td.cpcToday
+  const cpcTodaySource = (metaSpendToday != null && metaClicksToday) ? 'meta' : null
   const adSpendTodayValue = metaSpendToday ?? td.adSpendToday
   const adSpendTodaySource = metaSpendToday != null ? 'meta' : null
   const paidLeadsTodayValue = metaLeadsToday ?? td.paidLeadsToday
@@ -624,7 +629,7 @@ function DailyView({ data, targets, canEdit, openModal }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <DailyTile label="Ad Spend" value={adSpendTodayValue} prefix="$" color={DEPTS.marketing.color} hint="today" source={adSpendTodaySource} />
-        <DailyTile label="Cost / Click" value={td.cpcToday} prefix="$" color={DEPTS.marketing.color} hint="today" awaiting={td.cpcToday == null && 'Click tracking'} />
+        <DailyTile label="Cost / Click" value={cpcTodayValue} prefix="$" color={DEPTS.marketing.color} hint="today" source={cpcTodaySource} awaiting={cpcTodayValue == null && 'Click tracking'} />
         <DailyTile label="Paid Leads" value={paidLeadsTodayValue} color={DEPTS.marketing.color} hint="today" source={paidLeadsTodaySource} />
         <DailyTile label="Organic Leads" value={td.organicLeadsToday} color={DEPTS.marketing.color} hint="today" />
         <DailyTile label="Website Visitors" value={td.websiteVisitorsToday} color={DEPTS.marketing.color} hint="today" />
