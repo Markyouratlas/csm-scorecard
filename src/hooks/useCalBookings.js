@@ -9,8 +9,6 @@ const EVENT_TYPE_LABELS = {
   'follow-up-call': 'Follow Up',
 }
 
-const AD_DRIVEN_SLUG = 'atlas-blue-action-call'
-
 function labelForSlug(slug) {
   return EVENT_TYPE_LABELS[slug] || slug || 'Unknown'
 }
@@ -46,6 +44,14 @@ function torontoMidnightDaysAgo(daysAgo) {
   return new Date(base.getTime() + offsetMs)
 }
 
+// Returns the America/Toronto calendar date (YYYY-MM-DD) for an ISO timestamp,
+// so per-day buckets align with the Toronto business day (matching the window).
+function torontoDateStr(iso) {
+  if (!iso) return null
+  // en-CA formats as YYYY-MM-DD; timeZone shifts to Toronto wall-clock first.
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
+}
+
 // Reads cal_bookings over a window (by when the booking was MADE) and aggregates
 // booked-call counts for the dashboard.
 export function useCalBookings(days = 30, refreshKey = 0) {
@@ -59,6 +65,8 @@ export function useCalBookings(days = 30, refreshKey = 0) {
     series: [],
     paidSeries: [],
     cancelledCount: 0,
+    untaggedSlugs: [],
+    adDrivenSlugs: [],
   })
 
   const load = useCallback(async () => {
@@ -68,6 +76,18 @@ export function useCalBookings(days = 30, refreshKey = 0) {
       // browser timezone — otherwise "Today" shifts per-viewer and misses bookings.
       const since = torontoMidnightDaysAgo(days)
       const sinceISO = since.toISOString() // created_at_cal is timestamptz
+
+      // Classify ad-driven vs organic from the cal_event_type_config table
+      // (not a hardcoded slug), so new event types can be tagged by Nick.
+      const { data: cfgData, error: cfgError } = await supabase
+        .from('cal_event_type_config')
+        .select('slug, label, is_ad_driven')
+      if (cfgError) throw cfgError
+      const cfg = cfgData || []
+      // Set of slugs marked ad-driven, and a label override map, from the config.
+      const adDrivenSet = new Set(cfg.filter(c => c.is_ad_driven).map(c => c.slug))
+      const configuredSlugs = new Set(cfg.map(c => c.slug))
+      const cfgLabel = new Map(cfg.map(c => [c.slug, c.label]))
 
       const { data, error } = await supabase
         .from('cal_bookings')
@@ -97,15 +117,15 @@ export function useCalBookings(days = 30, refreshKey = 0) {
       for (const row of rows) {
         const slug = row.event_type_slug || null
         if (!bySlug.has(slug)) {
-          bySlug.set(slug, { slug, label: labelForSlug(slug), count: 0 })
+          bySlug.set(slug, { slug, label: (cfgLabel.get(slug) || labelForSlug(slug)), count: 0, isAdDriven: adDrivenSet.has(slug) })
         }
         bySlug.get(slug).count++
 
-        const day = row.created_at_cal ? row.created_at_cal.split('T')[0] : null
+        const day = torontoDateStr(row.created_at_cal)
         if (day) byDay.set(day, (byDay.get(day) || 0) + 1)
 
-        // Only Atlas Blue action calls are ad-driven; everything else is organic.
-        if (slug === AD_DRIVEN_SLUG) {
+        // Ad-driven status comes from cal_event_type_config; everything else is organic.
+        if (adDrivenSet.has(slug)) {
           paidCount++
           if (day) paidByDay.set(day, (paidByDay.get(day) || 0) + 1)
         }
@@ -117,6 +137,11 @@ export function useCalBookings(days = 30, refreshKey = 0) {
 
       const byEventType = [...bySlug.values()].sort((a, b) => b.count - a.count)
 
+      // Slugs present in bookings but NOT in the config — new event types Nick
+      // should classify. Exclude null (a null slug can't be tagged by slug).
+      const untaggedSlugs = [...bySlug.keys()].filter(s => s !== null && !configuredSlugs.has(s))
+      const adDrivenSlugs = [...adDrivenSet]
+
       const series = [...byDay.entries()]
         .map(([date, count]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date))
@@ -125,10 +150,10 @@ export function useCalBookings(days = 30, refreshKey = 0) {
         .map(([date, count]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date))
 
-      setState({ loading: false, error: null, bookedCalls, paidCount, organicCount, byEventType, series, paidSeries, cancelledCount })
+      setState({ loading: false, error: null, bookedCalls, paidCount, organicCount, byEventType, series, paidSeries, cancelledCount, untaggedSlugs, adDrivenSlugs })
     } catch (e) {
       console.error('useCalBookings:', e)
-      setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0 })
+      setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0, untaggedSlugs: [], adDrivenSlugs: [] })
     }
   }, [days, refreshKey])
 

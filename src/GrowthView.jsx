@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { useMetaAdSets } from './hooks/useMetaAdSets.js'
 import { useMetaLastSync } from './hooks/useMetaLastSync.js'
 import { useCalBookings } from './hooks/useCalBookings.js'
+import { useCalEventTypes } from './hooks/useCalEventTypes.js'
 import { supabase } from './supabase.js'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
@@ -668,7 +669,7 @@ function MetaLiveSection({ refreshKey = 0 }) {
         ) : (
           <div className="space-y-2">
             {cal.byEventType.map(et => {
-              const isPaid = et.slug === 'atlas-blue-action-call'
+              const isPaid = et.isAdDriven
               return (
                 <div key={et.slug || 'unknown'} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
                   <span className="flex items-center gap-2">
@@ -687,6 +688,86 @@ function MetaLiveSection({ refreshKey = 0 }) {
           </div>
         )}
       </div>
+
+      {/* Event Type Settings — Nick tags which event types are ad-driven */}
+      <EventTypeSettings refreshKey={refreshKey} />
+    </div>
+  )
+}
+
+function EventTypeSettings({ refreshKey = 0 }) {
+  const [open, setOpen] = useState(false)
+  const { types, loading, saveType } = useCalEventTypes(refreshKey)
+  const [savingSlug, setSavingSlug] = useState(null)
+
+  const toggle = async (t) => {
+    if (t.isNull) return
+    setSavingSlug(t.slug)
+    try {
+      await saveType(t.slug, { isAdDriven: !t.isAdDriven })
+    } catch (e) {
+      console.error('saveType failed:', e)
+    } finally {
+      setSavingSlug(null)
+    }
+  }
+
+  const untaggedCount = types.filter(t => !t.isNull && !t.isConfigured).length
+
+  return (
+    <div className="bg-white border border-stone-200 p-6">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {open ? <ChevronDown className="w-4 h-4 text-stone-500" /> : <ChevronRight className="w-4 h-4 text-stone-500" />}
+          <span className="display-font text-xl font-medium text-stone-900">Event Type Settings</span>
+        </div>
+        {untaggedCount > 0 && (
+          <span className="mono-font text-[9px] uppercase tracking-wider px-2 py-1 rounded" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>
+            {untaggedCount} new — needs tagging
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-4">
+          <p className="text-sm text-stone-600 mb-4">Tag which event types are ad-driven (count toward paid booked calls and cost-per-booked-call). Everything untagged is treated as organic.</p>
+          {loading ? (
+            <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+          ) : (
+            <div className="space-y-2">
+              {types.map(t => (
+                <div key={t.slug} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium text-stone-700 truncate">{t.label || t.slug}</span>
+                    <span className="mono-font text-[10px] text-stone-400">{t.count}</span>
+                    {!t.isNull && !t.isConfigured && (
+                      <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>New</span>
+                    )}
+                    {t.isNull && (
+                      <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 bg-stone-100 text-stone-400">No slug</span>
+                    )}
+                  </div>
+                  {t.isNull ? (
+                    <span className="mono-font text-[9px] uppercase tracking-wider text-stone-300 shrink-0">Not taggable</span>
+                  ) : (
+                    <button
+                      onClick={() => toggle(t)}
+                      disabled={savingSlug === t.slug}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mono-font text-[9px] uppercase tracking-wider font-semibold transition-all disabled:opacity-50 shrink-0"
+                      style={ t.isAdDriven
+                        ? { background: 'rgba(24,119,242,0.1)', color: META_BLUE, border: '1px solid rgba(24,119,242,0.3)' }
+                        : { background: '#f5f5f4', color: '#78716c', border: '1px solid #e7e5e4' } }
+                    >
+                      {savingSlug === t.slug ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      {t.isAdDriven ? 'Ad-driven' : 'Organic'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
