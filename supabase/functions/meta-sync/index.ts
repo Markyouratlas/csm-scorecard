@@ -18,12 +18,18 @@ async function runSync(token: string) {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    // 1. Fetch all campaigns
-    const campUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/campaigns?fields=id,name,status&limit=100&access_token=${token}`
-    const campRes = await fetch(campUrl)
-    const campJson = await campRes.json()
-    if (campJson.error) throw new Error(`Meta API: ${campJson.error.message}`)
-    const campaigns = campJson.data || []
+    // 1. Fetch all campaigns (paginated, so we capture more than the first page).
+    const campaigns = []
+    let campNext = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/campaigns?fields=id,name,status&limit=500&access_token=${token}`
+    let campPages = 0
+    while (campNext && campPages < 20) {
+      const campRes = await fetch(campNext)
+      const campJson = await campRes.json()
+      if (campJson.error) throw new Error(`Meta API: ${campJson.error.message}`)
+      for (const c of (campJson.data || [])) campaigns.push(c)
+      campNext = campJson.paging?.next || null
+      campPages++
+    }
     // Map campaign_id -> status so account-level insight rows (which lack status)
     // can still carry the real delivery status for Live/Paused badges.
     const statusById = new Map(campaigns.map(c => [c.id, c.status]))
