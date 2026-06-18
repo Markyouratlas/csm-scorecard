@@ -24,32 +24,42 @@ async function runSync(token: string) {
     const campJson = await campRes.json()
     if (campJson.error) throw new Error(`Meta API: ${campJson.error.message}`)
     const campaigns = campJson.data || []
+    // Map campaign_id -> status so account-level insight rows (which lack status)
+    // can still carry the real delivery status for Live/Paused badges.
+    const statusById = new Map(campaigns.map(c => [c.id, c.status]))
 
-    // 2. For each campaign + date preset, fetch insights directly
+    // 2. For each date preset, fetch account-level campaign insights (paginated).
+    // level=campaign returns one row per campaign with campaign_id/campaign_name as
+    // fields, so we no longer loop per campaign (1 paginated call per preset, not 4×N).
     const rows = []
     for (const preset of DATE_PRESETS) {
-      for (const campaign of campaigns) {
-        const insightUrl = `https://graph.facebook.com/${API_VERSION}/${campaign.id}/insights?fields=${FIELDS}&date_preset=${preset}&access_token=${token}`
-        const insightRes = await fetch(insightUrl)
+      let presetNext = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/insights?fields=${FIELDS},campaign_id,campaign_name&level=campaign&date_preset=${preset}&limit=500&access_token=${token}`
+      let presetPages = 0
+      while (presetNext && presetPages < 20) {
+        const insightRes = await fetch(presetNext)
         const insightJson = await insightRes.json()
-        if (insightJson.error) throw new Error(`Meta insights API (${campaign.id}): ${insightJson.error.message}`)
+        if (insightJson.error) throw new Error(`Meta insights API (${preset}): ${insightJson.error.message}`)
 
-        const insight = insightJson.data?.[0] || {}
-        rows.push({
-          fetch_date: new Date().toISOString().split('T')[0],
-          date_preset: preset,
-          campaign_id: campaign.id,
-          campaign_name: campaign.name,
-          status: campaign.status,
-          spend: insight.spend ? parseFloat(insight.spend) : null,
-          impressions: insight.impressions ? parseInt(insight.impressions) : null,
-          reach: insight.reach ? parseInt(insight.reach) : null,
-          cpm: insight.cpm ? parseFloat(insight.cpm) : null,
-          ctr: insight.ctr ? parseFloat(insight.ctr) : null,
-          inline_link_clicks: insight.inline_link_clicks ? parseInt(insight.inline_link_clicks) : null,
-          inline_link_click_ctr: insight.inline_link_click_ctr ? parseFloat(insight.inline_link_click_ctr) : null,
-          actions: insight.actions || null,
-        })
+        for (const insight of (insightJson.data || [])) {
+          rows.push({
+            fetch_date: new Date().toISOString().split('T')[0],
+            date_preset: preset,
+            campaign_id: insight.campaign_id,
+            campaign_name: insight.campaign_name,
+            status: statusById.get(insight.campaign_id) ?? null,
+            spend: insight.spend ? parseFloat(insight.spend) : null,
+            impressions: insight.impressions ? parseInt(insight.impressions) : null,
+            reach: insight.reach ? parseInt(insight.reach) : null,
+            cpm: insight.cpm ? parseFloat(insight.cpm) : null,
+            ctr: insight.ctr ? parseFloat(insight.ctr) : null,
+            inline_link_clicks: insight.inline_link_clicks ? parseInt(insight.inline_link_clicks) : null,
+            inline_link_click_ctr: insight.inline_link_click_ctr ? parseFloat(insight.inline_link_click_ctr) : null,
+            actions: insight.actions || null,
+          })
+        }
+
+        presetNext = insightJson.paging?.next || null
+        presetPages++
       }
     }
 
@@ -61,18 +71,21 @@ async function runSync(token: string) {
     const fmt = (d: Date) => d.toISOString().split('T')[0]
     const timeRange = `{"since":"${fmt(since)}","until":"${fmt(today)}"}`
 
+    // Single account-level paginated call (level=campaign, time_increment=1) instead of
+    // a per-campaign loop; each row carries campaign_id/campaign_name.
     const dailyRows = []
-    for (const campaign of campaigns) {
-      const dailyUrl = `https://graph.facebook.com/${API_VERSION}/${campaign.id}/insights?fields=${FIELDS}&time_range=${encodeURIComponent(timeRange)}&time_increment=1&limit=500&access_token=${token}`
-      const dailyRes = await fetch(dailyUrl)
+    let dailyNext = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/insights?fields=${FIELDS},campaign_id,campaign_name&level=campaign&time_range=${encodeURIComponent(timeRange)}&time_increment=1&limit=500&access_token=${token}`
+    let dailyPages = 0
+    while (dailyNext && dailyPages < 20) {
+      const dailyRes = await fetch(dailyNext)
       const dailyJson = await dailyRes.json()
-      if (dailyJson.error) throw new Error(`Meta daily API (${campaign.id}): ${dailyJson.error.message}`)
+      if (dailyJson.error) throw new Error(`Meta daily API: ${dailyJson.error.message}`)
 
       for (const day of (dailyJson.data || [])) {
         dailyRows.push({
-          campaign_id: campaign.id,
-          campaign_name: campaign.name,
-          status: campaign.status,
+          campaign_id: day.campaign_id,
+          campaign_name: day.campaign_name,
+          status: statusById.get(day.campaign_id) ?? null,
           date_start: day.date_start,
           spend: day.spend ? parseFloat(day.spend) : null,
           impressions: day.impressions ? parseInt(day.impressions) : null,
@@ -84,6 +97,9 @@ async function runSync(token: string) {
           actions: day.actions || null,
         })
       }
+
+      dailyNext = dailyJson.paging?.next || null
+      dailyPages++
     }
 
     // Stamp completion time so "last synced" reflects when data actually landed.
