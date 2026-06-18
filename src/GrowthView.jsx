@@ -135,7 +135,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
             {syncing ? 'Syncing…' : 'Sync Meta now'}
           </button>
           <span className="mono-font text-[9px] uppercase tracking-wider text-stone-400 text-right">
-            {syncing ? 'Pulling fresh data · up to ~2 min' : lastSync ? `Meta synced ${timeAgo(lastSync)}` : ''}
+            {syncing ? 'Pulling fresh data · up to ~2 min' : lastSync ? `Meta synced ${timeAgo(lastSync)} · auto every 3h` : 'Auto-syncs every 3h'}
           </span>
         </div>
       </div>
