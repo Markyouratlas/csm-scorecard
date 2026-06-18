@@ -44,7 +44,23 @@ async function runSync(apiKey: string) {
           'cal-api-version': CAL_API_VERSION,
         },
       })
-      const json = await res.json()
+
+      // Read as text first so a non-JSON error page (rate limit, 5xx, "A server
+      // error occurred") doesn't crash JSON.parse. If the response isn't OK or
+      // isn't JSON, stop gracefully — the cursor from the previous page is already
+      // saved, so the next run resumes from here.
+      const bodyText = await res.text()
+      if (!res.ok) {
+        console.warn(`cal-sync: stopping early, Cal.com returned HTTP ${res.status}: ${bodyText.slice(0, 200)}`)
+        break
+      }
+      let json: any
+      try {
+        json = JSON.parse(bodyText)
+      } catch (_) {
+        console.warn(`cal-sync: stopping early, non-JSON response: ${bodyText.slice(0, 200)}`)
+        break
+      }
       if (json.status && json.status !== 'success') {
         throw new Error(`Cal.com API: ${JSON.stringify(json.error || json)}`)
       }
@@ -112,6 +128,9 @@ async function runSync(apiKey: string) {
 
       // Hard safety cap — never run away.
       if (pagesDone > 500) break
+
+      // Gentle pacing to stay well under Cal.com's 120 req/min rate limit.
+      await new Promise(r => setTimeout(r, 250))
     }
 
     const result = { ok: true, pagesThisRun, cursorRemaining: cursor, seedComplete: (cursor === null) }
