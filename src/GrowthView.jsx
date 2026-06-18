@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { useMetaAdSets } from './hooks/useMetaAdSets.js'
+import { useMetaLastSync } from './hooks/useMetaLastSync.js'
+import { supabase } from './supabase.js'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -23,6 +25,33 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
   } = useScorecard(profile.id, propWeekKey, BLANK_GROWTH_WEEK, ['experiments'])
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
+  const [metaRefreshKey, setMetaRefreshKey] = useState(0)
+  const [syncing, setSyncing] = useState(false)
+  const { lastSync } = useMetaLastSync(metaRefreshKey)
+
+  const handleMetaSync = async () => {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      // The function now blocks until the sync completes (~25-60s) and returns the result.
+      // So awaiting the fetch IS waiting for the data to land.
+      const res = await fetch('https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/meta-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const result = await res.json()
+      if (result.ok) {
+        // Bump the refresh key so all Meta hooks + the "last synced" indicator re-fetch.
+        setMetaRefreshKey(k => k + 1)
+      } else {
+        console.error('Meta sync returned an error:', result.error)
+      }
+    } catch (e) {
+      console.error('Manual Meta sync failed:', e)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   if (loading || !weekData) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
@@ -93,12 +122,28 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
         />
       </div>
 
-      <SectionTabs sections={sections} active={section} onChange={setSection} />
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <SectionTabs sections={sections} active={section} onChange={setSection} />
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <button
+            onClick={handleMetaSync}
+            disabled={syncing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all disabled:opacity-60"
+            style={{ background: 'rgba(24,119,242,0.08)', color: '#1877F2', border: '1px solid rgba(24,119,242,0.25)' }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Sync Meta now'}
+          </button>
+          <span className="mono-font text-[9px] uppercase tracking-wider text-stone-400 text-right">
+            {syncing ? 'Pulling fresh data · up to ~2 min' : lastSync ? `Meta synced ${timeAgo(lastSync)}` : ''}
+          </span>
+        </div>
+      </div>
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
-        {section === 'meta-live' && <MetaLiveSection />}
-        {section === 'ad-sets' && <AdSetsSection />}
+        {section === 'meta-live' && <MetaLiveSection refreshKey={metaRefreshKey} />}
+        {section === 'ad-sets' && <AdSetsSection refreshKey={metaRefreshKey} />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'channels' && <ChannelsSection weekData={weekData} update={update} />}
         {section === 'experiments' && <ExperimentsSection weekData={weekData} update={update} />}
@@ -447,11 +492,11 @@ function NotesSection({ weekData, update }) {
 
 const META_BLUE = '#1877F2'
 
-function MetaLiveSection() {
+function MetaLiveSection({ refreshKey = 0 }) {
   const [preset, setPreset] = useState('last_7d')
-  const meta = useMetaAds(preset)
+  const meta = useMetaAds(preset, refreshKey)
   const [trendDays, setTrendDays] = useState(30)
-  const daily = useMetaDaily(trendDays)
+  const daily = useMetaDaily(trendDays, refreshKey)
   const s = meta.summary
 
   const fmtMoney = (v) => v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
@@ -610,9 +655,9 @@ function MetaAwaitingTile({ label, awaiting }) {
   )
 }
 
-function AdSetsSection() {
+function AdSetsSection({ refreshKey = 0 }) {
   const [days, setDays] = useState(30)
-  const { adSets, groups, loading } = useMetaAdSets(days)
+  const { adSets, groups, loading } = useMetaAdSets(days, refreshKey)
 
   const fmtMoney = (v) => v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
   const fmtPct = (v) => v == null ? '—' : `${Number(v).toFixed(2)}%`
@@ -764,4 +809,17 @@ function AudienceStat({ label, value }) {
       <div className="display-font text-xl font-medium" style={{ color: META_BLUE }}>{value}</div>
     </div>
   )
+}
+
+function timeAgo(iso) {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  const secs = Math.floor((Date.now() - then) / 1000)
+  if (secs < 60) return 'just now'
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
