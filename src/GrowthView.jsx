@@ -5,6 +5,7 @@ import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { useMetaAdSets } from './hooks/useMetaAdSets.js'
 import { useMetaLastSync } from './hooks/useMetaLastSync.js'
+import { useCalBookings } from './hooks/useCalBookings.js'
 import { supabase } from './supabase.js'
 import { useScorecard } from './useScorecard'
 import { useTargets } from './useTargets'
@@ -33,18 +34,26 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
     if (syncing) return
     setSyncing(true)
     try {
-      // The function now blocks until the sync completes (~25-60s) and returns the result.
-      // So awaiting the fetch IS waiting for the data to land.
-      const res = await fetch('https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/meta-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const result = await res.json()
-      if (result.ok) {
-        // Bump the refresh key so all Meta hooks + the "last synced" indicator re-fetch.
+      // Fire Meta + Cal syncs in parallel; both block until their data lands.
+      // Cal uses mode=recent (fast: ~9s, walks upcoming/recurring/unconfirmed).
+      const [metaRes, calRes] = await Promise.all([
+        fetch('https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/meta-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        fetch('https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/cal-sync?mode=recent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ])
+      const metaResult = await metaRes.json().catch(() => ({ ok: false, error: 'meta: bad response' }))
+      const calResult = await calRes.json().catch(() => ({ ok: false, error: 'cal: bad response' }))
+      if (!metaResult.ok) console.error('Meta sync returned an error:', metaResult.error)
+      if (!calResult.ok) console.error('Cal sync returned an error:', calResult.error)
+      // Bump the refresh key if EITHER succeeded so the dashboard re-fetches the
+      // data that did land. refreshKey threads into both Meta hooks and useCalBookings.
+      if (metaResult.ok || calResult.ok) {
         setMetaRefreshKey(k => k + 1)
-      } else {
-        console.error('Meta sync returned an error:', result.error)
       }
     } catch (e) {
       console.error('Manual Meta sync failed:', e)
@@ -132,10 +141,10 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
             style={{ background: 'rgba(24,119,242,0.08)', color: '#1877F2', border: '1px solid rgba(24,119,242,0.25)' }}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing…' : 'Sync Meta now'}
+            {syncing ? 'Syncing…' : 'Sync now'}
           </button>
           <span className="mono-font text-[9px] uppercase tracking-wider text-stone-400 text-right">
-            {syncing ? 'Syncing…' : lastSync ? `Meta synced ${timeAgo(lastSync)} · auto every 3h` : 'Auto-syncs every 3h'}
+            {syncing ? 'Syncing…' : lastSync ? `Synced ${timeAgo(lastSync)} · auto every 3h` : 'Auto-syncs every 3h'}
           </span>
         </div>
       </div>
@@ -499,6 +508,15 @@ function MetaLiveSection({ refreshKey = 0 }) {
   const daily = useMetaDaily(trendDays, refreshKey)
   const s = meta.summary
 
+  // Cal.com booked calls, windowed to match the Meta performance preset above.
+  const presetToDays = { today: 0, last_7d: 7, last_30d: 30, last_90d: 90 }
+  const cal = useCalBookings(presetToDays[preset] ?? 30, refreshKey)
+  // Cost per booked call = Meta spend ÷ AD-DRIVEN (Atlas Blue) booked calls ONLY.
+  // Organic bookings must never roll into ad-spend math.
+  const costPerBookedCall = (cal.paidCount > 0 && s?.totalSpend != null)
+    ? s.totalSpend / cal.paidCount
+    : null
+
   const fmtMoney = (v) => v == null ? '—' : `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
   const fmtNum = (v) => v == null ? '—' : Number(v).toLocaleString()
   const fmtPct = (v) => v == null ? '—' : `${Number(v).toFixed(2)}%`
@@ -541,10 +559,10 @@ function MetaLiveSection({ refreshKey = 0 }) {
         {/* Booked Calls & Conversions */}
         <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-8 mb-3">Booked Calls & Conversions</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetaTile label="Custom Conversions" value={fmtNum(s?.totalRegistrations)} sub="Complete registrations" loading={meta.loading} />
-          <MetaTile label="Paid Leads" value={fmtNum(s?.totalLeads)} sub="Meta lead events" loading={meta.loading} />
-          <MetaAwaitingTile label="Booked Calls" awaiting="Cal.com" />
-          <MetaAwaitingTile label="Cost / Booked Call" awaiting="Cal.com" />
+          <MetaTile label="Paid Booked Calls" value={fmtNum(cal.paidCount)} sub="Atlas Blue (ad-driven)" loading={cal.loading} />
+          <MetaTile label="Cost / Booked Call" value={fmtMoney(costPerBookedCall)} sub="Spend ÷ Atlas Blue calls" loading={cal.loading || meta.loading} />
+          <MetaTile label="Organic Booked Calls" value={fmtNum(cal.organicCount)} sub="Non-ad bookings" loading={cal.loading} />
+          <MetaTile label="Total Booked Calls" value={fmtNum(cal.bookedCalls)} sub="All bookings (via Cal.com)" loading={cal.loading} />
         </div>
       </div>
 
@@ -616,15 +634,58 @@ function MetaLiveSection({ refreshKey = 0 }) {
         )}
       </div>
 
-      {/* Cost Per Booked Call trend — awaiting Cal.com */}
+      {/* Paid Booked Calls per day (Atlas Blue / ad-driven) */}
       <div className="bg-white border border-stone-200 p-6">
-        <div className="display-font text-xl font-medium text-stone-900 mb-1">Cost Per Booked Call Trend</div>
-        <p className="text-sm text-stone-600 mb-4">Cumulative spend ÷ cumulative bookings over time.</p>
-        <div className="h-[200px] flex flex-col items-center justify-center text-center border-2 border-dashed border-stone-200 rounded-lg">
-          <Clock className="w-5 h-5 text-stone-300 mb-2" />
-          <div className="text-sm font-medium text-stone-500">Awaiting Cal.com integration</div>
-          <div className="text-xs text-stone-400 mt-1 max-w-sm">Booking data will appear here once Cal.com is connected, enabling cost-per-booked-call tracking.</div>
-        </div>
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">Paid Booked Calls Per Day</div>
+        <p className="text-sm text-stone-600 mb-4">Atlas Blue (ad-driven) bookings made per day, current window.</p>
+        {cal.loading ? (
+          <div className="h-[240px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : cal.paidSeries.length === 0 ? (
+          <div className="h-[240px] flex items-center justify-center text-stone-400 text-sm">No ad-driven bookings in this window</div>
+        ) : (
+          <div style={{ width: '100%', height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={cal.paidSeries} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: '#9c96a8' }} allowDecimals={false} />
+                <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} formatter={(v) => [v, 'Paid Booked Calls']} />
+                <Bar dataKey="count" fill={META_BLUE} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Bookings by Event Type (paid + organic, full breakdown) */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">Bookings by Event Type</div>
+        <p className="text-sm text-stone-600 mb-4">Breakdown of bookings made in the current window. Atlas Blue = ad-driven; others organic.</p>
+        {cal.loading ? (
+          <div className="h-[180px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : cal.byEventType.length === 0 ? (
+          <div className="h-[180px] flex items-center justify-center text-stone-400 text-sm">No bookings in this window</div>
+        ) : (
+          <div className="space-y-2">
+            {cal.byEventType.map(et => {
+              const isPaid = et.slug === 'atlas-blue-action-call'
+              return (
+                <div key={et.slug || 'unknown'} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-stone-700">{et.label}</span>
+                    <span className="mono-font text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={ isPaid
+                        ? { background: 'rgba(24,119,242,0.1)', color: META_BLUE }
+                        : { background: '#f5f5f4', color: '#78716c' } }>
+                      {isPaid ? 'Ad-driven' : 'Organic'}
+                    </span>
+                  </span>
+                  <span className="display-font text-lg font-medium" style={{ color: isPaid ? META_BLUE : '#57534e' }}>{et.count}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

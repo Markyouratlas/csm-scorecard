@@ -15,6 +15,37 @@ function labelForSlug(slug) {
   return EVENT_TYPE_LABELS[slug] || slug || 'Unknown'
 }
 
+// Returns the UTC Date corresponding to midnight in America/Toronto, `daysAgo`
+// calendar days before today (Toronto). Used so the dashboard window matches the
+// business day regardless of the viewer's browser timezone.
+function torontoMidnightDaysAgo(daysAgo) {
+  const TZ = 'America/Toronto'
+  // Today's Toronto calendar date as parts.
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  })
+  const [{ value: y }, , { value: m }, , { value: d }] = fmt.formatToParts(new Date())
+  // Build a UTC date for that Toronto calendar date, step back daysAgo days.
+  const base = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)))
+  base.setUTCDate(base.getUTCDate() - daysAgo)
+  // Now find what UTC instant equals 00:00 Toronto on base's date. Toronto's
+  // offset (in minutes) at that date: format the base instant in Toronto and
+  // compare to UTC wall-clock.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(base).reduce((a, p) => (a[p.type] = p.value, a), {})
+  // The wall-clock Toronto time of the `base` UTC-midnight instant tells us the offset.
+  const asTorontoMs = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour === '24' ? '0' : parts.hour), Number(parts.minute), Number(parts.second)
+  )
+  const offsetMs = base.getTime() - asTorontoMs
+  // Toronto midnight expressed as a UTC instant.
+  return new Date(base.getTime() + offsetMs)
+}
+
 // Reads cal_bookings over a window (by when the booking was MADE) and aggregates
 // booked-call counts for the dashboard.
 export function useCalBookings(days = 30, refreshKey = 0) {
@@ -33,10 +64,10 @@ export function useCalBookings(days = 30, refreshKey = 0) {
   const load = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }))
     try {
-      const since = new Date()
-      since.setDate(since.getDate() - days)
+      // Anchor the window to Toronto midnight (the business day), not the viewer's
+      // browser timezone — otherwise "Today" shifts per-viewer and misses bookings.
+      const since = torontoMidnightDaysAgo(days)
       const sinceISO = since.toISOString() // created_at_cal is timestamptz
-      // days=0 → today only; since already equals ~now, gte filter handles it.
 
       const { data, error } = await supabase
         .from('cal_bookings')
