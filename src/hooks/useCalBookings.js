@@ -9,6 +9,8 @@ const EVENT_TYPE_LABELS = {
   'follow-up-call': 'Follow Up',
 }
 
+const AD_DRIVEN_SLUG = 'atlas-blue-action-call'
+
 function labelForSlug(slug) {
   return EVENT_TYPE_LABELS[slug] || slug || 'Unknown'
 }
@@ -20,8 +22,11 @@ export function useCalBookings(days = 30, refreshKey = 0) {
     loading: true,
     error: null,
     bookedCalls: 0,
+    paidCount: 0,
+    organicCount: 0,
     byEventType: [],
     series: [],
+    paidSeries: [],
     cancelledCount: 0,
   })
 
@@ -51,8 +56,12 @@ export function useCalBookings(days = 30, refreshKey = 0) {
       const bySlug = new Map()
       // 3. Count by day (date portion of created_at_cal).
       const byDay = new Map()
+      // 3b. Count by day for AD-DRIVEN (paid) rows only — pairs with ad spend.
+      const paidByDay = new Map()
       // 4. Cancelled count (informational).
       let cancelledCount = 0
+      // 5. Paid (ad-driven) count; organic is the remainder.
+      let paidCount = 0
 
       for (const row of rows) {
         const slug = row.event_type_slug || null
@@ -64,8 +73,16 @@ export function useCalBookings(days = 30, refreshKey = 0) {
         const day = row.created_at_cal ? row.created_at_cal.split('T')[0] : null
         if (day) byDay.set(day, (byDay.get(day) || 0) + 1)
 
+        // Only Atlas Blue action calls are ad-driven; everything else is organic.
+        if (slug === AD_DRIVEN_SLUG) {
+          paidCount++
+          if (day) paidByDay.set(day, (paidByDay.get(day) || 0) + 1)
+        }
+
         if (row.status === 'cancelled') cancelledCount++
       }
+
+      const organicCount = bookedCalls - paidCount
 
       const byEventType = [...bySlug.values()].sort((a, b) => b.count - a.count)
 
@@ -73,10 +90,14 @@ export function useCalBookings(days = 30, refreshKey = 0) {
         .map(([date, count]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date))
 
-      setState({ loading: false, error: null, bookedCalls, byEventType, series, cancelledCount })
+      const paidSeries = [...paidByDay.entries()]
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+
+      setState({ loading: false, error: null, bookedCalls, paidCount, organicCount, byEventType, series, paidSeries, cancelledCount })
     } catch (e) {
       console.error('useCalBookings:', e)
-      setState({ loading: false, error: e, bookedCalls: 0, byEventType: [], series: [], cancelledCount: 0 })
+      setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0 })
     }
   }, [days, refreshKey])
 
