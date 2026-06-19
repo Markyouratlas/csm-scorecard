@@ -15,6 +15,11 @@ import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
 import { useMrrHistory } from './hooks/useMrrHistory.js'
 import { useMetaAds } from './hooks/useMetaAds.js'
+import { useCalBookings } from './hooks/useCalBookings.js'
+import { getWeekKey } from './dateUtils.js'
+import BreakdownModal from './BreakdownModal.jsx'
+import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
+import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 
 // =============================================================================
@@ -314,9 +319,62 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 //  Weekly view — the actual rollups of what was logged this week
 // =============================================================================
 
+// Lazy wrappers: the by-rep hooks only fetch when the wrapper is mounted (i.e.
+// when the user opens the breakdown), avoiding eager queries on every render.
+function DemosBreakdownModal({ weekKey, onClose }) {
+  const { rows, total, loading } = useManualDemosByRep(weekKey)
+  return (
+    <BreakdownModal
+      title="Demos Booked · This Week"
+      subtitle="Manually logged by AEs"
+      rows={rows}
+      total={total}
+      loading={loading}
+      onClose={onClose}
+    />
+  )
+}
+
+function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onClose }) {
+  const { rows, total, loading } = useCalBookingsByRep(weekKey, filter, dateField)
+  const noun = dateField === 'scheduled' ? 'Scheduled' : 'Booked'
+  const titleByFilter = {
+    all: `Total ${noun} Meetings · This Week`,
+    paid: `Paid ${noun} Meetings · This Week`,
+    organic: `Organic ${noun} Meetings · This Week`,
+  }
+  const schedSub = dateField === 'scheduled' ? 'on calendar this week' : 'booked this week'
+  const subtitleByFilter = {
+    all: `All meetings ${schedSub} (by host)`,
+    paid: `Ad-driven meetings ${schedSub} (by host)`,
+    organic: `Organic meetings ${schedSub} (by host)`,
+  }
+  return (
+    <BreakdownModal
+      title={titleByFilter[filter] || titleByFilter.all}
+      subtitle={subtitleByFilter[filter] || subtitleByFilter.all}
+      rows={rows}
+      total={total}
+      loading={loading}
+      showSplit={filter === 'all'}
+      splitMode={filter === 'all' ? 'show' : 'hide'}
+      onClose={onClose}
+    />
+  )
+}
+
 function WeeklyView({ data, targets, canEdit, openModal }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
+
+  // Cal.com booked calls for THIS scorecard week (Monday→now, Toronto), so they
+  // reconcile against the manually-logged "Demos Booked" beside them.
+  const weekKey = getWeekKey()
+  const cal = useCalBookings({ weekKey })                              // booked this week (created_at_cal, Mon→now)
+  const calSched = useCalBookings({ weekKey, dateField: 'scheduled' }) // scheduled this week (start_time, Mon–Sun)
+  // Which per-rep breakdown is open. Format: 'manual' | 'cal:<filter>:<dateField>'
+  // e.g. 'cal:all:created', 'cal:paid:scheduled'
+  const [breakdownOpen, setBreakdownOpen] = useState(null)
   const meta7d = useMetaAds('last_7d')
   const metaSpend = meta7d.summary?.totalSpend ?? null
   const metaLeads = meta7d.summary?.totalLeads ?? null
@@ -420,6 +478,7 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         title="Pipeline → revenue"
         description="Leading indicators that turn into closed business: demos, show rates, and new MRR."
       />
+      <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mb-2 mt-1">Manual &amp; Revenue</div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <NumberBlock
           metricKey="sales-calls-booked"
@@ -428,6 +487,8 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           color={DEPTS.sales.color}
           trend={t.demosBooked}
           openModal={openModal}
+          hint="manually logged"
+          onBreakdownClick={() => setBreakdownOpen('manual')}
         />
         <GaugeCard
           metricKey="show-rate"
@@ -490,6 +551,62 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           source={arpuSource}
           liveValue={liveArpu}
           openModal={openModal}
+        />
+      </div>
+
+      <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mb-2 mt-5">Scheduled for This Week · Cal.com</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <NumberBlock
+          label="Total Scheduled for This Week"
+          value={calSched.loading ? null : calSched.bookedCalls}
+          color={DEPTS.sales.color}
+          hint="on calendar this week · via Cal.com"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:all:scheduled')}
+        />
+        <NumberBlock
+          label="Paid Scheduled for This Week"
+          value={calSched.loading ? null : calSched.paidCount}
+          color={DEPTS.sales.color}
+          hint="on calendar this week · ad-driven"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:paid:scheduled')}
+        />
+        <NumberBlock
+          label="Organic Scheduled for This Week"
+          value={calSched.loading ? null : calSched.organicCount}
+          color={DEPTS.sales.color}
+          hint="on calendar this week · organic"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:organic:scheduled')}
+        />
+      </div>
+
+      <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mb-2 mt-5">Booked This Week · Cal.com</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <NumberBlock
+          label="Total Booked Meetings"
+          value={cal.loading ? null : cal.bookedCalls}
+          color={DEPTS.sales.color}
+          hint="booked this week · via Cal.com"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:all:created')}
+        />
+        <NumberBlock
+          label="Paid Booked Meetings"
+          value={cal.loading ? null : cal.paidCount}
+          color={DEPTS.sales.color}
+          hint="booked this week · ad-driven"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:paid:created')}
+        />
+        <NumberBlock
+          label="Organic Booked Meetings"
+          value={cal.loading ? null : cal.organicCount}
+          color={DEPTS.sales.color}
+          hint="booked this week · organic"
+          source="cal"
+          onBreakdownClick={() => setBreakdownOpen('cal:organic:created')}
         />
       </div>
 
@@ -562,6 +679,18 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
         <MetricCard metricKey="trial-to-paid" label="Trial → Paid" awaiting={data.awaiting?.trialToPaid} openModal={openModal} />
         <MetricCard metricKey="activation-rate" label="User Activation Rate" awaiting={data.awaiting?.activationRate} openModal={openModal} />
       </div>
+
+      {breakdownOpen === 'manual' && (
+        <DemosBreakdownModal weekKey={weekKey} onClose={() => setBreakdownOpen(null)} />
+      )}
+      {breakdownOpen?.startsWith('cal:') && (
+        <CalBreakdownModal
+          weekKey={weekKey}
+          filter={breakdownOpen.split(':')[1]}
+          dateField={breakdownOpen.split(':')[2] || 'created'}
+          onClose={() => setBreakdownOpen(null)}
+        />
+      )}
     </div>
   )
 }
@@ -994,18 +1123,42 @@ function SectionHeader({ deptKey, eyebrow, title, description }) {
   )
 }
 
-function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format, source, liveValue }) {
-  const clickable = metricKey && openModal
-  const handleClick = () => clickable && openModal(metricKey, value, liveValue)
-  const Wrapper = clickable ? 'button' : 'div'
-  const wrapperProps = clickable
-    ? { onClick: handleClick, type: 'button', className: 'card p-4 flex flex-col text-left w-full hover:shadow-md hover:border-stone-400 transition-all relative group', style: { minHeight: 170 } }
-    : { className: 'card p-4 flex flex-col relative', style: { minHeight: 170 } }
+function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, metricKey, openModal, format, source, hint, liveValue, onBreakdownClick }) {
+  const editable = metricKey && openModal
+  const breakdownable = !!onBreakdownClick
+  // Body click prefers breakdown when provided; otherwise falls back to target-edit.
+  const bodyClickable = breakdownable || editable
+  const handleBodyClick = () => {
+    if (breakdownable) onBreakdownClick()
+    else if (editable) openModal(metricKey, value, liveValue)
+  }
+  const handleKeyDown = (e) => {
+    if (bodyClickable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); handleBodyClick() }
+  }
+  // When breakdownable, the outer must be a <div> (so we can nest a real
+  // target-edit <button> inside without button-in-button). Otherwise keep the
+  // existing <button>/<div> behavior exactly.
+  const Wrapper = breakdownable ? 'div' : (editable ? 'button' : 'div')
+  const baseClickableCls = 'card p-4 flex flex-col text-left w-full hover:shadow-md hover:border-stone-400 transition-all relative group'
+  const baseStaticCls = 'card p-4 flex flex-col relative'
+  const wrapperProps = breakdownable
+    ? { onClick: handleBodyClick, role: 'button', tabIndex: 0, onKeyDown: handleKeyDown, className: baseClickableCls, style: { minHeight: 170 } }
+    : editable
+      ? { onClick: handleBodyClick, type: 'button', className: baseClickableCls, style: { minHeight: 170 } }
+      : { className: baseStaticCls, style: { minHeight: 170 } }
 
   if (awaiting) {
     return (
       <Wrapper {...wrapperProps}>
-        {clickable && (
+        {breakdownable && editable && (
+          <button type="button"
+            onClick={(e) => { e.stopPropagation(); openModal(metricKey, value, liveValue) }}
+            className="absolute top-3 right-3 w-5 h-5 rounded flex items-center justify-center hover:bg-stone-100 text-stone-300 hover:text-stone-600 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            title="Edit target" aria-label="Edit target">
+            <Edit3 className="w-3 h-3" />
+          </button>
+        )}
+        {editable && !breakdownable && (
           <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
         <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
@@ -1024,7 +1177,15 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
     : value != null ? `${prefix}${fmtNum(value)}${suffix}` : null
   return (
     <Wrapper {...wrapperProps}>
-      {clickable && (
+      {breakdownable && editable && (
+        <button type="button"
+          onClick={(e) => { e.stopPropagation(); openModal(metricKey, value, liveValue) }}
+          className="absolute top-3 right-3 w-5 h-5 rounded flex items-center justify-center hover:bg-stone-100 text-stone-300 hover:text-stone-600 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+          title="Edit target" aria-label="Edit target">
+          <Edit3 className="w-3 h-3" />
+        </button>
+      )}
+      {editable && !breakdownable && (
         <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
       )}
       <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3">
@@ -1051,6 +1212,9 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
       {source && value != null && (
         <div className="mono-text text-[9px] uppercase tracking-[0.14em] text-stone-400 mt-2">via {sourceLabel(source)}</div>
       )}
+      {hint && (
+        <div className="text-[10px] text-stone-400 mt-1">{hint}</div>
+      )}
       {trend && trend.some(v => v > 0) && (
         <div className="mt-auto pt-3 -mx-1">
           <Sparkline data={trend} color={color} />
@@ -1060,11 +1224,12 @@ function MetricCard({ label, value, prefix = '', suffix = '', color = BRAND, tre
   )
 }
 
-function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint, metricKey, openModal, format, source }) {
+function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, trend, awaiting, invertDelta, hint, metricKey, openModal, format, source, onBreakdownClick }) {
   return (
     <MetricCard label={label} value={value} prefix={prefix} suffix={suffix}
       color={color} trend={trend} awaiting={awaiting} invertDelta={invertDelta}
-      metricKey={metricKey} openModal={openModal} format={format} source={source} />
+      metricKey={metricKey} openModal={openModal} format={format} source={source}
+      hint={hint} onBreakdownClick={onBreakdownClick} />
   )
 }
 
@@ -1498,6 +1663,7 @@ function sourceLabel(code) {
   if (code === 'profitwell') return 'ProfitWell'
   if (code === 'stripe') return 'Stripe'
   if (code === 'meta') return 'Meta'
+  if (code === 'cal') return 'Cal.com'
   if (code === 'manual' || code === 'manual_backfill') return 'Manual'
   return code
 }

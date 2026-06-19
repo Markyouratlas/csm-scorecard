@@ -511,7 +511,7 @@ function MetaLiveSection({ refreshKey = 0 }) {
 
   // Cal.com booked calls, windowed to match the Meta performance preset above.
   const presetToDays = { today: 0, last_7d: 7, last_30d: 30, last_90d: 90 }
-  const cal = useCalBookings(presetToDays[preset] ?? 30, refreshKey)
+  const cal = useCalBookings({ days: presetToDays[preset] ?? 30, refreshKey })
   // Cost per booked call = Meta spend ÷ AD-DRIVEN (Atlas Blue) booked calls ONLY.
   // Organic bookings must never roll into ad-spend math.
   const costPerBookedCall = (cal.paidCount > 0 && s?.totalSpend != null)

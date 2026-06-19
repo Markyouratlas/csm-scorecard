@@ -44,6 +44,34 @@ function torontoMidnightDaysAgo(daysAgo) {
   return new Date(base.getTime() + offsetMs)
 }
 
+// Returns the UTC Date for midnight America/Toronto on the given YYYY-MM-DD.
+// Used to anchor a week-aligned window to the scorecard's Monday.
+function torontoMidnightOfDateStr(dateStr) {
+  if (!dateStr) return null
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const TZ = 'America/Toronto'
+  const base = new Date(Date.UTC(y, m - 1, d))
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(base).reduce((a, p) => (a[p.type] = p.value, a), {})
+  const asTorontoMs = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour === '24' ? '0' : parts.hour), Number(parts.minute), Number(parts.second)
+  )
+  const offsetMs = base.getTime() - asTorontoMs
+  return new Date(base.getTime() + offsetMs)
+}
+
+// Exclusive upper bound = Monday 00:00 Toronto of the FOLLOWING week (i.e. start
+// Monday + 7 days). Used to bound a full Mon–Sun scheduled window.
+function torontoNextMondayOfDateStr(dateStr) {
+  const mon = torontoMidnightOfDateStr(dateStr)
+  if (!mon) return null
+  return new Date(mon.getTime() + 7 * 24 * 60 * 60 * 1000)
+}
+
 // Returns the America/Toronto calendar date (YYYY-MM-DD) for an ISO timestamp,
 // so per-day buckets align with the Toronto business day (matching the window).
 function torontoDateStr(iso) {
@@ -54,7 +82,7 @@ function torontoDateStr(iso) {
 
 // Reads cal_bookings over a window (by when the booking was MADE) and aggregates
 // booked-call counts for the dashboard.
-export function useCalBookings(days = 30, refreshKey = 0) {
+export function useCalBookings({ days = 30, weekKey = null, dateField = 'created', refreshKey = 0 } = {}) {
   const [state, setState] = useState({
     loading: true,
     error: null,
@@ -74,8 +102,18 @@ export function useCalBookings(days = 30, refreshKey = 0) {
     try {
       // Anchor the window to Toronto midnight (the business day), not the viewer's
       // browser timezone — otherwise "Today" shifts per-viewer and misses bookings.
-      const since = torontoMidnightDaysAgo(days)
-      const sinceISO = since.toISOString() // created_at_cal is timestamptz
+      // 'created' (default): window by created_at_cal, Monday→now (or rolling N days).
+      // 'scheduled': window by start_time across the FULL Mon–Sun week.
+      const scheduled = dateField === 'scheduled'
+      const filterCol = scheduled ? 'start_time' : 'created_at_cal'
+      const since = weekKey
+        ? torontoMidnightOfDateStr(weekKey)
+        : torontoMidnightDaysAgo(days)
+      const sinceISO = since.toISOString()
+      // Upper bound only in scheduled+weekKey mode (end of Sunday = next Monday 00:00).
+      const untilISO = (scheduled && weekKey)
+        ? torontoNextMondayOfDateStr(weekKey).toISOString()
+        : null
 
       // Classify ad-driven vs organic from the cal_event_type_config table
       // (not a hardcoded slug), so new event types can be tagged by Nick.
@@ -89,12 +127,13 @@ export function useCalBookings(days = 30, refreshKey = 0) {
       const configuredSlugs = new Set(cfg.map(c => c.slug))
       const cfgLabel = new Map(cfg.map(c => [c.slug, c.label]))
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('cal_bookings')
         .select('uid, status, event_type_slug, created_at_cal, start_time')
-        .gte('created_at_cal', sinceISO)
-        .order('created_at_cal', { ascending: false })
-        .limit(2000)
+        .gte(filterCol, sinceISO)
+      if (untilISO) q = q.lt(filterCol, untilISO)
+      q = q.order('created_at_cal', { ascending: false }).limit(2000)
+      const { data, error } = await q
 
       if (error) throw error
 
@@ -121,7 +160,8 @@ export function useCalBookings(days = 30, refreshKey = 0) {
         }
         bySlug.get(slug).count++
 
-        const day = torontoDateStr(row.created_at_cal)
+        const bucketSource = scheduled ? row.start_time : row.created_at_cal
+        const day = torontoDateStr(bucketSource)
         if (day) byDay.set(day, (byDay.get(day) || 0) + 1)
 
         // Ad-driven status comes from cal_event_type_config; everything else is organic.
@@ -155,7 +195,7 @@ export function useCalBookings(days = 30, refreshKey = 0) {
       console.error('useCalBookings:', e)
       setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0, untaggedSlugs: [], adDrivenSlugs: [] })
     }
-  }, [days, refreshKey])
+  }, [days, weekKey, dateField, refreshKey])
 
   useEffect(() => { load() }, [load])
   return { ...state, refresh: load }
