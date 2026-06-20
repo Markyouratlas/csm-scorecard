@@ -969,13 +969,25 @@ function TrackingGuide() {
       status: 'connected',
       metrics: ['Demos booked + held', 'Closes (was trials)', 'PRs merged + deployed', 'New bugs reported',
                 'Ad spend (Growth + Ad Strategist)', 'Website visitors', 'Organic + paid leads', 'Opt-ins',
-                'Tickets resolved', 'Implementations completed', 'TTFV per customer (CSM)']
+                'Tickets resolved', 'Implementations completed', 'TTFV per customer (CSM)'],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'weekly_scorecards', label: 'Weekly scorecard', order: 'updated_at' },
+        ],
+      },
     },
     {
       title: 'Cancellations log',
       provider: 'Supabase · cancellations table',
       status: 'connected',
-      metrics: ['Cancellations this month', 'MRR lost from churn']
+      metrics: ['Cancellations this month', 'MRR lost from churn'],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'cancellations', label: 'Cancellation', order: 'created_at' },
+        ],
+      },
     },
     {
       title: 'Cal.com (live)',
