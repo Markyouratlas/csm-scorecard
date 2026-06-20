@@ -976,6 +976,18 @@ function TrackingGuide() {
       metrics: ['Cancellations this month', 'MRR lost from churn']
     },
     {
+      title: 'Cal.com (live)',
+      provider: 'Supabase · cal_bookings + cal_event_type_config',
+      status: 'connected',
+      metrics: [
+        'Booked meetings — by when booked (this week / today)',
+        'Scheduled meetings — by calendar date (Mon–Sun)',
+        'Paid vs organic split (ad-driven event types)',
+        'Cost per booked meeting (with Meta spend)',
+        'Per-rep / per-host breakdown with customer drill-down',
+      ]
+    },
+    {
       title: 'Stripe',
       provider: 'Awaiting API key',
       status: 'awaiting',
@@ -1010,6 +1022,47 @@ function TrackingGuide() {
 
   return (
     <div className="space-y-8 fade-in">
+      <style>{`
+        .live-badge {
+          animation: liveBadgeGlow 2.8s ease-in-out infinite;
+        }
+        .live-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 9999px;
+          /* Domed glass: bright hotspot off-center, falling to a deeper green edge */
+          background: radial-gradient(circle at 35% 30%, #86efac 0%, #22c55e 45%, #15803d 100%);
+          /* Inset highlight = glass reflection; outer ring = seated in a bezel */
+          box-shadow:
+            inset 0 0.5px 1px rgba(255,255,255,0.9),
+            inset 0 -1px 1.5px rgba(0,0,0,0.25),
+            0 0 0 0.5px rgba(21,128,61,0.4);
+          animation: liveDotPulse 2.8s ease-in-out infinite;
+        }
+        @keyframes liveDotPulse {
+          0%, 100% {
+            box-shadow:
+              inset 0 0.5px 1px rgba(255,255,255,0.9),
+              inset 0 -1px 1.5px rgba(0,0,0,0.25),
+              0 0 0 0.5px rgba(21,128,61,0.4),
+              0 0 3px 0.5px rgba(34,197,94,0.5);
+          }
+          50% {
+            box-shadow:
+              inset 0 0.5px 1px rgba(255,255,255,0.9),
+              inset 0 -1px 1.5px rgba(0,0,0,0.25),
+              0 0 0 0.5px rgba(21,128,61,0.4),
+              0 0 7px 2px rgba(34,197,94,0.85);
+          }
+        }
+        @keyframes liveBadgeGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0); }
+          50% { box-shadow: 0 0 8px 0 rgba(34,197,94,0.25); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .live-badge, .live-dot { animation: none; }
+        }
+      `}</style>
       <div className="card p-8 relative overflow-hidden">
         <div className="absolute -top-32 -right-32 w-[520px] h-[520px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.12), transparent 70%)' }} />
@@ -1042,8 +1095,9 @@ function TrackingGuide() {
                 </div>
               </div>
               {src.status === 'connected' ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded mono-text uppercase tracking-widest"
+                <span className="live-badge inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-1 rounded mono-text uppercase tracking-widest"
                   style={{ color: '#15803D', background: 'rgba(22,163,74,0.08)' }}>
+                  <span className="live-dot" />
                   Live
                 </span>
               ) : (
