@@ -18,6 +18,7 @@ import { useMetaAds } from './hooks/useMetaAds.js'
 import { useCalBookings } from './hooks/useCalBookings.js'
 import { getWeekKey } from './dateUtils.js'
 import BreakdownModal from './BreakdownModal.jsx'
+import SourceInspectorModal from './SourceInspectorModal.jsx'
 import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
@@ -986,20 +987,64 @@ function TrackingGuide() {
         'Paid vs organic split (ad-driven event types)',
         'Cost per booked meeting (with Meta spend)',
         'Per-rep / per-host breakdown with customer drill-down',
-      ]
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'cal_bookings', label: 'Bookings', order: 'synced_at' },
+        ],
+      },
     },
     {
-      title: 'Stripe',
-      provider: 'Awaiting API key',
-      status: 'awaiting',
-      metrics: ['Total MRR', 'Active customers', 'ARPU', 'New MRR per day', 'Expansion / contraction MRR',
-                'Cash collected per day']
+      title: 'Meta Ads (live)',
+      provider: 'Supabase · meta_ads_metrics + meta_ad_sets_daily',
+      status: 'connected',
+      metrics: [
+        'Spend, impressions, reach, CPM, CTR, link clicks',
+        'Lead + complete-registration conversions (actions)',
+        'By campaign, by ad set, and daily time-series',
+        'Windows: today / 7d / 30d / 90d / QTD / YTD / trailing 365',
+        'Cost per booked meeting (paired with Cal.com)',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'meta_ads_metrics', label: 'Campaign metrics', order: 'fetch_date' },
+          { table: 'meta_ad_sets_daily', label: 'Ad sets (daily)', order: 'synced_at' },
+        ],
+      },
     },
     {
-      title: 'ProfitWell / Stripe analytics',
-      provider: 'Awaiting API key',
-      status: 'awaiting',
-      metrics: ['Net Revenue Retention (NRR)', 'LTV : CAC ratio', 'CAC payback months', 'Cohort churn']
+      title: 'Stripe (live)',
+      provider: 'Supabase · commission_customers + oneoff_payments',
+      status: 'connected',
+      metrics: [
+        'Peak + contracted MRR per customer',
+        'Monthly MRR + cash collected (trailing 13 months)',
+        'Per-subscription status, product, renewal, discount, pause',
+        'One-off charges + refunds',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'commission_customers', label: 'Customers', order: 'last_synced_at' },
+          { table: 'oneoff_payments', label: 'One-off payments', order: 'last_synced_at' },
+        ],
+      },
+    },
+    {
+      title: 'ProfitWell (live)',
+      provider: 'Supabase · profitwell_metrics',
+      status: 'connected',
+      metrics: [
+        'MRR + active customers (monthly)',
+        'Churn + retention rates',
+        'ARPU, LTV, SaaS quick ratio',
+        'Full monthly metric catalog (every trend ProfitWell exposes)',
+      ],
+      inspect: {
+        mode: 'metric-catalog',
+      },
     },
     {
       title: 'Amplitude (or product analytics)',
@@ -1008,10 +1053,10 @@ function TrackingGuide() {
       metrics: ['Trial → Paid conversion %', 'User activation rate', 'User adoption rate', 'Daily activation events']
     },
     {
-      title: 'HubSpot / CRM',
+      title: 'GHL + Attio (CRM)',
       provider: 'Awaiting integration',
       status: 'awaiting',
-      metrics: ['Partner pipeline value', 'Partner-sourced opportunities', 'Partner-driven calls']
+      metrics: ['Partner pipeline value', 'Partner-sourced opportunities', 'Partner-driven calls', 'Contacts + deal stages']
     },
     {
       title: 'OKR system',
@@ -1020,6 +1065,9 @@ function TrackingGuide() {
       metrics: ['Quarterly OKR progress', 'OKR ownership', 'OKR cadence updates']
     },
   ]
+
+  // Which source's data-inspector popout is open (the source object, or null).
+  const [inspecting, setInspecting] = useState(null)
 
   return (
     <div className="space-y-8 fade-in">
@@ -1087,7 +1135,16 @@ function TrackingGuide() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {sources.map(src => (
-          <div key={src.title} className="card p-5">
+          <div
+            key={src.title}
+            className={`card p-5 ${src.inspect ? 'text-left w-full cursor-pointer hover:shadow-md hover:border-stone-400 transition-all group' : ''}`}
+            {...(src.inspect ? {
+              role: 'button',
+              tabIndex: 0,
+              onClick: () => setInspecting(src),
+              onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setInspecting(src) } },
+            } : {})}
+          >
             <div className="flex items-start justify-between gap-3 mb-2">
               <div>
                 <div className="display-text text-lg font-medium text-stone-900 leading-tight">{src.title}</div>
@@ -1116,9 +1173,18 @@ function TrackingGuide() {
                 </li>
               ))}
             </ul>
+            {src.inspect && (
+              <div className="mono-text text-[10px] uppercase tracking-widest text-stone-400 group-hover:text-stone-700 transition-colors mt-3">
+                Inspect data →
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {inspecting && (
+        <SourceInspectorModal source={inspecting} onClose={() => setInspecting(null)} />
+      )}
     </div>
   )
 }
