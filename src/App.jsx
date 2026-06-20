@@ -41,6 +41,13 @@ export default function App() {
     })
   }, [])
 
+  // Which team the Manager view should open focused on. Set when the user launches
+  // from a Quick Log department card; null means normal Manager nav (opens on the
+  // exec Overview tab). Only consumed at ManagerView mount, so normal nav clears it.
+  const [managerTeam, setManagerTeam] = useState(null)
+  const goToManager = useCallback(() => { setManagerTeam(null); setViewMode('manager') }, [setViewMode])
+  const goToManagerTeam = useCallback((teamKey) => { setManagerTeam(teamKey); setViewMode('manager') }, [setViewMode])
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -197,7 +204,7 @@ export default function App() {
           page={viewMode}
           onSignOut={handleSignOut}
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
-          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
@@ -226,7 +233,7 @@ export default function App() {
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
-          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
@@ -247,8 +254,9 @@ export default function App() {
         <LeadershipDashboardView
           profile={profile}
           onSignOut={handleSignOut}
+          onSwitchToManagerTeam={canSeeManagerView ? goToManagerTeam : null}
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
-          onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+          onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
@@ -280,7 +288,7 @@ export default function App() {
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
-          onSwitchToManager={() => setViewMode('manager')}
+          onSwitchToManager={goToManager}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
@@ -299,6 +307,7 @@ export default function App() {
       <Shell>
         <ManagerView
           profile={profile}
+          initialTeam={managerTeam}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
@@ -321,6 +330,7 @@ export default function App() {
       <Shell>
         <ManagerView
           profile={profile}
+          initialTeam={managerTeam}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
@@ -347,7 +357,7 @@ export default function App() {
       <PersonalScorecard
         profile={profile}
         onSignOut={handleSignOut}
-        onSwitchToManager={canSeeManagerView ? () => setViewMode('manager') : null}
+        onSwitchToManager={canSeeManagerView ? goToManager : null}
         onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
         onSwitchToIntegrations={() => setViewMode('integrations')}
         onSwitchToCancellations={canSeeCancellationsForSelf ? () => setViewMode('cancellations') : null}

@@ -41,7 +41,7 @@ const BRAND_SOFT = 'rgba(102, 57, 166, 0.08)'
 // =============================================================================
 
 export default function LeadershipDashboardView({
-  profile, onSignOut, onSwitchToManager, onSwitchToSelf,
+  profile, onSignOut, onSwitchToManager, onSwitchToManagerTeam, onSwitchToSelf,
   onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
   onSwitchToCommissions,
   onProfileUpdated,
@@ -139,7 +139,7 @@ export default function LeadershipDashboardView({
 
       {mode === 'odyssey' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
-          <OdysseyView onSwitchToScorecard={onSwitchToSelf} profile={profile} />
+          <OdysseyView onSwitchToManagerTeam={onSwitchToManagerTeam} profile={profile} />
         </div>
       )}
 

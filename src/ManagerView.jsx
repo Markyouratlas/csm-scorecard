@@ -38,7 +38,7 @@ async function fetchManagerData(weekKey) {
   return { allProfiles: profiles || [], scorecardData, submittedMap }
 }
 
-export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
+export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
@@ -50,8 +50,13 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
     return TEAMS.filter(t => t.key === profile.team)
   }, [isExec, profile.team])
 
-  // Default tab: 'overview' for execs, the lead's team key for leads
-  const [tab, setTab] = useState(() => isExec ? 'overview' : profile.team)
+  // Default tab: a focused team (when launched from a Quick Log department card),
+  // else 'overview' for execs and the lead's own team key for team leads.
+  // initialTeam is only honored if the viewer is allowed to see that team.
+  const [tab, setTab] = useState(() => {
+    if (initialTeam && (isExec || initialTeam === profile.team)) return initialTeam
+    return isExec ? 'overview' : profile.team
+  })
   // When set, we're viewing one specific member's scorecard (not the dashboard).
   // Persisted to sessionStorage so executives drilling into a specific member's
   // scorecard don't lose their place when switching browser tabs.

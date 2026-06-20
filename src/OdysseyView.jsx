@@ -48,7 +48,7 @@ const DEPTS = {
   exec:      { name: 'Executive',             color: '#6639A6', icon: Sparkles },
 }
 
-export default function OdysseyView({ onSwitchToScorecard, profile }) {
+export default function OdysseyView({ onSwitchToManagerTeam, profile }) {
   const [view, setView] = useState('executive')
   const [modalMetric, setModalMetric] = useState(null) // { metricKey, monthKey, initialActual }
   const data = useOdysseyMetrics()
@@ -84,7 +84,7 @@ export default function OdysseyView({ onSwitchToScorecard, profile }) {
         {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
         {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
         {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
-        {view === 'log'       && <QuickLogView onSwitchToScorecard={onSwitchToScorecard} />}
+        {view === 'log'       && <QuickLogView onSwitchToManagerTeam={onSwitchToManagerTeam} />}
         {view === 'tracking'  && <TrackingGuide />}
       </main>
       {data.meta && (
@@ -884,19 +884,12 @@ function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint
 }
 
 // =============================================================================
-//  Quick Log — directory of role scorecards
+//  Quick Log — directory of department dashboards
 // =============================================================================
 
-function QuickLogView({ onSwitchToScorecard }) {
-  // Flatten teams.js into a per-role list with team context
-  const roles = useMemo(() => {
-    return TEAMS
-      .filter(t => !t.isLeadership)
-      .flatMap(team => team.roles.map(role => ({
-        team,
-        role,
-      })))
-  }, [])
+function QuickLogView({ onSwitchToManagerTeam }) {
+  // One card per non-leadership department; clicking opens that team's Manager view.
+  const departments = useMemo(() => TEAMS.filter(t => !t.isLeadership), [])
 
   return (
     <div className="space-y-8 fade-in">
@@ -908,51 +901,57 @@ function QuickLogView({ onSwitchToScorecard }) {
             <Sparkles className="w-3 h-3" /> Quick Log
           </div>
           <h1 className="display-text text-3xl md:text-4xl font-medium leading-tight text-stone-900">
-            Log today's numbers. <em className="font-light italic" style={{ color: BRAND }}>Live everywhere.</em>
+            Jump into any team's <em className="font-light italic" style={{ color: BRAND }}>dashboard.</em>
           </h1>
           <div className="text-sm text-stone-600 mt-3 leading-relaxed max-w-2xl">
-            Each role enters the small handful of numbers they're responsible for in their own
-            scorecard. Saved entries flow immediately into the Daily Pulse view, and weekly
-            snapshots feed the calculated metrics on the Executive view.
+            Open a department's manager dashboard to review the team's weekly scorecards,
+            drill into any member, and see how their numbers feed the Daily Pulse and
+            Executive views.
           </div>
         </div>
       </div>
 
       <SectionHeader
-        eyebrow="By Role"
-        title="Open a scorecard"
-        description="Click any role to jump into that team's scorecard."
+        eyebrow="By Department"
+        title="Open a team dashboard"
+        description="Click a department to open its manager dashboard."
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {roles.map(({ team, role }) => (
-          <RoleLauncherCard key={`${team.key}-${role.key}`}
+        {departments.map(team => (
+          <DepartmentLauncherCard key={team.key}
             team={team}
-            role={role}
-            onClick={onSwitchToScorecard} />
+            onClick={onSwitchToManagerTeam} />
         ))}
       </div>
     </div>
   )
 }
 
-function RoleLauncherCard({ team, role, onClick }) {
+function DepartmentLauncherCard({ team, onClick }) {
+  const roleNames = (team.roles || []).map(r => r.label).join(' · ')
   return (
     <button
-      onClick={() => onClick?.(team.key, role.key)}
-      className="card p-4 text-left hover:border-stone-400 transition-all group relative"
-      style={{ minHeight: 80 }}
+      onClick={() => onClick?.(team.key)}
+      className="card p-5 text-left hover:border-stone-400 transition-all group relative"
+      style={{ minHeight: 92 }}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mono-text text-[10px] uppercase tracking-[0.18em] font-semibold mb-1"
             style={{ color: team.color }}>
+            Department
+          </div>
+          <div className="display-text text-xl font-medium leading-tight text-stone-900">
             {team.label}
           </div>
-          <div className="display-text text-lg font-medium leading-tight text-stone-900">
-            {role.label}
-          </div>
+          {roleNames && (
+            <div className="text-[12px] text-stone-500 mt-1.5 truncate">{roleNames}</div>
+          )}
         </div>
-        <ChevronRight className="w-4 h-4 text-stone-400 group-hover:text-stone-700 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+        <div className="flex items-center gap-1.5 flex-shrink-0 text-stone-400 group-hover:text-stone-700 transition-colors">
+          <span className="mono-text text-[10px] uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">Open</span>
+          <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-all" />
+        </div>
       </div>
     </button>
   )
