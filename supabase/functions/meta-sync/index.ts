@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const AD_ACCOUNT_ID = 'act_855275706589462'
 const API_VERSION = 'v21.0'
-const DATE_PRESETS = ['today', 'last_7d', 'last_30d', 'last_90d']
+const DATE_PRESETS = ['today', 'last_7d', 'last_30d', 'last_90d', 'this_quarter', 'this_year']
 const FIELDS = 'spend,impressions,reach,cpm,ctr,inline_link_clicks,inline_link_click_ctr,actions'
 
 const corsHeaders = {
@@ -66,6 +66,44 @@ async function runSync(token: string) {
 
         presetNext = insightJson.paging?.next || null
         presetPages++
+      }
+    }
+
+    // 2.4 Trailing 365 days — a calendar-independent annual window, stored as
+    // a pseudo-preset so useMetaAds('trailing_365') reads it like any preset.
+    // Meta has no 'last_365d' preset, so we use an explicit time_range.
+    {
+      const t365Today = new Date()
+      const t365Since = new Date(t365Today)
+      t365Since.setDate(t365Since.getDate() - 365)
+      const fmtT365 = (d: Date) => d.toISOString().split('T')[0]
+      const t365Range = `{"since":"${fmtT365(t365Since)}","until":"${fmtT365(t365Today)}"}`
+      const fetchDate365 = new Date().toISOString().split('T')[0]
+      let t365Next = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/insights?fields=${FIELDS},campaign_id,campaign_name&level=campaign&time_range=${encodeURIComponent(t365Range)}&limit=500&access_token=${token}`
+      let t365Pages = 0
+      while (t365Next && t365Pages < 20) {
+        const t365Res = await fetch(t365Next)
+        const t365Json = await t365Res.json()
+        if (t365Json.error) throw new Error(`Meta insights API (trailing_365): ${t365Json.error.message}`)
+        for (const insight of (t365Json.data || [])) {
+          rows.push({
+            fetch_date: fetchDate365,
+            date_preset: 'trailing_365',
+            campaign_id: insight.campaign_id,
+            campaign_name: insight.campaign_name,
+            status: statusById.get(insight.campaign_id) ?? null,
+            spend: insight.spend ? parseFloat(insight.spend) : null,
+            impressions: insight.impressions ? parseInt(insight.impressions) : null,
+            reach: insight.reach ? parseInt(insight.reach) : null,
+            cpm: insight.cpm ? parseFloat(insight.cpm) : null,
+            ctr: insight.ctr ? parseFloat(insight.ctr) : null,
+            inline_link_clicks: insight.inline_link_clicks ? parseInt(insight.inline_link_clicks) : null,
+            inline_link_click_ctr: insight.inline_link_click_ctr ? parseFloat(insight.inline_link_click_ctr) : null,
+            actions: insight.actions || null,
+          })
+        }
+        t365Next = t365Json.paging?.next || null
+        t365Pages++
       }
     }
 
