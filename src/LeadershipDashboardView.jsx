@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom'
 import {
   Crown, Clock, Activity,
   Zap, ChevronRight, AlertCircle, RefreshCw,
-  Info, Sparkles, Eye,
+  Info, Sparkles, Eye, Gem,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
+import InvestorView from './InvestorView'
 import OdysseyView from './OdysseyView'
 import ProfitwellAllMetrics from './ProfitwellAllMetrics'
 import { accessTier } from './teams'
@@ -23,6 +24,8 @@ const BRAND = '#6639A6'
 const BRAND_BRIGHT = '#8B5CD0'
 const BRAND_DEEP = '#4A2980'
 const BRAND_SOFT = 'rgba(102, 57, 166, 0.08)'
+// Investor ("Odyssey Gold") view accent.
+const GOLD = '#B8860B'
 
 // =============================================================================
 //  Leadership Dashboard — Phase D-2 (Atlas Odyssey visual language)
@@ -81,6 +84,20 @@ export default function LeadershipDashboardView({
               aria-label="Dashboard mode"
             >
               <button
+                onClick={() => setMode('investor')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: mode === 'investor' ? GOLD : 'transparent',
+                  color: mode === 'investor' ? 'white' : '#8A6D1B',
+                  boxShadow: mode === 'investor' ? '0 1px 2px rgba(184,134,11,0.30)' : 'none',
+                }}
+                role="tab"
+                aria-selected={mode === 'investor'}
+                title="Investor view — Odyssey Gold"
+              >
+                <Gem className="w-3 h-3" /> Odyssey
+              </button>
+              <button
                 onClick={() => setMode('odyssey')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
                 style={{
@@ -136,6 +153,13 @@ export default function LeadershipDashboardView({
           />
         </div>
       </header>
+
+      {/* Investor view — exact Atlas Odyssey prototype, banner-free (no sample-data strip). */}
+      {mode === 'investor' && (
+        <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
+          <InvestorView />
+        </div>
+      )}
 
       {mode === 'odyssey' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
