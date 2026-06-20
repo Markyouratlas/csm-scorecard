@@ -72,6 +72,27 @@ function torontoNextMondayOfDateStr(dateStr) {
   return new Date(mon.getTime() + 7 * 24 * 60 * 60 * 1000)
 }
 
+// Toronto-anchored start of the current calendar quarter ('qtd') or year ('ytd'),
+// returned as the UTC instant of that Toronto-local midnight. Used to match
+// Meta's this_quarter / this_year presets for cost-per-meeting windows.
+function torontoPeriodStart(period) {
+  // Get today's date AS OBSERVED IN Toronto.
+  const TZ = 'America/Toronto'
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).reduce((a, p) => (a[p.type] = p.value, a), {})
+  const y = Number(parts.year)
+  const m = Number(parts.month) // 1-12
+  let startStr
+  if (period === 'ytd') {
+    startStr = `${y}-01-01`
+  } else { // 'qtd'
+    const qStartMonth = Math.floor((m - 1) / 3) * 3 + 1 // 1,4,7,10
+    startStr = `${y}-${String(qStartMonth).padStart(2, '0')}-01`
+  }
+  return torontoMidnightOfDateStr(startStr)
+}
+
 // Returns the America/Toronto calendar date (YYYY-MM-DD) for an ISO timestamp,
 // so per-day buckets align with the Toronto business day (matching the window).
 function torontoDateStr(iso) {
@@ -82,7 +103,7 @@ function torontoDateStr(iso) {
 
 // Reads cal_bookings over a window (by when the booking was MADE) and aggregates
 // booked-call counts for the dashboard.
-export function useCalBookings({ days = 30, weekKey = null, dateField = 'created', refreshKey = 0 } = {}) {
+export function useCalBookings({ days = 30, weekKey = null, period = null, dateField = 'created', refreshKey = 0 } = {}) {
   const [state, setState] = useState({
     loading: true,
     error: null,
@@ -106,11 +127,15 @@ export function useCalBookings({ days = 30, weekKey = null, dateField = 'created
       // 'scheduled': window by start_time across the FULL Mon–Sun week.
       const scheduled = dateField === 'scheduled'
       const filterCol = scheduled ? 'start_time' : 'created_at_cal'
-      const since = weekKey
-        ? torontoMidnightOfDateStr(weekKey)
-        : torontoMidnightDaysAgo(days)
+      // Window precedence: period (calendar QTD/YTD) > weekKey > rolling days.
+      const since = period
+        ? torontoPeriodStart(period)
+        : weekKey
+          ? torontoMidnightOfDateStr(weekKey)
+          : torontoMidnightDaysAgo(days)
       const sinceISO = since.toISOString()
       // Upper bound only in scheduled+weekKey mode (end of Sunday = next Monday 00:00).
+      // Calendar periods (qtd/ytd) and rolling days run open-ended up to now.
       const untilISO = (scheduled && weekKey)
         ? torontoNextMondayOfDateStr(weekKey).toISOString()
         : null
@@ -195,7 +220,7 @@ export function useCalBookings({ days = 30, weekKey = null, dateField = 'created
       console.error('useCalBookings:', e)
       setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0, untaggedSlugs: [], adDrivenSlugs: [] })
     }
-  }, [days, weekKey, dateField, refreshKey])
+  }, [days, weekKey, period, dateField, refreshKey])
 
   useEffect(() => { load() }, [load])
   return { ...state, refresh: load }

@@ -1013,6 +1013,137 @@ function TrackingGuide() {
 //  Strategic Initiatives — derived from real data
 // =============================================================================
 
+// The 2×2 window matrix for cost-per-booked-meeting. Calendar pairs Cal's
+// calendar period (qtd/ytd) with Meta's calendar preset (this_quarter/this_year);
+// Trailing pairs Cal's rolling days (90/365) with Meta's rolling preset
+// (last_90d/trailing_365). Never cross calendar and trailing.
+function CostPerMeetingCard() {
+  const [horizon, setHorizon] = useState('quarterly') // 'quarterly' | 'annual'
+  const [basis, setBasis] = useState('calendar')      // 'calendar' | 'trailing'
+
+  // Derive the matching Meta preset + Cal window args from the toggles.
+  const metaPreset =
+    horizon === 'quarterly'
+      ? (basis === 'calendar' ? 'this_quarter' : 'last_90d')
+      : (basis === 'calendar' ? 'this_year' : 'trailing_365')
+  const calArg =
+    horizon === 'quarterly'
+      ? (basis === 'calendar' ? { period: 'qtd' } : { days: 90 })
+      : (basis === 'calendar' ? { period: 'ytd' } : { days: 365 })
+
+  const meta = useMetaAds(metaPreset)
+  const cal = useCalBookings(calArg)
+
+  const spend = meta.summary?.totalSpend ?? null
+  const paidMeetings = cal.loading ? null : cal.paidCount
+  // Cost per booked meeting = spend ÷ PAID (ad-driven) bookings only. Never total.
+  const costPerMeeting = (spend != null && paidMeetings && paidMeetings > 0)
+    ? Math.round((spend / paidMeetings) * 100) / 100
+    : null
+
+  const dept = DEPTS.marketing
+  const horizonLabel = horizon === 'quarterly' ? 'Quarter' : 'Year'
+  const basisLabel = basis === 'calendar' ? 'calendar' : 'trailing'
+  // Compute the actual month range covered, in Toronto time, so the window is
+  // unambiguous (which quarter / which year).
+  const tzParts = (d) => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Toronto', year: 'numeric', month: 'short',
+  }).formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {})
+  const now = new Date()
+  const nowP = tzParts(now)
+  let rangeStart, rangeEnd
+  if (basis === 'calendar') {
+    const yNum = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', year: 'numeric' }).format(now))
+    const mNum = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', month: 'numeric' }).format(now))
+    if (horizon === 'quarterly') {
+      const qStartMonth = Math.floor((mNum - 1) / 3) * 3 // 0,3,6,9
+      rangeStart = tzParts(new Date(Date.UTC(yNum, qStartMonth, 15)))
+    } else {
+      rangeStart = tzParts(new Date(Date.UTC(yNum, 0, 15)))
+    }
+    rangeEnd = nowP
+  } else {
+    const back = new Date(now)
+    back.setDate(back.getDate() - (horizon === 'quarterly' ? 90 : 365))
+    rangeStart = tzParts(back)
+    rangeEnd = nowP
+  }
+  // "Apr–Jun 2026" if same year; "Jun 2025–Jun 2026" if spanning years.
+  const monthRange = rangeStart.year === rangeEnd.year
+    ? `${rangeStart.month}–${rangeEnd.month} ${rangeEnd.year}`
+    : `${rangeStart.month} ${rangeStart.year}–${rangeEnd.month} ${rangeEnd.year}`
+  const baseLabel =
+    horizon === 'quarterly'
+      ? (basis === 'calendar' ? 'this quarter' : 'last 90 days')
+      : (basis === 'calendar' ? 'this year' : 'last 365 days')
+  const windowText = `${baseLabel} · ${monthRange}`
+
+  const Toggle = ({ options, value, onChange }) => (
+    <div className="inline-flex rounded-md overflow-hidden border border-stone-200">
+      {options.map(opt => (
+        <button
+          key={opt.val}
+          type="button"
+          onClick={() => onChange(opt.val)}
+          className={`px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+            value === opt.val ? 'text-white' : 'text-stone-500 hover:text-stone-700 bg-white'
+          }`}
+          style={value === opt.val ? { background: dept.color } : undefined}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="card p-5 relative">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="mono-text text-[10px] uppercase tracking-[0.16em] font-semibold" style={{ color: dept.color }}>
+          {dept.name}
+        </div>
+        <div className="group relative">
+          <Info className="w-3.5 h-3.5 text-stone-300 hover:text-stone-500 cursor-help transition-colors" />
+          <div role="tooltip" className="pointer-events-none absolute bottom-full right-0 mb-2 w-[240px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 z-20 normal-case tracking-normal font-normal">
+            Meta ad spend ÷ ad-driven booked meetings (Cal.com), {windowText}. Calendar = period-to-date; trailing = rolling window. Organic bookings are excluded.
+          </div>
+        </div>
+      </div>
+      <div className="display-text text-lg font-medium text-stone-900 mb-2">Cost / Booked Meeting</div>
+
+      {/* Inline toggles */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+        <Toggle
+          options={[{ val: 'quarterly', label: 'Qtr' }, { val: 'annual', label: 'Year' }]}
+          value={horizon} onChange={setHorizon}
+        />
+        <Toggle
+          options={[{ val: 'calendar', label: 'Cal' }, { val: 'trailing', label: 'Trail' }]}
+          value={basis} onChange={setBasis}
+        />
+      </div>
+
+      <div className="flex items-end justify-between gap-2">
+        <div>
+          <div className="mono-text text-[10px] uppercase tracking-widest text-stone-500">
+            {windowText}
+          </div>
+          <div className="display-text font-medium leading-none num-tabular mt-1" style={{ color: dept.color, fontSize: '32px' }}>
+            {costPerMeeting != null
+              ? `$${costPerMeeting.toLocaleString()}`
+              : <span className="text-stone-300 text-lg">No data yet</span>}
+          </div>
+          {paidMeetings != null && (
+            <div className="mono-text text-[9px] uppercase tracking-widest text-stone-400 mt-1">
+              {paidMeetings} ad-driven meetings
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StrategicInitiatives({ data, targets, openModal }) {
   const w = data.thisWeek || {}
   const metaSI = useMetaAds('last_7d')
@@ -1053,7 +1184,7 @@ function StrategicInitiatives({ data, targets, openModal }) {
   ]
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
       {initiatives.map(init => {
         const dept = DEPTS[init.deptKey]
         return (
@@ -1090,6 +1221,7 @@ function StrategicInitiatives({ data, targets, openModal }) {
           </div>
         )
       })}
+      <CostPerMeetingCard />
     </div>
   )
 }
