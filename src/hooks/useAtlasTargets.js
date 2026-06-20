@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // =============================================================================
@@ -35,53 +36,49 @@ function currentMonthKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export function useAtlasTargets() {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    targets: {},   // { metricKey: { monthKey: {actual, target, source, updatedAt} } }
-    raw: [],       // raw rows for debugging
-  })
+const ATLAS_TARGETS_KEY = ['atlas-targets']
+const EMPTY = { targets: {}, raw: [] }
 
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      const { data, error } = await supabase
-        .from('atlas_targets')
-        .select('*')
-        .order('month_key', { ascending: true })
+async function fetchAtlasTargets() {
+  const { data, error } = await supabase
+    .from('atlas_targets')
+    .select('*')
+    .order('month_key', { ascending: true })
 
-      if (error) throw error
+  if (error) throw error
 
-      const targets = {}
-      for (const row of data || []) {
-        const mk = monthKeyFromDate(row.month_key)
-        if (!mk) continue
-        if (!targets[row.metric_key]) targets[row.metric_key] = {}
-        targets[row.metric_key][mk] = {
-          actual: row.actual_value != null ? Number(row.actual_value) : null,
-          target: row.target_value != null ? Number(row.target_value) : null,
-          source: row.actual_source || null,
-          notes: row.notes || null,
-          updatedAt: row.updated_at || null,
-        }
-      }
-
-      setState({ loading: false, error: null, targets, raw: data || [] })
-    } catch (e) {
-      console.error('useAtlasTargets:', e)
-      setState({ loading: false, error: e, targets: {}, raw: [] })
+  const targets = {}
+  for (const row of data || []) {
+    const mk = monthKeyFromDate(row.month_key)
+    if (!mk) continue
+    if (!targets[row.metric_key]) targets[row.metric_key] = {}
+    targets[row.metric_key][mk] = {
+      actual: row.actual_value != null ? Number(row.actual_value) : null,
+      target: row.target_value != null ? Number(row.target_value) : null,
+      source: row.actual_source || null,
+      notes: row.notes || null,
+      updatedAt: row.updated_at || null,
     }
-  }, [])
+  }
 
-  useEffect(() => { load() }, [load])
+  return { targets, raw: data || [] }
+}
+
+export function useAtlasTargets() {
+  const queryClient = useQueryClient()
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ATLAS_TARGETS_KEY,
+    queryFn: fetchAtlasTargets,
+  })
+  const targets = data?.targets ?? EMPTY.targets
+  const raw = data?.raw ?? EMPTY.raw
 
   const getMonthValue = useCallback((metricKey, monthKey) => {
-    return state.targets[metricKey]?.[monthKey] || null
-  }, [state.targets])
+    return targets[metricKey]?.[monthKey] || null
+  }, [targets])
 
   const getLatestActual = useCallback((metricKey) => {
-    const metric = state.targets[metricKey]
+    const metric = targets[metricKey]
     if (!metric) return null
     // Find the most recent month with a non-null actual
     const entries = Object.entries(metric)
@@ -90,31 +87,42 @@ export function useAtlasTargets() {
     if (!entries.length) return null
     const [monthKey, value] = entries[0]
     return { monthKey, ...value }
-  }, [state.targets])
+  }, [targets])
 
   const getCurrentMonthTarget = useCallback((metricKey) => {
     const cm = currentMonthKey()
-    const entry = state.targets[metricKey]?.[cm]
+    const entry = targets[metricKey]?.[cm]
     return entry?.target ?? null
-  }, [state.targets])
+  }, [targets])
 
   const getAnnualTarget = useCallback((metricKey, year) => {
     // Returns the target value for December of the given year (or this year if not specified)
     const y = year || new Date().getFullYear()
     const decKey = `${y}-12`
-    return state.targets[metricKey]?.[decKey]?.target ?? null
-  }, [state.targets])
+    return targets[metricKey]?.[decKey]?.target ?? null
+  }, [targets])
 
   const getMonthHistory = useCallback((metricKey, monthsBack = null) => {
     // Returns months of {monthKey, actual, target}, oldest first.
     // If monthsBack is null, returns ALL months that exist for this metric.
-    const metric = state.targets[metricKey]
+    const metric = targets[metricKey]
     if (!metric) return []
     const entries = Object.entries(metric)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([monthKey, v]) => ({ monthKey, ...v }))
     return monthsBack == null ? entries : entries.slice(-monthsBack)
-  }, [state.targets])
+  }, [targets])
+
+  // Write one {metricKey, monthKey} cell into the cached targets so an edit shows
+  // instantly (optimistic), exactly like the old setState — the next refetch reconciles.
+  const patchCell = useCallback((metricKey, monthKey, cell) => {
+    queryClient.setQueryData(ATLAS_TARGETS_KEY, (old) => {
+      const base = old ?? EMPTY
+      const nextTargets = { ...base.targets }
+      nextTargets[metricKey] = { ...(nextTargets[metricKey] || {}), [monthKey]: cell }
+      return { ...base, targets: nextTargets }
+    })
+  }, [queryClient])
 
   const save = useCallback(async (metricKey, monthKey, fields, userId) => {
     // monthKey is 'YYYY-MM'; we convert to first-of-month date.
@@ -137,33 +145,25 @@ export function useAtlasTargets() {
       payload.notes = fields.notes
     }
 
-    const { data, error } = await supabase
+    const { data: saved, error: saveErr } = await supabase
       .from('atlas_targets')
       .upsert(payload, { onConflict: 'metric_key,month_key' })
       .select()
       .single()
 
-    if (error) throw error
+    if (saveErr) throw saveErr
 
-    // Update local state optimistically
-    setState(s => {
-      const next = { ...s.targets }
-      if (!next[metricKey]) next[metricKey] = {}
-      next[metricKey] = {
-        ...next[metricKey],
-        [monthKey]: {
-          actual: data.actual_value != null ? Number(data.actual_value) : null,
-          target: data.target_value != null ? Number(data.target_value) : null,
-          source: data.actual_source || null,
-          notes: data.notes || null,
-          updatedAt: data.updated_at,
-        },
-      }
-      return { ...s, targets: next }
+    // Update the cache optimistically so the edit shows immediately.
+    patchCell(metricKey, monthKey, {
+      actual: saved.actual_value != null ? Number(saved.actual_value) : null,
+      target: saved.target_value != null ? Number(saved.target_value) : null,
+      source: saved.actual_source || null,
+      notes: saved.notes || null,
+      updatedAt: saved.updated_at,
     })
 
-    return data
-  }, [])
+    return saved
+  }, [patchCell])
 
   const resetActual = useCallback(async (metricKey, monthKey, userId) => {
     const dateKey = `${monthKey}-01`
@@ -175,35 +175,27 @@ export function useAtlasTargets() {
       updated_at: new Date().toISOString(),
     }
     if (userId) payload.updated_by = userId
-    const { data, error } = await supabase
+    const { data: saved, error: resetErr } = await supabase
       .from('atlas_targets')
       .upsert(payload, { onConflict: 'metric_key,month_key' })
       .select()
       .single()
-    if (error) throw error
-    setState(s => {
-      const next = { ...s.targets }
-      if (!next[metricKey]) next[metricKey] = {}
-      next[metricKey] = {
-        ...next[metricKey],
-        [monthKey]: {
-          actual: null,
-          target: data.target_value != null ? Number(data.target_value) : null,
-          source: null,
-          notes: data.notes || null,
-          updatedAt: data.updated_at,
-        },
-      }
-      return { ...s, targets: next }
+    if (resetErr) throw resetErr
+    patchCell(metricKey, monthKey, {
+      actual: null,
+      target: saved.target_value != null ? Number(saved.target_value) : null,
+      source: null,
+      notes: saved.notes || null,
+      updatedAt: saved.updated_at,
     })
-    return data
-  }, [])
+    return saved
+  }, [patchCell])
 
   return {
-    loading: state.loading,
-    error: state.error,
-    targets: state.targets,
-    raw: state.raw,
+    loading: isPending,
+    error: error ?? null,
+    targets,
+    raw,
     getMonthValue,
     getLatestActual,
     getCurrentMonthTarget,
@@ -211,7 +203,7 @@ export function useAtlasTargets() {
     getMonthHistory,
     save,
     resetActual,
-    refresh: load,
+    refresh: refetch,
     currentMonthKey: currentMonthKey(),
   }
 }

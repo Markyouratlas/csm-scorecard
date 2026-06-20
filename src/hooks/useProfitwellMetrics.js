@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // =============================================================================
@@ -30,68 +30,57 @@ function monthKeyFromDate(d) {
   return s.slice(0, 7)
 }
 
+async function fetchProfitwellMetrics() {
+  // Only the most recent months are needed for this "latest value" panel
+  // (with room for a short trend later). Newest-first + a bounded limit means
+  // we never drag full history across the wire and never hit Supabase's
+  // default 1000-row cap as months accumulate. 500 rows >> the metric count,
+  // so every metric's latest month is always included.
+  const { data, error } = await supabase
+    .from('profitwell_metrics')
+    .select('*')
+    .order('month_key', { ascending: false })
+    .limit(500)
+
+  if (error) throw error
+
+  // Group rows by metric_name.
+  const byName = {}
+  for (const row of data || []) {
+    const mk = monthKeyFromDate(row.month_key)
+    if (!mk) continue
+    if (!byName[row.metric_name]) byName[row.metric_name] = []
+    byName[row.metric_name].push({
+      monthKey: mk,
+      value: row.value != null ? Number(row.value) : null,
+    })
+  }
+
+  const metrics = Object.keys(byName)
+    .sort((a, b) => a.localeCompare(b))
+    .map(name => {
+      const history = byName[name]
+      history.sort((a, b) => a.monthKey.localeCompare(b.monthKey))
+      const latest = history.reduce(
+        (best, e) => (best == null || e.monthKey > best.monthKey ? e : best),
+        null,
+      )
+      return { name, history, latest, months: history.length }
+    })
+
+  return { metrics, raw: data || [] }
+}
+
 export function useProfitwellMetrics() {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    metrics: [],   // [{ name, history, latest, months }]
-    raw: [],       // raw rows for debugging
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ['profitwell-metrics'],
+    queryFn: fetchProfitwellMetrics,
   })
-
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      // Only the most recent months are needed for this "latest value" panel
-      // (with room for a short trend later). Newest-first + a bounded limit means
-      // we never drag full history across the wire and never hit Supabase's
-      // default 1000-row cap as months accumulate. 500 rows >> the metric count,
-      // so every metric's latest month is always included.
-      const { data, error } = await supabase
-        .from('profitwell_metrics')
-        .select('*')
-        .order('month_key', { ascending: false })
-        .limit(500)
-
-      if (error) throw error
-
-      // Group rows by metric_name.
-      const byName = {}
-      for (const row of data || []) {
-        const mk = monthKeyFromDate(row.month_key)
-        if (!mk) continue
-        if (!byName[row.metric_name]) byName[row.metric_name] = []
-        byName[row.metric_name].push({
-          monthKey: mk,
-          value: row.value != null ? Number(row.value) : null,
-        })
-      }
-
-      const metrics = Object.keys(byName)
-        .sort((a, b) => a.localeCompare(b))
-        .map(name => {
-          const history = byName[name]
-          history.sort((a, b) => a.monthKey.localeCompare(b.monthKey))
-          const latest = history.reduce(
-            (best, e) => (best == null || e.monthKey > best.monthKey ? e : best),
-            null,
-          )
-          return { name, history, latest, months: history.length }
-        })
-
-      setState({ loading: false, error: null, metrics, raw: data || [] })
-    } catch (e) {
-      console.error('useProfitwellMetrics:', e)
-      setState({ loading: false, error: e, metrics: [], raw: [] })
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
   return {
-    loading: state.loading,
-    error: state.error,
-    metrics: state.metrics,
-    raw: state.raw,
-    refresh: load,
+    loading: isPending,
+    error: error ?? null,
+    metrics: data?.metrics ?? [],
+    raw: data?.raw ?? [],
+    refresh: refetch,
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // Friendly labels for known event-type slugs; unknown slugs fall back to the slug itself.
@@ -101,127 +101,122 @@ function torontoDateStr(iso) {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
 }
 
-// Reads cal_bookings over a window (by when the booking was MADE) and aggregates
-// booked-call counts for the dashboard.
-export function useCalBookings({ days = 30, weekKey = null, period = null, dateField = 'created', refreshKey = 0 } = {}) {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    bookedCalls: 0,
-    paidCount: 0,
-    organicCount: 0,
-    byEventType: [],
-    series: [],
-    paidSeries: [],
-    cancelledCount: 0,
-    untaggedSlugs: [],
-    adDrivenSlugs: [],
-  })
+const EMPTY_CAL = {
+  bookedCalls: 0,
+  paidCount: 0,
+  organicCount: 0,
+  byEventType: [],
+  series: [],
+  paidSeries: [],
+  cancelledCount: 0,
+  untaggedSlugs: [],
+  adDrivenSlugs: [],
+}
 
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      // Anchor the window to Toronto midnight (the business day), not the viewer's
-      // browser timezone — otherwise "Today" shifts per-viewer and misses bookings.
-      // 'created' (default): window by created_at_cal, Monday→now (or rolling N days).
-      // 'scheduled': window by start_time across the FULL Mon–Sun week.
-      const scheduled = dateField === 'scheduled'
-      const filterCol = scheduled ? 'start_time' : 'created_at_cal'
-      // Window precedence: period (calendar QTD/YTD) > weekKey > rolling days.
-      const since = period
-        ? torontoPeriodStart(period)
-        : weekKey
-          ? torontoMidnightOfDateStr(weekKey)
-          : torontoMidnightDaysAgo(days)
-      const sinceISO = since.toISOString()
-      // Upper bound only in scheduled+weekKey mode (end of Sunday = next Monday 00:00).
-      // Calendar periods (qtd/ytd) and rolling days run open-ended up to now.
-      const untilISO = (scheduled && weekKey)
-        ? torontoNextMondayOfDateStr(weekKey).toISOString()
-        : null
+async function fetchCalBookings({ days, weekKey, period, dateField }) {
+  // Anchor the window to Toronto midnight (the business day), not the viewer's
+  // browser timezone — otherwise "Today" shifts per-viewer and misses bookings.
+  // 'created' (default): window by created_at_cal, Monday→now (or rolling N days).
+  // 'scheduled': window by start_time across the FULL Mon–Sun week.
+  const scheduled = dateField === 'scheduled'
+  const filterCol = scheduled ? 'start_time' : 'created_at_cal'
+  // Window precedence: period (calendar QTD/YTD) > weekKey > rolling days.
+  const since = period
+    ? torontoPeriodStart(period)
+    : weekKey
+      ? torontoMidnightOfDateStr(weekKey)
+      : torontoMidnightDaysAgo(days)
+  const sinceISO = since.toISOString()
+  // Upper bound only in scheduled+weekKey mode (end of Sunday = next Monday 00:00).
+  // Calendar periods (qtd/ytd) and rolling days run open-ended up to now.
+  const untilISO = (scheduled && weekKey)
+    ? torontoNextMondayOfDateStr(weekKey).toISOString()
+    : null
 
-      // Classify ad-driven vs organic from the cal_event_type_config table
-      // (not a hardcoded slug), so new event types can be tagged by Nick.
-      const { data: cfgData, error: cfgError } = await supabase
-        .from('cal_event_type_config')
-        .select('slug, label, is_ad_driven')
-      if (cfgError) throw cfgError
-      const cfg = cfgData || []
-      // Set of slugs marked ad-driven, and a label override map, from the config.
-      const adDrivenSet = new Set(cfg.filter(c => c.is_ad_driven).map(c => c.slug))
-      const configuredSlugs = new Set(cfg.map(c => c.slug))
-      const cfgLabel = new Map(cfg.map(c => [c.slug, c.label]))
+  // Classify ad-driven vs organic from the cal_event_type_config table
+  // (not a hardcoded slug), so new event types can be tagged by Nick.
+  const { data: cfgData, error: cfgError } = await supabase
+    .from('cal_event_type_config')
+    .select('slug, label, is_ad_driven')
+  if (cfgError) throw cfgError
+  const cfg = cfgData || []
+  // Set of slugs marked ad-driven, and a label override map, from the config.
+  const adDrivenSet = new Set(cfg.filter(c => c.is_ad_driven).map(c => c.slug))
+  const configuredSlugs = new Set(cfg.map(c => c.slug))
+  const cfgLabel = new Map(cfg.map(c => [c.slug, c.label]))
 
-      let q = supabase
-        .from('cal_bookings')
-        .select('uid, status, event_type_slug, created_at_cal, start_time')
-        .gte(filterCol, sinceISO)
-      if (untilISO) q = q.lt(filterCol, untilISO)
-      q = q.order('created_at_cal', { ascending: false }).limit(2000)
-      const { data, error } = await q
+  let q = supabase
+    .from('cal_bookings')
+    .select('uid, status, event_type_slug, created_at_cal, start_time')
+    .gte(filterCol, sinceISO)
+  if (untilISO) q = q.lt(filterCol, untilISO)
+  q = q.order('created_at_cal', { ascending: false }).limit(2000)
+  const { data, error } = await q
 
-      if (error) throw error
+  if (error) throw error
 
-      const rows = data || []
+  const rows = data || []
 
-      // 1. Total booked calls made in the window.
-      const bookedCalls = rows.length
+  // 1. Total booked calls made in the window.
+  const bookedCalls = rows.length
 
-      // 2. Count by event type (friendly label), sorted desc.
-      const bySlug = new Map()
-      // 3. Count by day (date portion of created_at_cal).
-      const byDay = new Map()
-      // 3b. Count by day for AD-DRIVEN (paid) rows only — pairs with ad spend.
-      const paidByDay = new Map()
-      // 4. Cancelled count (informational).
-      let cancelledCount = 0
-      // 5. Paid (ad-driven) count; organic is the remainder.
-      let paidCount = 0
+  // 2. Count by event type (friendly label), sorted desc.
+  const bySlug = new Map()
+  // 3. Count by day (date portion of created_at_cal).
+  const byDay = new Map()
+  // 3b. Count by day for AD-DRIVEN (paid) rows only — pairs with ad spend.
+  const paidByDay = new Map()
+  // 4. Cancelled count (informational).
+  let cancelledCount = 0
+  // 5. Paid (ad-driven) count; organic is the remainder.
+  let paidCount = 0
 
-      for (const row of rows) {
-        const slug = row.event_type_slug || null
-        if (!bySlug.has(slug)) {
-          bySlug.set(slug, { slug, label: (cfgLabel.get(slug) || labelForSlug(slug)), count: 0, isAdDriven: adDrivenSet.has(slug) })
-        }
-        bySlug.get(slug).count++
-
-        const bucketSource = scheduled ? row.start_time : row.created_at_cal
-        const day = torontoDateStr(bucketSource)
-        if (day) byDay.set(day, (byDay.get(day) || 0) + 1)
-
-        // Ad-driven status comes from cal_event_type_config; everything else is organic.
-        if (adDrivenSet.has(slug)) {
-          paidCount++
-          if (day) paidByDay.set(day, (paidByDay.get(day) || 0) + 1)
-        }
-
-        if (row.status === 'cancelled') cancelledCount++
-      }
-
-      const organicCount = bookedCalls - paidCount
-
-      const byEventType = [...bySlug.values()].sort((a, b) => b.count - a.count)
-
-      // Slugs present in bookings but NOT in the config — new event types Nick
-      // should classify. Exclude null (a null slug can't be tagged by slug).
-      const untaggedSlugs = [...bySlug.keys()].filter(s => s !== null && !configuredSlugs.has(s))
-      const adDrivenSlugs = [...adDrivenSet]
-
-      const series = [...byDay.entries()]
-        .map(([date, count]) => ({ date, count }))
-        .sort((a, b) => a.date.localeCompare(b.date))
-
-      const paidSeries = [...paidByDay.entries()]
-        .map(([date, count]) => ({ date, count }))
-        .sort((a, b) => a.date.localeCompare(b.date))
-
-      setState({ loading: false, error: null, bookedCalls, paidCount, organicCount, byEventType, series, paidSeries, cancelledCount, untaggedSlugs, adDrivenSlugs })
-    } catch (e) {
-      console.error('useCalBookings:', e)
-      setState({ loading: false, error: e, bookedCalls: 0, paidCount: 0, organicCount: 0, byEventType: [], series: [], paidSeries: [], cancelledCount: 0, untaggedSlugs: [], adDrivenSlugs: [] })
+  for (const row of rows) {
+    const slug = row.event_type_slug || null
+    if (!bySlug.has(slug)) {
+      bySlug.set(slug, { slug, label: (cfgLabel.get(slug) || labelForSlug(slug)), count: 0, isAdDriven: adDrivenSet.has(slug) })
     }
-  }, [days, weekKey, period, dateField, refreshKey])
+    bySlug.get(slug).count++
 
-  useEffect(() => { load() }, [load])
-  return { ...state, refresh: load }
+    const bucketSource = scheduled ? row.start_time : row.created_at_cal
+    const day = torontoDateStr(bucketSource)
+    if (day) byDay.set(day, (byDay.get(day) || 0) + 1)
+
+    // Ad-driven status comes from cal_event_type_config; everything else is organic.
+    if (adDrivenSet.has(slug)) {
+      paidCount++
+      if (day) paidByDay.set(day, (paidByDay.get(day) || 0) + 1)
+    }
+
+    if (row.status === 'cancelled') cancelledCount++
+  }
+
+  const organicCount = bookedCalls - paidCount
+
+  const byEventType = [...bySlug.values()].sort((a, b) => b.count - a.count)
+
+  // Slugs present in bookings but NOT in the config — new event types Nick
+  // should classify. Exclude null (a null slug can't be tagged by slug).
+  const untaggedSlugs = [...bySlug.keys()].filter(s => s !== null && !configuredSlugs.has(s))
+  const adDrivenSlugs = [...adDrivenSet]
+
+  const series = [...byDay.entries()]
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const paidSeries = [...paidByDay.entries()]
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  return { bookedCalls, paidCount, organicCount, byEventType, series, paidSeries, cancelledCount, untaggedSlugs, adDrivenSlugs }
+}
+
+// Reads cal_bookings over a window (by when the booking was MADE) and aggregates
+// booked-call counts for the dashboard. Cached per window via React Query.
+export function useCalBookings({ days = 30, weekKey = null, period = null, dateField = 'created', refreshKey = 0 } = {}) {
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ['cal-bookings', days, weekKey, period, dateField, refreshKey],
+    queryFn: () => fetchCalBookings({ days, weekKey, period, dateField }),
+  })
+  return { ...(data ?? EMPTY_CAL), loading: isPending, error: error ?? null, refresh: refetch }
 }

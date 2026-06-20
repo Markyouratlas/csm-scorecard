@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // =============================================================================
@@ -15,29 +15,19 @@ import { supabase } from '../supabase.js'
 //    refresh  — re-runs the fetch
 // =============================================================================
 
+async function fetchMrrHistory() {
+  const { data, error } = await supabase
+    .from('mrr_snapshots')
+    .select('*')
+    .order('month_key', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
 export function useMrrHistory() {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    rows: [],
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ['mrr-history'],
+    queryFn: fetchMrrHistory,
   })
-
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      const { data, error } = await supabase
-        .from('mrr_snapshots')
-        .select('*')
-        .order('month_key', { ascending: true })
-      if (error) throw error
-      setState({ loading: false, error: null, rows: data || [] })
-    } catch (e) {
-      console.error('useMrrHistory:', e)
-      setState({ loading: false, error: e, rows: [] })
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  return { ...state, refresh: load }
+  return { loading: isPending, error: error ?? null, rows: data ?? [], refresh: refetch }
 }

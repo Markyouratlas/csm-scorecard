@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // Toronto-midnight UTC instant for a Monday 'YYYY-MM-DD' (mirrors useCalBookings).
@@ -40,84 +40,83 @@ function torontoMidnightDaysAgo(daysAgo) {
   return new Date(todayMidnight.getTime() - daysAgo * 24 * 60 * 60 * 1000)
 }
 
+const EMPTY_BY_REP = { rows: [], total: 0 }
+
+async function fetchCalBookingsByRep({ weekKey, days, filter, dateField }) {
+  const scheduled = dateField === 'scheduled'
+  const filterCol = scheduled ? 'start_time' : 'created_at_cal'
+  // Window: weekKey (Monday-anchored) OR a rolling `days` window (e.g. days:0 = today).
+  const since = weekKey
+    ? torontoMidnightOfDateStr(weekKey)
+    : torontoMidnightDaysAgo(days)
+  const sinceISO = since.toISOString()
+  // Scheduled upper bound only applies to the weekKey path (full Mon–Sun week).
+  const untilISO = (scheduled && weekKey) ? torontoNextMondayOfDateStr(weekKey).toISOString() : null
+
+  // Ad-driven slugs from config (for paid/organic split per host).
+  const { data: cfgData, error: cfgError } = await supabase
+    .from('cal_event_type_config')
+    .select('slug, label, is_ad_driven')
+  if (cfgError) throw cfgError
+  const adDrivenSet = new Set((cfgData || []).filter(c => c.is_ad_driven).map(c => c.slug))
+  const cfgLabel = new Map((cfgData || []).map(c => [c.slug, c.label]))
+
+  // Bookings made this week.
+  let q = supabase
+    .from('cal_bookings')
+    .select('uid, host_name, host_email, attendee_name, event_type_slug, created_at_cal, start_time, status')
+    .gte(filterCol, sinceISO)
+  if (untilISO) q = q.lt(filterCol, untilISO)
+  q = q.order('created_at_cal', { ascending: false }).limit(2000)
+  const { data, error } = await q
+  if (error) throw error
+
+  // Group by host; track total / paid / organic + individual meetings.
+  const byHost = new Map()
+  for (const b of (data || [])) {
+    const isPaid = adDrivenSet.has(b.event_type_slug)
+    // Apply the filter — skip bookings outside the requested subset.
+    if (filter === 'paid' && !isPaid) continue
+    if (filter === 'organic' && isPaid) continue
+
+    const name = b.host_name || b.host_email || 'Unknown'
+    if (!byHost.has(name)) byHost.set(name, { name, count: 0, paid: 0, organic: 0, meetings: [] })
+    const h = byHost.get(name)
+    h.count++
+    if (isPaid) h.paid++
+    else h.organic++
+    h.meetings.push({
+      uid: b.uid,
+      customer: b.attendee_name || '(no name)',
+      date: scheduled ? b.start_time : b.created_at_cal, // ISO; UI formats (start_time in scheduled mode)
+      eventType: b.event_type_slug || '(none)',
+      eventLabel: cfgLabel.get(b.event_type_slug) || b.event_type_slug || '(none)',
+      status: b.status || null,
+      isPaid,
+    })
+  }
+
+  // Sort each host's meetings newest-first.
+  for (const h of byHost.values()) {
+    h.meetings.sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  }
+
+  const rows = [...byHost.values()].sort((a, b) => b.count - a.count)
+  const total = rows.reduce((s, r) => s + r.count, 0)
+  return { rows, total }
+}
+
 // Per-host Cal bookings for a scorecard week (Monday YYYY-MM-DD), windowed
 // Monday→now in Toronto to match useCalBookings. Splits paid vs organic using
 // cal_event_type_config (ad-driven slugs). `filter` ('all'|'paid'|'organic')
 // narrows to a subset; each host row carries a `meetings` array for drill-down.
+// Idle (no weekKey and no days) reports not-loading with empty rows.
 export function useCalBookingsByRep({ weekKey = null, days = null, filter = 'all', dateField = 'created', refreshKey = 0 } = {}) {
-  const [state, setState] = useState({ loading: true, error: null, rows: [], total: 0 })
-
-  const load = useCallback(async () => {
-    if (!weekKey && days == null) { setState({ loading: false, error: null, rows: [], total: 0 }); return }
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      const scheduled = dateField === 'scheduled'
-      const filterCol = scheduled ? 'start_time' : 'created_at_cal'
-      // Window: weekKey (Monday-anchored) OR a rolling `days` window (e.g. days:0 = today).
-      const since = weekKey
-        ? torontoMidnightOfDateStr(weekKey)
-        : torontoMidnightDaysAgo(days)
-      const sinceISO = since.toISOString()
-      // Scheduled upper bound only applies to the weekKey path (full Mon–Sun week).
-      const untilISO = (scheduled && weekKey) ? torontoNextMondayOfDateStr(weekKey).toISOString() : null
-
-      // Ad-driven slugs from config (for paid/organic split per host).
-      const { data: cfgData, error: cfgError } = await supabase
-        .from('cal_event_type_config')
-        .select('slug, label, is_ad_driven')
-      if (cfgError) throw cfgError
-      const adDrivenSet = new Set((cfgData || []).filter(c => c.is_ad_driven).map(c => c.slug))
-      const cfgLabel = new Map((cfgData || []).map(c => [c.slug, c.label]))
-
-      // Bookings made this week.
-      let q = supabase
-        .from('cal_bookings')
-        .select('uid, host_name, host_email, attendee_name, event_type_slug, created_at_cal, start_time, status')
-        .gte(filterCol, sinceISO)
-      if (untilISO) q = q.lt(filterCol, untilISO)
-      q = q.order('created_at_cal', { ascending: false }).limit(2000)
-      const { data, error } = await q
-      if (error) throw error
-
-      // Group by host; track total / paid / organic + individual meetings.
-      const byHost = new Map()
-      for (const b of (data || [])) {
-        const isPaid = adDrivenSet.has(b.event_type_slug)
-        // Apply the filter — skip bookings outside the requested subset.
-        if (filter === 'paid' && !isPaid) continue
-        if (filter === 'organic' && isPaid) continue
-
-        const name = b.host_name || b.host_email || 'Unknown'
-        if (!byHost.has(name)) byHost.set(name, { name, count: 0, paid: 0, organic: 0, meetings: [] })
-        const h = byHost.get(name)
-        h.count++
-        if (isPaid) h.paid++
-        else h.organic++
-        h.meetings.push({
-          uid: b.uid,
-          customer: b.attendee_name || '(no name)',
-          date: scheduled ? b.start_time : b.created_at_cal, // ISO; UI formats (start_time in scheduled mode)
-          eventType: b.event_type_slug || '(none)',
-          eventLabel: cfgLabel.get(b.event_type_slug) || b.event_type_slug || '(none)',
-          status: b.status || null,
-          isPaid,
-        })
-      }
-
-      // Sort each host's meetings newest-first.
-      for (const h of byHost.values()) {
-        h.meetings.sort((a, b) => String(b.date).localeCompare(String(a.date)))
-      }
-
-      const rows = [...byHost.values()].sort((a, b) => b.count - a.count)
-      const total = rows.reduce((s, r) => s + r.count, 0)
-      setState({ loading: false, error: null, rows, total })
-    } catch (e) {
-      console.error('useCalBookingsByRep:', e)
-      setState({ loading: false, error: e, rows: [], total: 0 })
-    }
-  }, [weekKey, days, filter, dateField, refreshKey])
-
-  useEffect(() => { load() }, [load])
-  return { ...state, refresh: load }
+  const enabled = !!weekKey || days != null
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ['cal-bookings-by-rep', weekKey, days, filter, dateField, refreshKey],
+    queryFn: () => fetchCalBookingsByRep({ weekKey, days, filter, dateField }),
+    enabled,
+  })
+  return { ...(data ?? EMPTY_BY_REP), loading: enabled && isPending, error: error ?? null, refresh: refetch }
 }

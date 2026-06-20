@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
-import { getWeekKey, recentWeekKeys } from '../dateUtils.js'
+import { recentWeekKeys } from '../dateUtils.js'
 
 // =============================================================================
 //  useOdysseyMetrics
@@ -26,80 +26,68 @@ const TODAY_DAY_INDEX = (() => {
   return new Date().getDay()
 })()
 
-export function useOdysseyMetrics() {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    today: null,
-    thisWeek: null,
-    thisMonth: null,
-    trends: null,
-    monthly: null,
-    awaiting: null,
-    meta: null,
+async function fetchOdysseyMetrics() {
+  // ---- Fetch team profiles ----
+  const { data: profiles, error: pErr } = await supabase
+    .from('profiles')
+    .select('*')
+    .is('archived_at', null)
+  if (pErr) throw pErr
+
+  // ---- Fetch the last 8 weeks of scorecards for sparkline history ----
+  const weekKeys = recentWeekKeys(8)
+  const { data: scorecards, error: sErr } = await supabase
+    .from('weekly_scorecards')
+    .select('*')
+    .in('week_key', weekKeys)
+  if (sErr) throw sErr
+
+  // ---- Fetch cancellations (small table) for churn metrics ----
+  const memberIds = (profiles || []).map(p => p.id)
+  let cancellations = []
+  if (memberIds.length) {
+    const { data: cancels } = await supabase
+      .from('cancellations')
+      .select('*')
+      .in('csm_id', memberIds)
+    cancellations = cancels || []
+  }
+
+  // ---- Aggregate ----
+  const result = aggregate({
+    profiles: profiles || [],
+    scorecards: scorecards || [],
+    cancellations,
+    weekKeys,
   })
 
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      // ---- Fetch team profiles ----
-      const { data: profiles, error: pErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .is('archived_at', null)
-      if (pErr) throw pErr
+  return {
+    ...result,
+    meta: {
+      memberCount: (profiles || []).length,
+      weekKeys,
+      fetchedAt: new Date(),
+    },
+  }
+}
 
-      // ---- Fetch the last 8 weeks of scorecards for sparkline history ----
-      const weekKeys = recentWeekKeys(8)
-      const { data: scorecards, error: sErr } = await supabase
-        .from('weekly_scorecards')
-        .select('*')
-        .in('week_key', weekKeys)
-      if (sErr) throw sErr
-
-      // ---- Fetch cancellations (small table) for churn metrics ----
-      const memberIds = (profiles || []).map(p => p.id)
-      let cancellations = []
-      if (memberIds.length) {
-        const { data: cancels } = await supabase
-          .from('cancellations')
-          .select('*')
-          .in('csm_id', memberIds)
-        cancellations = cancels || []
-      }
-
-      // ---- Aggregate ----
-      const result = aggregate({
-        profiles: profiles || [],
-        scorecards: scorecards || [],
-        cancellations,
-        weekKeys,
-      })
-
-      setState({
-        loading: false,
-        error: null,
-        ...result,
-        meta: {
-          memberCount: (profiles || []).length,
-          weekKeys,
-          fetchedAt: new Date(),
-        },
-      })
-    } catch (e) {
-      console.error('useOdysseyMetrics:', e)
-      setState({
-        loading: false,
-        error: e,
-        today: null, thisWeek: null, thisMonth: null,
-        trends: null, monthly: null, awaiting: null, meta: null,
-      })
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  return { ...state, refresh: load }
+export function useOdysseyMetrics() {
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ['odyssey-metrics'],
+    queryFn: fetchOdysseyMetrics,
+  })
+  return {
+    today: data?.today ?? null,
+    thisWeek: data?.thisWeek ?? null,
+    thisMonth: data?.thisMonth ?? null,
+    trends: data?.trends ?? null,
+    monthly: data?.monthly ?? null,
+    awaiting: data?.awaiting ?? null,
+    meta: data?.meta ?? null,
+    loading: isPending,
+    error: error ?? null,
+    refresh: refetch,
+  }
 }
 
 // =============================================================================
