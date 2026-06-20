@@ -336,7 +336,7 @@ function DemosBreakdownModal({ weekKey, onClose }) {
 }
 
 function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onClose }) {
-  const { rows, total, loading } = useCalBookingsByRep(weekKey, filter, dateField)
+  const { rows, total, loading } = useCalBookingsByRep({ weekKey, filter, dateField })
   const noun = dateField === 'scheduled' ? 'Scheduled' : 'Booked'
   const titleByFilter = {
     all: `Total ${noun} Meetings · This Week`,
@@ -699,6 +699,34 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
 //  Daily view — today's daily entries
 // =============================================================================
 
+// Today-windowed Cal breakdown (per host, with meeting drill-down). Mirrors the
+// Weekly CalBreakdownModal but uses a days:0 (today, Toronto) window.
+function DailyCalBreakdownModal({ filter = 'all', onClose }) {
+  const { rows, total, loading } = useCalBookingsByRep({ days: 0, filter })
+  const titleByFilter = {
+    all: 'Total Booked Meetings · Today',
+    paid: 'Paid Booked Meetings · Today',
+    organic: 'Organic Booked Meetings · Today',
+  }
+  const subtitleByFilter = {
+    all: 'All meetings booked today (by host)',
+    paid: 'Ad-driven meetings booked today (by host)',
+    organic: 'Organic meetings booked today (by host)',
+  }
+  return (
+    <BreakdownModal
+      title={titleByFilter[filter] || titleByFilter.all}
+      subtitle={subtitleByFilter[filter] || subtitleByFilter.all}
+      rows={rows}
+      total={total}
+      loading={loading}
+      showSplit={filter === 'all'}
+      splitMode={filter === 'all' ? 'show' : 'hide'}
+      onClose={onClose}
+    />
+  )
+}
+
 function DailyView({ data, targets, canEdit, openModal }) {
   const td = data.today || {}
   const metaToday = useMetaAds('today')
@@ -713,6 +741,14 @@ function DailyView({ data, targets, canEdit, openModal }) {
   const adSpendTodaySource = metaSpendToday != null ? 'meta' : null
   const paidLeadsTodayValue = metaLeadsToday ?? td.paidLeadsToday
   const paidLeadsTodaySource = metaLeadsToday != null ? 'meta' : null
+  // Cal.com booked meetings TODAY (Toronto midnight → now).
+  const calToday = useCalBookings({ days: 0 })
+  // Cost per booked meeting today = today's Meta spend ÷ today's PAID (ad-driven) bookings.
+  const costPerMeetingToday = (metaSpendToday != null && !calToday.loading && calToday.paidCount > 0)
+    ? Math.round((metaSpendToday / calToday.paidCount) * 100) / 100
+    : null
+  // Which today Cal breakdown is open: null | 'all' | 'paid' | 'organic'
+  const [dailyBreakdown, setDailyBreakdown] = useState(null)
   const now = new Date()
   const dayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
@@ -748,6 +784,9 @@ function DailyView({ data, targets, canEdit, openModal }) {
         <DailyTile label="Show Rate" value={td.showRateToday} suffix="%" color={DEPTS.sales.color} hint="vs 80% goal" />
         <DailyTile label="Closes" value={td.customersClosedToday} color={DEPTS.sales.color} hint="today" />
         <DailyTile label="Close Rate" value={td.closeRateToday} suffix="%" color={DEPTS.sales.color} hint="vs 25% goal" />
+        <DailyTile label="Booked Meetings" value={calToday.loading ? null : calToday.bookedCalls} color={DEPTS.sales.color} hint="today" source="cal" onBreakdownClick={() => setDailyBreakdown('all')} />
+        <DailyTile label="Paid Booked" value={calToday.loading ? null : calToday.paidCount} color={DEPTS.sales.color} hint="today · ad-driven" source="cal" onBreakdownClick={() => setDailyBreakdown('paid')} />
+        <DailyTile label="Organic Booked" value={calToday.loading ? null : calToday.organicCount} color={DEPTS.sales.color} hint="today · organic" source="cal" onBreakdownClick={() => setDailyBreakdown('organic')} />
       </div>
 
       <SectionHeader
@@ -763,6 +802,8 @@ function DailyView({ data, targets, canEdit, openModal }) {
         <DailyTile label="Organic Leads" value={td.organicLeadsToday} color={DEPTS.marketing.color} hint="today" />
         <DailyTile label="Website Visitors" value={td.websiteVisitorsToday} color={DEPTS.marketing.color} hint="today" />
         <DailyTile label="MRR Closed" value={null} prefix="$" color={DEPTS.marketing.color} awaiting={data.awaiting?.newMRR} />
+        <DailyTile label="Cost / Booked Meeting" value={costPerMeetingToday} prefix="$" color={DEPTS.marketing.color} hint="today · ad-driven" source={costPerMeetingToday != null ? 'cal' : null} awaiting={costPerMeetingToday == null && 'Today\'s bookings'} />
+        <DailyTile label="Paid Booked" value={calToday.loading ? null : calToday.paidCount} color={DEPTS.marketing.color} hint="today · ad-driven" source="cal" onBreakdownClick={() => setDailyBreakdown('paid')} />
       </div>
 
       <SectionHeader
@@ -791,14 +832,32 @@ function DailyView({ data, targets, canEdit, openModal }) {
         <DailyTile label="Partner Calls" awaiting={data.awaiting?.partnerCallsToday} />
         <DailyTile label="Pipeline Value" awaiting={data.awaiting?.partnerPipeline} prefix="$" />
       </div>
+
+      {dailyBreakdown && (
+        <DailyCalBreakdownModal filter={dailyBreakdown} onClose={() => setDailyBreakdown(null)} />
+      )}
     </div>
   )
 }
 
-function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint, awaiting, source }) {
+function DailyTile({ label, value, prefix = '', suffix = '', color = BRAND, hint, awaiting, source, onBreakdownClick }) {
   const isMissing = awaiting || value == null
+  const breakdownable = !!onBreakdownClick
+  const handleKeyDown = (e) => {
+    if (breakdownable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onBreakdownClick() }
+  }
+  const wrapperProps = breakdownable
+    ? {
+        className: 'card p-4 flex flex-col text-left w-full cursor-pointer hover:shadow-md hover:border-stone-400 transition-all',
+        style: { minHeight: 110 },
+        role: 'button',
+        tabIndex: 0,
+        onClick: onBreakdownClick,
+        onKeyDown: handleKeyDown,
+      }
+    : { className: 'card p-4 flex flex-col', style: { minHeight: 110 } }
   return (
-    <div className="card p-4 flex flex-col" style={{ minHeight: 110 }}>
+    <div {...wrapperProps}>
       <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-2">
         {label}
       </div>
@@ -1042,8 +1101,6 @@ function CostPerMeetingCard() {
     : null
 
   const dept = DEPTS.marketing
-  const horizonLabel = horizon === 'quarterly' ? 'Quarter' : 'Year'
-  const basisLabel = basis === 'calendar' ? 'calendar' : 'trailing'
   // Compute the actual month range covered, in Toronto time, so the window is
   // unambiguous (which quarter / which year).
   const tzParts = (d) => new Intl.DateTimeFormat('en-US', {

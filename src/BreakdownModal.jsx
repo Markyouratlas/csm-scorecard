@@ -51,7 +51,7 @@ export default function BreakdownModal({ title, subtitle, rows = [], total = 0, 
           {loading ? (
             <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">Loading…</div>
           ) : rows.length === 0 ? (
-            <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No data for this week</div>
+            <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No data for this period</div>
           ) : (
             <div className="space-y-1.5">
               {rows.map((r, i) => (

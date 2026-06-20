@@ -27,22 +27,39 @@ function torontoNextMondayOfDateStr(dateStr) {
   return new Date(mon.getTime() + 7 * 24 * 60 * 60 * 1000)
 }
 
+// Toronto-midnight UTC instant for N days ago (N=0 → today's Toronto midnight).
+// Mirrors useCalBookings' rolling-day window for the 'days' option.
+function torontoMidnightDaysAgo(daysAgo) {
+  const TZ = 'America/Toronto'
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now).reduce((a, p) => (a[p.type] = p.value, a), {})
+  const todayStr = `${parts.year}-${parts.month}-${parts.day}`
+  const todayMidnight = torontoMidnightOfDateStr(todayStr)
+  return new Date(todayMidnight.getTime() - daysAgo * 24 * 60 * 60 * 1000)
+}
+
 // Per-host Cal bookings for a scorecard week (Monday YYYY-MM-DD), windowed
 // Monday→now in Toronto to match useCalBookings. Splits paid vs organic using
 // cal_event_type_config (ad-driven slugs). `filter` ('all'|'paid'|'organic')
 // narrows to a subset; each host row carries a `meetings` array for drill-down.
-export function useCalBookingsByRep(weekKey, filter = 'all', dateField = 'created', refreshKey = 0) {
+export function useCalBookingsByRep({ weekKey = null, days = null, filter = 'all', dateField = 'created', refreshKey = 0 } = {}) {
   const [state, setState] = useState({ loading: true, error: null, rows: [], total: 0 })
 
   const load = useCallback(async () => {
-    if (!weekKey) { setState({ loading: false, error: null, rows: [], total: 0 }); return }
+    if (!weekKey && days == null) { setState({ loading: false, error: null, rows: [], total: 0 }); return }
     setState(s => ({ ...s, loading: true, error: null }))
     try {
       const scheduled = dateField === 'scheduled'
       const filterCol = scheduled ? 'start_time' : 'created_at_cal'
-      const since = torontoMidnightOfDateStr(weekKey)
+      // Window: weekKey (Monday-anchored) OR a rolling `days` window (e.g. days:0 = today).
+      const since = weekKey
+        ? torontoMidnightOfDateStr(weekKey)
+        : torontoMidnightDaysAgo(days)
       const sinceISO = since.toISOString()
-      const untilISO = scheduled ? torontoNextMondayOfDateStr(weekKey).toISOString() : null
+      // Scheduled upper bound only applies to the weekKey path (full Mon–Sun week).
+      const untilISO = (scheduled && weekKey) ? torontoNextMondayOfDateStr(weekKey).toISOString() : null
 
       // Ad-driven slugs from config (for paid/organic split per host).
       const { data: cfgData, error: cfgError } = await supabase
@@ -99,7 +116,7 @@ export function useCalBookingsByRep(weekKey, filter = 'all', dateField = 'create
       console.error('useCalBookingsByRep:', e)
       setState({ loading: false, error: e, rows: [], total: 0 })
     }
-  }, [weekKey, filter, dateField, refreshKey])
+  }, [weekKey, days, filter, dateField, refreshKey])
 
   useEffect(() => { load() }, [load])
   return { ...state, refresh: load }
