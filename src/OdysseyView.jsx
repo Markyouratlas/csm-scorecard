@@ -246,6 +246,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         target={mrrAnnualTarget}
         asOfMonth={mrrStat.asOfMonth}
         status={mrrStat.status}
+        loading={rev.loading}
         series={mrrHistorySeries}
         onEditHistory={canEdit ? () => setHistoryOpen(true) : null}
         customers={customersStat.value}
@@ -1656,11 +1657,16 @@ function shortMonthLabel(monthKey) {
 // =============================================================================
 
 function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdited, customersTarget, arpu, arpuEdited,
-                      onClickMrr, onClickCustomers, onClickArpu, canEdit, status, onEditHistory }) {
+                      onClickMrr, onClickCustomers, onClickArpu, canEdit, status, loading, onEditHistory }) {
   const pct = target && value ? Math.min(100, (value / target) * 100) : 0
   const hasMrr = value != null
   const hasTarget = target != null
   const hasChart = series && series.length >= 2
+  // While Stripe is loading, suppress stale stored values (they'd flash to live).
+  // Manual overrides ('edited') and the target don't depend on Stripe → show instantly.
+  const mrrLoading = loading && status !== 'edited'
+  const customersLoading = loading && !customersEdited
+  const arpuLoading = loading && !arpuEdited
 
   return (
     <div className="mrr-hero-card relative overflow-hidden rounded-2xl border border-stone-200 transition-shadow"
@@ -1685,7 +1691,10 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
               <Sparkles className="w-3 h-3" /> Annual Target — Total MRR
               {canEdit && <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />}
             </div>
-            {hasMrr ? (
+            {mrrLoading ? (
+              <div className="animate-pulse rounded-xl bg-stone-200/70"
+                style={{ width: 'clamp(200px, 30vw, 360px)', height: 'clamp(56px, 9vw, 96px)' }} />
+            ) : hasMrr ? (
               <div className="display-text font-medium leading-[0.9] tracking-tight num-tabular"
                 style={{ color: BRAND, fontSize: 'clamp(56px, 9vw, 96px)' }}>
                 {formatMetricValue(value, 'currency')}
@@ -1697,13 +1706,15 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
             )}
             <div className="display-text italic text-xl md:text-2xl mt-2 text-stone-500">
               {hasTarget ? <>of {formatMetricValue(target, 'currency')} MRR</> : 'no target set'}
-              {status === 'edited'
+              {mrrLoading
+                ? <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· loading</span>
+                : status === 'edited'
                 ? <span className="mono-text not-italic text-[10.5px] ml-2 uppercase tracking-widest" style={{ color: '#B45309' }}>· edited</span>
                 : status === 'live'
                 ? <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· live</span>
                 : asOfMonth && <span className="mono-text not-italic text-[10.5px] ml-2 text-stone-400 uppercase tracking-widest">· as of {formatShortMonth(asOfMonth)}</span>}
             </div>
-            {hasTarget && (
+            {hasTarget && !mrrLoading && (
               <div className="mt-5 max-w-md">
                 <div className="flex items-center justify-between mono-text text-[11px] mb-2 text-stone-500">
                   <span>{pct.toFixed(1)}% to goal</span>
@@ -1725,6 +1736,7 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
               target={customersEdited ? 'manually set' : (customersTarget != null ? `target ${Math.round(customersTarget).toLocaleString()}` : 'no target')}
               onClick={onClickCustomers}
               canEdit={canEdit}
+              loading={customersLoading}
             />
             <HeroSubStat
               label="ARPU"
@@ -1732,6 +1744,7 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
               target={arpuEdited ? 'manually set' : (arpu != null ? 'per customer / mo' : 'awaiting Stripe')}
               onClick={onClickArpu}
               canEdit={canEdit}
+              loading={arpuLoading}
             />
             <HeroSubStat
               label="MRR Target"
@@ -1808,7 +1821,7 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
   )
 }
 
-function HeroSubStat({ label, value, target, onClick, canEdit }) {
+function HeroSubStat({ label, value, target, onClick, canEdit, loading }) {
   const clickable = !!onClick
   return (
     <button
@@ -1822,7 +1835,9 @@ function HeroSubStat({ label, value, target, onClick, canEdit }) {
         {clickable && canEdit && <Edit3 className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
       </div>
       <div className="display-text text-2xl font-medium mt-1 num-tabular text-stone-900 leading-tight">
-        {value ?? <span className="text-stone-300 text-base font-normal">—</span>}
+        {loading
+          ? <span className="inline-block animate-pulse rounded-md bg-stone-200/70 align-middle" style={{ width: 64, height: 22 }} />
+          : (value ?? <span className="text-stone-300 text-base font-normal">—</span>)}
       </div>
       <div className="mono-text text-[10.5px] text-stone-400 mt-0.5">{target}</div>
     </button>
