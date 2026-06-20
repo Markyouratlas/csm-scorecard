@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useMemo } from 'react';
+import { useExecutiveStats } from './hooks/useExecutiveStats.js';
+import LiveLED from './LiveLED.jsx';
 import { createPortal } from 'react-dom';
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area, Cell,
@@ -839,7 +841,7 @@ function fmt(n) {
 
 function MetricCard({
   label, value, target, suffix = '', prefix = '',
-  trend, color = BRAND, invertDelta = false, hint, info,
+  trend, color = BRAND, invertDelta = false, hint, info, led,
 }) {
   const change = trend ? deltaPct(trend) : 0;
   const positive = invertDelta ? change < 0 : change > 0;
@@ -848,6 +850,7 @@ function MetricCard({
 
   return (
     <div className="card group relative p-5 fade-up flex flex-col" style={{ minHeight: '170px' }}>
+      {led && <LiveLED status={led.status} reason={led.reason} />}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -948,7 +951,7 @@ function NumberBlock({ label, value, prefix='', suffix='', trend, color=BRAND, i
 
 /* GAUGE CARD — semicircular gauge built with custom SVG.
    Predictable rendering, integrated number, color-coded by goal achievement. */
-function GaugeCard({ label, value, target, prefix='', suffix='', color=BRAND, info, hint, invertDelta=false, trend }) {
+function GaugeCard({ label, value, target, prefix='', suffix='', color=BRAND, info, hint, invertDelta=false, trend, led }) {
   const formula = info || FORMULAS[label];
   const rawProgress = invertDelta ? target / value : value / target;
   const progress = Math.max(0, Math.min(1, rawProgress));
@@ -975,7 +978,8 @@ function GaugeCard({ label, value, target, prefix='', suffix='', color=BRAND, in
   const displayValue = `${prefix}${typeof value === 'number' ? fmt(value) : value}${suffix}`;
 
   return (
-    <div className="card p-5 fade-up flex flex-col" style={{ minHeight: '170px' }}>
+    <div className="card relative p-5 fade-up flex flex-col" style={{ minHeight: '170px' }}>
+      {led && <LiveLED status={led.status} reason={led.reason} />}
       <div className="flex items-center gap-1.5 mb-1">
         <div className="text-[10.5px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>{label}</div>
         <InfoTooltip content={formula} label={label} />
@@ -1258,10 +1262,39 @@ const CHART_TOOLTIP_STYLE = {
 
 /* ===================== EXECUTIVE VIEW ===================== */
 function ExecutiveView() {
-  const { trends, monthly } = useContext(DataContext);
+  const { monthly } = useContext(DataContext);
   const exec = deriveExecMetrics(monthly);
-  const annualPct = (monthly.totalMRR / ANNUAL.totalMRR.target) * 100;
-  const mrrSeries = trends.totalMRR.map((v, i) => ({ week: `W${i + 1}`, mrr: v }));
+  const stats = useExecutiveStats();
+
+  // Piped from the shared executive source (same as the Odyssey hero) — edits propagate.
+  const realMrr = stats.mrr.value;                  // live Stripe / manual / stored
+  const realCustomers = stats.customers.value;
+  const realArpu = stats.arpu.value;
+  const annualMrrTarget = stats.mrrAnnualTarget ?? ANNUAL.totalMRR.target;
+  const annualPct = (realMrr != null && annualMrrTarget) ? (realMrr / annualMrrTarget) * 100 : 0;
+  const mrrSeries = stats.weeklyMrr.series.map((s) => ({ week: s.week, mrr: s.mrr }));
+
+  // Yellow tiles fall back to the illustrative value until a real figure exists.
+  const ltvCacVal = stats.econ.ltvCac?.actual ?? exec.ltvCac;
+  const grossMarginVal = stats.econ.grossMargin?.actual ?? exec.grossMargin;
+  const arpuVal = realArpu != null ? realArpu : exec.arpu;
+
+  const subStats = [
+    { label: 'Customers', v: realCustomers != null ? Math.round(realCustomers).toLocaleString() : '—',
+      t: stats.customersAnnualTarget ?? ANNUAL.totalCustomers.target,
+      led: { status: 'green', reason: 'Live from Stripe — distinct customers with a committed subscription.' } },
+    { label: 'LTV : CAC', v: `${ltvCacVal.toFixed(1)}:1`, t: `${ANNUAL.ltvCac.target}:1`,
+      led: { status: 'yellow', reason: 'Needs CAC (sales & marketing cost ÷ new customers). Showing a manually-entered figure until cost data is wired.' } },
+    { label: 'Gross Margin', v: `${Math.round(grossMarginVal)}%`, t: `${ANNUAL.grossMargin.target}%`,
+      led: { status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' } },
+  ];
+
+  const INITIATIVE_LED = {
+    'Paid Acquisition':     { status: 'red',    reason: 'Needs structured sales & marketing cost (salaries + ad spend) to compute CAC.' },
+    'Customer Activation':  { status: 'yellow', reason: 'Comes from CSM scorecards; partial until activation tracking is formalized.' },
+    'Channel Partnerships': { status: 'red',    reason: 'Needs CRM (GHL / Attio) integration for partner pipeline.' },
+    'Affiliates':           { status: 'red',    reason: 'Needs an affiliate / partner revenue source.' },
+  };
 
   return (
     <div className="space-y-12">
@@ -1275,6 +1308,7 @@ function ExecutiveView() {
           className="absolute -top-32 -right-24 w-[500px] h-[500px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.18), transparent 70%)' }}
         />
+        <LiveLED status="green" reason="Total MRR is live from Stripe (committed recurring). The weekly trajectory interpolates between monthly actuals and can be manually adjusted as real weekly figures come in." />
 
         <div className="relative grid lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-5">
@@ -1282,10 +1316,12 @@ function ExecutiveView() {
               <Sparkles className="w-3 h-3" /> Annual Target — Atlas Goals
             </div>
             <div className="font-display text-7xl lg:text-8xl leading-[0.9] tracking-tighter" style={{ color: BRAND }}>
-              ${(monthly.totalMRR / 1000).toFixed(1)}<span style={{ color: 'rgba(102,57,166,0.55)' }}>K</span>
+              {realMrr != null
+                ? <>${(realMrr / 1000).toFixed(1)}<span style={{ color: 'rgba(102,57,166,0.55)' }}>K</span></>
+                : <span style={{ color: 'var(--text-3)' }}>—</span>}
             </div>
             <div className="font-display-i text-2xl mt-2" style={{ color: 'var(--text-2)' }}>
-              of $300K MRR
+              of ${Math.round(annualMrrTarget / 1000)}K MRR
             </div>
             <div className="mt-6 max-w-md">
               <div className="flex items-center justify-between text-xs font-mono mb-2" style={{ color: 'var(--text-2)' }}>
@@ -1301,12 +1337,9 @@ function ExecutiveView() {
             </div>
 
             <div className="grid grid-cols-3 gap-4 mt-8">
-              {[
-                { label: 'Customers',   v: monthly.totalCustomers,           t: ANNUAL.totalCustomers.target },
-                { label: 'LTV : CAC',   v: `${exec.ltvCac.toFixed(1)}:1`,    t: `${ANNUAL.ltvCac.target}:1` },
-                { label: 'Gross Margin',v: `${exec.grossMargin.toFixed(0)}%`, t: `${ANNUAL.grossMargin.target}%` },
-              ].map((s) => (
-                <div key={s.label}>
+              {subStats.map((s) => (
+                <div key={s.label} className="relative pr-4">
+                  <LiveLED status={s.led.status} reason={s.led.reason} style={{ top: 0, right: 0 }} />
                   <div className="flex items-center gap-1.5">
                     <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>{s.label}</div>
                     <InfoTooltip content={FORMULAS[s.label]} label={s.label} />
@@ -1359,7 +1392,8 @@ function ExecutiveView() {
           {STRATEGIC_INITIATIVES.map((s) => {
             const D = DEPTS[s.deptKey];
             return (
-              <div key={s.name} className="card p-5">
+              <div key={s.name} className="card relative p-5">
+                {INITIATIVE_LED[s.name] && <LiveLED status={INITIATIVE_LED[s.name].status} reason={INITIATIVE_LED[s.name].reason} />}
                 <div className="flex items-start justify-between mb-4 gap-2">
                   <div className="flex items-center gap-1.5">
                     <div className="text-[10.5px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: D.color }}>
@@ -1395,7 +1429,10 @@ function ExecutiveView() {
             <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Quarterly OKRs</div>
             <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>How the quarter is shaping up</h2>
           </div>
-          <div className="text-xs font-mono" style={{ color: 'var(--text-3)' }}>Q4 · Week 8 of 13</div>
+          <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
+            <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
+            Q4 · Week 8 of 13
+          </div>
         </div>
 
         <div className="card-flat divide-y" style={{ borderColor: 'var(--border)' }}>
@@ -1436,12 +1473,18 @@ function ExecutiveView() {
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <MetricCard  label="ARPU"           value={Math.round(exec.arpu)} prefix="$" trend={[420,425,430,438,445,452,455, Math.round(exec.arpu)]} color={BRAND} />
-          <GaugeCard   label="Gross Margin"   value={Math.round(exec.grossMargin)}  suffix="%" target={82} trend={[74,75,75,76,77,77,78, Math.round(exec.grossMargin)]} color="#15803D" />
-          <MetricCard  label="Cost / Service" value={Math.round(exec.costPerService)} prefix="$" trend={[110,108,106,105,103,103,102, Math.round(exec.costPerService)]} color="#DC2649" invertDelta />
-          <GaugeCard   label="CAC"            value={Math.round(exec.cac)} prefix="$" target={750} trend={[890,920,845,870,810,765,790, Math.round(exec.cac)]} color="#DC2649" invertDelta />
-          <MetricCard  label="CAC Payback"    value={Number(exec.cacPayback.toFixed(1))} suffix=" mo" trend={[5.4,5.2,5.0,4.9,4.8,4.7,4.7, Number(exec.cacPayback.toFixed(1))]} color="#1D4ED8" invertDelta />
-          <GaugeCard   label="LTV : CAC"      value={Number(exec.ltvCac.toFixed(1))} suffix=":1" target={5} trend={[3.8,3.9,4.1,4.2,4.4,4.5,4.5, Number(exec.ltvCac.toFixed(1))]} color={BRAND} />
+          <MetricCard  label="ARPU"           value={Math.round(arpuVal)} prefix="$" trend={[420,425,430,438,445,452,455, Math.round(arpuVal)]} color={BRAND}
+            led={{ status: 'green', reason: 'Live from Stripe — Total MRR ÷ active customers.' }} />
+          <GaugeCard   label="Gross Margin"   value={Math.round(grossMarginVal)}  suffix="%" target={82} trend={[74,75,75,76,77,77,78, Math.round(grossMarginVal)]} color="#15803D"
+            led={{ status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' }} />
+          <MetricCard  label="Cost / Service" value={Math.round(exec.costPerService)} prefix="$" trend={[110,108,106,105,103,103,102, Math.round(exec.costPerService)]} color="#DC2649" invertDelta
+            led={{ status: 'red', reason: 'Needs cost-of-service data (CS team salaries + infrastructure spend). Illustrative for now.' }} />
+          <GaugeCard   label="CAC"            value={Math.round(exec.cac)} prefix="$" target={750} trend={[890,920,845,870,810,765,790, Math.round(exec.cac)]} color="#DC2649" invertDelta
+            led={{ status: 'red', reason: 'Needs sales & marketing cost (salaries + ad spend) ÷ new customers. Illustrative for now.' }} />
+          <MetricCard  label="CAC Payback"    value={Number(exec.cacPayback.toFixed(1))} suffix=" mo" trend={[5.4,5.2,5.0,4.9,4.8,4.7,4.7, Number(exec.cacPayback.toFixed(1))]} color="#1D4ED8" invertDelta
+            led={{ status: 'red', reason: 'Derived from CAC and gross margin — needs the cost inputs above first.' }} />
+          <GaugeCard   label="LTV : CAC"      value={Number(ltvCacVal.toFixed(1))} suffix=":1" target={5} trend={[3.8,3.9,4.1,4.2,4.4,4.5,4.5, Number(ltvCacVal.toFixed(1))]} color={BRAND}
+            led={{ status: 'yellow', reason: 'Needs CAC. Showing a manually-entered / stored figure until cost data is wired.' }} />
         </div>
       </section>
     </div>

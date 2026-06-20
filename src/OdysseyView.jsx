@@ -14,6 +14,7 @@ import TargetEditModal from './TargetEditModal.jsx'
 import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
 import { useMrrHistory } from './hooks/useMrrHistory.js'
+import { useWeeklyMrr } from './hooks/useWeeklyMrr.js'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useCalBookings } from './hooks/useCalBookings.js'
 import { getWeekKey } from './dateUtils.js'
@@ -23,6 +24,7 @@ import RocketLoader from './RocketLoader.jsx'
 import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
+import WeeklyMrrModal from './WeeklyMrrModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -233,6 +235,17 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
       target: h.target,
     }))
 
+  // Weekly MRR trajectory for the hero — shared with the Investor view via
+  // useWeeklyMrr's ['weekly-mrr'] cache. It interpolates between the monthly
+  // actuals (which the exec edits right here), so a manual change reshapes the
+  // weekly line in BOTH the Odyssey and Investor views.
+  const weeklyMrr = useWeeklyMrr({
+    monthlyAnchors: mrrSeries.map(h => ({ monthKey: h.monthKey, mrr: h.mrr })),
+    liveMrr,
+    weeks: 8,
+  })
+  const weeklyMrrSeries = weeklyMrr.series.map(s => ({ month: s.week, mrr: s.mrr }))
+
   return (
     <div className="space-y-10 fade-in">
       <SectionHeader
@@ -249,7 +262,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         asOfMonth={mrrStat.asOfMonth}
         status={mrrStat.status}
         loading={rev.loading}
-        series={mrrHistorySeries}
+        series={weeklyMrrSeries}
         onEditHistory={canEdit ? () => setHistoryOpen(true) : null}
         customers={customersStat.value}
         customersEdited={customersStat.status === 'edited'}
@@ -308,11 +321,11 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
 
       <RevenueBreakdownCard />
 
-      <MrrHistoryModal
+      <WeeklyMrrModal
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        rows={hist.rows}
-        onSaved={hist.refresh}
+        series={weeklyMrr.series}
+        onSaveWeek={weeklyMrr.saveWeek}
       />
     </div>
   )
@@ -1855,7 +1868,7 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
         {/* RIGHT — monthly MRR trajectory chart */}
         <div className="lg:col-span-7">
           <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-3 text-stone-500 flex items-center justify-between gap-3">
-            <span>MRR Trajectory · last {series?.length || 0} months</span>
+            <span>MRR Trajectory · last {series?.length || 0} weeks</span>
             <div className="flex items-center gap-3">
               {hasChart && (
                 <span className="text-stone-400 normal-case tracking-normal text-[11px] italic">
