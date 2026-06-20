@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react'
 import {
-  Loader2, Layers, Briefcase, FileText, Calendar, Plus, Trash2, Link as LinkIcon,
+  Layers, Briefcase, FileText, Calendar, Plus, Trash2, Link as LinkIcon,
   GitPullRequest, Bug, Clock, ListChecks, ChevronDown, ChevronRight, AlertCircle, Rocket
 } from 'lucide-react'
 import { useScorecard } from './useScorecard'
+import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -44,7 +45,7 @@ export default function EngineerView({ profile, onSignOut, onSwitchToManager, on
   const [section, setSection] = useState('weekly')
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   // Derived metrics
@@ -373,7 +374,7 @@ function InFlightSection({ weekData, update }) {
 
 function MonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   // Aggregate across weeks
   let totalItems = 0

@@ -22,6 +22,7 @@ import { MtdCard, MtdLegend } from './MtdWidgets'
 import CommissionsTab from './CommissionsTab'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useScorecardEditable } from './ScorecardEditContext'
+import RocketLoader from './RocketLoader'
 
 export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('meetings')
@@ -187,7 +188,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
   }, [profile.id, weekKey, submittedAt])
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   // ----- Update helpers -----
@@ -1647,7 +1648,7 @@ function CsmMonthlyView({ profile }) {
     saveMonthly({ [key]: value })
   }
 
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   // Compute NRR
   const startMrr = Number(localMonthly.startingMrr) || 0

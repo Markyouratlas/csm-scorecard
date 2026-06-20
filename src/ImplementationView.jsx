@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react'
 import {
-  Loader2, Ticket, FolderKanban, FileText, Award, Activity, Layers, Plus, Trash2,
+  Ticket, FolderKanban, FileText, Award, Activity, Layers, Plus, Trash2,
   Calendar, ChevronDown, ChevronRight, ChevronUp, ArrowUpDown, MessageSquare, Send, Zap, Star
 } from 'lucide-react'
 import { useScorecard } from './useScorecard'
+import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel, businessDaysBetween, formatNoteTimestamp } from './dateUtils'
@@ -66,7 +67,7 @@ export default function ImplementationView({ profile, onSignOut, onSwitchToManag
   const [section, setSection] = useState('tickets')
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
@@ -705,7 +706,7 @@ function NotesDrawer({ project, notes, onAppendNote, onRemoveNote }) {
 
 function ImplMonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   // MTD ticket aggregates
   let totalCompleted = 0, totalOnboardings = 0, totalFollowUp = 0

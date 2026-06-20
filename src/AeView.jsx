@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { Loader2, Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
+import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -25,7 +26,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   const [section, setSection] = useState('funnel')
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
@@ -92,7 +93,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
 
 function AeMonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   // Aggregate daily entries
   const totals = weeks.reduce((acc, w) => {

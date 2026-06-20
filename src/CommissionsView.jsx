@@ -27,6 +27,7 @@ import {
 import Papa from "papaparse";
 
 import ScorecardShell from "./ScorecardShell";
+import RocketLoader from "./RocketLoader";
 import { useCommissions } from "./useCommissions";
 import { useOneoffPayments } from "./useOneoffPayments";
 import { supabase } from "./supabase";
@@ -149,9 +150,7 @@ export default function CommissionsView({
   if (c.loading) {
     return (
       <ScorecardShell profile={profile} onSignOut={onSignOut} {...shellNav} currentPage="commissions" title="Commissions" subtitle="Executives only">
-        <div className="max-w-7xl mx-auto px-6 py-12 text-center text-stone-500 text-sm">
-          Loading commission data…
-        </div>
+        <RocketLoader label="Loading commission data…" />
       </ScorecardShell>
     );
   }

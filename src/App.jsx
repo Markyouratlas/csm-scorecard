@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Loader2 } from 'lucide-react'
 import { supabase } from './supabase'
 import AuthScreen from './AuthScreen'
+import RocketLoader from './RocketLoader'
 import CsmView from './CsmView'
 import ImplementationView from './ImplementationView'
 import SupportView from './SupportView'
@@ -141,7 +141,7 @@ export default function App() {
     }
   }, [profile, viewMode])
 
-  if (loading) return <Shell><div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div></Shell>
+  if (loading) return <Shell><RocketLoader className="min-h-screen" /></Shell>
 
   if (!session) return <Shell><AuthScreen /></Shell>
 

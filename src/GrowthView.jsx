@@ -9,6 +9,7 @@ import { useCalBookings } from './hooks/useCalBookings.js'
 import { useCalEventTypes } from './hooks/useCalEventTypes.js'
 import { supabase } from './supabase.js'
 import { useScorecard } from './useScorecard'
+import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -64,7 +65,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
   }
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
@@ -328,7 +329,7 @@ function FooterDerivedCell({ value, target, comparator, format }) {
 
 function MonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   const totals = weeks.reduce((acc, w) => {
     const daily = w.data?.daily || []

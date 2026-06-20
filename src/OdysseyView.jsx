@@ -19,6 +19,7 @@ import { useCalBookings } from './hooks/useCalBookings.js'
 import { getWeekKey } from './dateUtils.js'
 import BreakdownModal from './BreakdownModal.jsx'
 import SourceInspectorModal from './SourceInspectorModal.jsx'
+import RocketLoader from './RocketLoader.jsx'
 import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
@@ -1745,6 +1746,24 @@ function MrrHeroCard({ value, target, asOfMonth, series, customers, customersEdi
   const mrrLoading = loading && status !== 'edited'
   const customersLoading = loading && !customersEdited
   const arpuLoading = loading && !arpuEdited
+
+  // Cold load (live revenue not resolved yet, no manual override): show the branded
+  // rocket inside the hero shell for the WHOLE load window — never the gray skeleton,
+  // and never a stored value that would then jump to the live number. On revisits the
+  // data is cached, so loading is false and the full hero renders instantly.
+  if (mrrLoading) {
+    return (
+      <div className="mrr-hero-card relative overflow-hidden rounded-2xl border border-stone-200"
+        style={{
+          background: 'linear-gradient(135deg, #FAFAF7 0%, #FAF5FF 100%)',
+          boxShadow: '0 1px 2px rgba(26,15,46,0.04)',
+        }}>
+        <div className="absolute -top-32 -right-24 w-[500px] h-[500px] rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.18), transparent 70%)' }} />
+        <RocketLoader className="min-h-[300px]" label="Loading revenue…" />
+      </div>
+    )
+  }
 
   return (
     <div className="mrr-hero-card relative overflow-hidden rounded-2xl border border-stone-200 transition-shadow"

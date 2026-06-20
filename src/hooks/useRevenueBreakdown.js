@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
 // =============================================================================
@@ -131,47 +131,49 @@ function subEconomics(sub) {
   return { listMrr, netMrr: listMrr, committedMrr, collecting: true, state: 'collecting', badge: null }
 }
 
+// Empty shape returned before the first successful fetch (and on error with no
+// prior data). Identical to the legacy initial state so consumers never see undefined.
+const EMPTY = {
+  byProduct: [],
+  byStatus: [],
+  attention: [],
+  attentionCounts: { past_due: 0, paused: 0, free: 0 },
+  allSubRecords: [],
+  totals: { activeContracted: 0, netContracted: 0, committedContracted: 0, activeSubs: 0 },
+}
+
+// Read both tables, then aggregate client-side. Throws on Supabase error so
+// React Query surfaces it via `error` (and keeps the last good data on refetch).
+async function fetchRevenueBreakdown() {
+  const [custRes, manualRes] = await Promise.all([
+    supabase.from('commission_customers').select('name, stripe_customer_id, subscriptions'),
+    supabase.from('manual_revenue').select('*').eq('voided', false),
+  ])
+  if (custRes.error) throw custRes.error
+  if (manualRes.error) throw manualRes.error
+  return aggregate(custRes.data || [], manualRes.data || [])
+}
+
+// Cached via the app-root QueryClient (queryKey ['revenue-breakdown']). Revisiting
+// the Executive view renders last-known data instantly and refetches in the
+// background; a hard reload pulls fresh. Both OdysseyView call sites share the one
+// cache entry, so they dedupe to a single fetch and stay in sync.
+//
+// Return shape is identical to the legacy hook: the aggregated fields plus
+// { loading, error, refresh }. `error` stays the raw error object (not stringified)
+// to preserve the old contract.
 export function useRevenueBreakdown() {
-  const [state, setState] = useState({
-    loading: true,
-    error: null,
-    byProduct: [],
-    byStatus: [],
-    attention: [],
-    attentionCounts: { past_due: 0, paused: 0, free: 0 },
-    allSubRecords: [],
-    totals: { activeContracted: 0, netContracted: 0, committedContracted: 0, activeSubs: 0 },
+  const { data, isPending, error: queryError, refetch } = useQuery({
+    queryKey: ['revenue-breakdown'],
+    queryFn: fetchRevenueBreakdown,
   })
 
-  const load = useCallback(async () => {
-    setState(s => ({ ...s, loading: true, error: null }))
-    try {
-      const [custRes, manualRes] = await Promise.all([
-        supabase.from('commission_customers').select('name, stripe_customer_id, subscriptions'),
-        supabase.from('manual_revenue').select('*').eq('voided', false),
-      ])
-      if (custRes.error) throw custRes.error
-      if (manualRes.error) throw manualRes.error
-
-      setState({ loading: false, error: null, ...aggregate(custRes.data || [], manualRes.data || []) })
-    } catch (e) {
-      console.error('useRevenueBreakdown:', e)
-      setState({
-        loading: false,
-        error: e,
-        byProduct: [],
-        byStatus: [],
-        attention: [],
-        attentionCounts: { past_due: 0, paused: 0, free: 0 },
-        allSubRecords: [],
-        totals: { activeContracted: 0, netContracted: 0, committedContracted: 0, activeSubs: 0 },
-      })
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  return { ...state, refresh: load }
+  return {
+    ...(data ?? EMPTY),
+    loading: isPending,
+    error: queryError ?? null,
+    refresh: refetch,
+  }
 }
 
 // =============================================================================

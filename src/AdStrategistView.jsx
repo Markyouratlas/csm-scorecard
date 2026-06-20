@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, Megaphone, Layers, Image, FileText, DollarSign, MousePointerClick, Users, Plus, Trash2, Calendar } from 'lucide-react'
+import { Megaphone, Layers, Image, FileText, DollarSign, MousePointerClick, Users, Plus, Trash2, Calendar } from 'lucide-react'
 import { useScorecard } from './useScorecard'
+import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
@@ -23,7 +24,7 @@ export default function AdStrategistView({ profile, onSignOut, onSwitchToManager
   const [section, setSection] = useState('daily')
 
   if (loading || !weekData) {
-    return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+    return <RocketLoader className="min-h-screen" />
   }
 
   const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
@@ -396,7 +397,7 @@ function NotesSection({ weekData, update }) {
 
 function AdMonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
-  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-700" /></div>
+  if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   const totals = weeks.reduce((acc, w) => {
     for (const d of (w.data?.daily || [])) {

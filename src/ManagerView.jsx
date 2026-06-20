@@ -17,6 +17,7 @@ import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
 
 import ScorecardViewer from './ScorecardViewer'
+import RocketLoader from './RocketLoader'
 import AtlasLogo, { ATLAS_PURPLE } from './AtlasLogo'
 import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
@@ -115,7 +116,7 @@ export default function ManagerView({ profile, onSignOut, onSwitchToSelf, onSwit
     [isExec, allProfiles, profile.team]
   )
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-stone-700" /></div>
+  if (loading) return <RocketLoader className="min-h-screen" label="Loading the dashboard…" />
 
   // If viewing a specific member's scorecard, render that instead of the dashboard
   if (viewingMember) {
