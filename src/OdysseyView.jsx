@@ -244,7 +244,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
     liveMrr,
     weeks: 8,
   })
-  const weeklyMrrSeries = weeklyMrr.series.map(s => ({ month: s.week, mrr: s.mrr }))
+  const weeklyMrrSeries = weeklyMrr.series.map(s => ({ month: s.label, mrr: s.mrr }))
 
   return (
     <div className="space-y-10 fade-in">

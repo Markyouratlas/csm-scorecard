@@ -1272,7 +1272,7 @@ function ExecutiveView() {
   const realArpu = stats.arpu.value;
   const annualMrrTarget = stats.mrrAnnualTarget ?? ANNUAL.totalMRR.target;
   const annualPct = (realMrr != null && annualMrrTarget) ? (realMrr / annualMrrTarget) * 100 : 0;
-  const mrrSeries = stats.weeklyMrr.series.map((s) => ({ week: s.week, mrr: s.mrr }));
+  const mrrSeries = stats.weeklyMrr.series.map((s) => ({ label: s.label, mrr: s.mrr }));
 
   // Yellow tiles fall back to the illustrative value until a real figure exists.
   const ltvCacVal = stats.econ.ltvCac?.actual ?? exec.ltvCac;
@@ -1365,7 +1365,7 @@ function ExecutiveView() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="2 4" stroke="rgba(26,15,46,0.1)" vertical={false} />
-                  <XAxis dataKey="week" stroke="#56506A" fontSize={11} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="label" stroke="#56506A" fontSize={11} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                   <YAxis stroke="#56506A" fontSize={11} tickLine={false} axisLine={false}
                          tickFormatter={(v) => `$${(v/1000).toFixed(0)}K`} />
                   <Tooltip
