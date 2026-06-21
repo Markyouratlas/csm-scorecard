@@ -16,6 +16,10 @@ import LeadershipPendingView from './LeadershipPendingView'
 import SharedPagesView from './SharedPagesView'
 import ApiIntegrationGuide from './ApiIntegrationGuide'
 import LeadershipDashboardView from './LeadershipDashboardView'
+import InvestorView from './InvestorView'
+import InvestorPendingView from './InvestorPendingView'
+import ResetPasswordView from './ResetPasswordView'
+import AtlasLogo from './AtlasLogo'
 import CommissionsView from './CommissionsView'
 import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
@@ -23,6 +27,8 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  // True while the user is completing a password reset (arrived via the recovery link).
+  const [recovering, setRecovering] = useState(false)
   // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership' | 'commissions'
   // Hydrate from sessionStorage so the user's current view survives across
   // tab switches and page reloads within the same browser session.
@@ -53,8 +59,11 @@ export default function App() {
       setSession(session)
       if (!session) setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s)
+      // Arriving via a password-reset link fires PASSWORD_RECOVERY with a temporary
+      // session — show the set-new-password screen instead of normal routing.
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true)
       if (!s) {
         setProfile(null)
         setLoading(false)
@@ -152,6 +161,10 @@ export default function App() {
 
   if (!session) return <Shell><AuthScreen /></Shell>
 
+  // Password recovery: the reset link signs the user in with a temporary session
+  // and fires PASSWORD_RECOVERY. Show the set-new-password screen before anything else.
+  if (recovering) return <Shell><ResetPasswordView onDone={() => setRecovering(false)} /></Shell>
+
   if (!profile) {
     return (
       <Shell>
@@ -170,6 +183,25 @@ export default function App() {
   const canSeeManagerView = tier === 'executive' || tier === 'team_lead'
   // Commissions visibility = executives only.
   const canSeeCommissions = tier === 'executive'
+
+  // Pending investors (signed up, not yet granted) see the cinematic awaiting screen.
+  if (tier === 'investor_pending') {
+    return (
+      <Shell>
+        <InvestorPendingView profile={profile} onSignOut={handleSignOut} onProfileUpdated={setProfile} />
+      </Shell>
+    )
+  }
+
+  // Investors are external, read-only viewers: hard-route them to the gold
+  // Investor view only — no scorecards, manager, commissions, or view-switching.
+  if (tier === 'investor') {
+    return (
+      <Shell>
+        <InvestorRoute profile={profile} onSignOut={handleSignOut} />
+      </Shell>
+    )
+  }
 
   // Leadership team members who haven't been promoted to executive yet
   // see a "waiting for approval" screen instead of an irrelevant scorecard.
@@ -371,6 +403,35 @@ export default function App() {
 }
 
 // Routes to the right scorecard component based on the user's role.
+// Standalone shell for external investors: the gold Investor view with only a
+// logo + sign-out. No view-switcher, no manager/commissions/scorecard access.
+function InvestorRoute({ profile, onSignOut }) {
+  return (
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #FAFAF7 0%, #EDE7F5 100%)' }}>
+      <header className="glass-nav glass-nav-strip sticky top-0 z-30">
+        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <AtlasLogo height={30} />
+            <div className="border-l border-stone-300 pl-3">
+              <div className="display-font text-base font-medium text-stone-900 leading-tight">Investor View</div>
+              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Atlas Odyssey</div>
+            </div>
+          </div>
+          <button
+            onClick={onSignOut}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-stone-300 hover:bg-stone-100 transition-colors text-stone-700"
+          >
+            Sign out
+          </button>
+        </div>
+      </header>
+      <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
+        <InvestorView />
+      </div>
+    </div>
+  )
+}
+
 function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const role = profile.role_type
   const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }

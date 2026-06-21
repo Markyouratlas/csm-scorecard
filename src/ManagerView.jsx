@@ -1306,6 +1306,20 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
     await supabase.from('profiles').update({ channel_partner_enabled: enabled }).eq('id', id)
     reload()
   }
+  // Promote/demote an external investor (role_type='investor' → gold-view-only).
+  // Reverting drops them back to their team's first role.
+  const setInvestor = async (id, makeInvestor, team) => {
+    if (makeInvestor) {
+      await supabase.from('profiles').update({ role_type: 'investor', role: 'member' }).eq('id', id)
+      // Let the investor know access was granted. Best-effort — never block on email.
+      try { await supabase.functions.invoke('send-email', { body: { type: 'investor_granted', userId: id } }) }
+      catch (e) { console.warn('investor_granted email failed (non-blocking):', e) }
+    } else {
+      const firstRole = getTeam(team)?.roles?.[0]?.key || 'csm'
+      await supabase.from('profiles').update({ role_type: firstRole }).eq('id', id)
+    }
+    reload()
+  }
 
   const byName = (a, b) => a.name.localeCompare(b.name)
   const active = profiles.filter(p => !p.archived_at)
@@ -1332,6 +1346,7 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
       onSetRole={(role) => setRole(c.id, role)}
       onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
       onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
+      onSetInvestor={(makeInvestor) => setInvestor(c.id, makeInvestor, c.team)}
       onArchive={() => archiveUser(c.id)}
       onUnarchive={() => unarchiveUser(c.id)}
       onRemove={() => removeUser(c.id)}
@@ -1481,7 +1496,7 @@ function ScorecardPreviews() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onArchive, onUnarchive, onRemove, onToggleChannelPartner }) {
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1517,8 +1532,14 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
             <div className="mt-1.5 flex flex-wrap gap-1">
               {tier === 'executive' && <Badge color="amber" icon={Crown}>Executive</Badge>}
               {tier === 'team_lead' && <Badge color="amber" icon={UserCheck}>Lead</Badge>}
-              <Badge color="stone">{team?.label || profile.team}</Badge>
-              <Badge color="stone">{roleLabel}</Badge>
+              {(tier === 'investor' || tier === 'investor_pending') ? (
+                <Badge color={tier === 'investor' ? 'violet' : 'amber'}>{tier === 'investor' ? 'Investor' : 'Pending Investor'}</Badge>
+              ) : (
+                <>
+                  <Badge color="stone">{team?.label || profile.team}</Badge>
+                  <Badge color="stone">{roleLabel}</Badge>
+                </>
+              )}
               {profile.channel_partner_enabled && profile.team === 'sales' && <Badge color="violet" icon={Handshake}>Channel Partner</Badge>}
             </div>
           </div>
@@ -1570,6 +1591,21 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
               <button onClick={() => onToggleChannelPartner(!profile.channel_partner_enabled)}
                 className={`w-full flex items-center justify-center gap-1.5 py-1.5 border transition-colors text-xs ${profile.channel_partner_enabled ? 'border-violet-300 bg-violet-50 hover:bg-violet-100 text-violet-800' : 'border-stone-300 hover:bg-stone-100'}`}>
                 <Handshake className="w-3 h-3" /> {profile.channel_partner_enabled ? 'Disable Channel Partner' : 'Enable Channel Partner'}
+              </button>
+            )}
+            {isExec && !isSelf && profile.role !== 'executive' && (
+              <button onClick={() => onSetInvestor(tier !== 'investor')}
+                title={tier === 'investor' ? 'Revert this investor to a normal team role'
+                  : tier === 'investor_pending' ? 'Grant this pending investor access to the gold dashboard'
+                  : 'Make this user an external investor (gold dashboard only)'}
+                className={`w-full flex items-center justify-center gap-1.5 py-1.5 border transition-colors text-xs ${
+                  tier === 'investor_pending' ? 'border-transparent text-white hover:opacity-90'
+                  : tier === 'investor' ? 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900'
+                  : 'border-stone-300 hover:bg-stone-100'}`}
+                style={tier === 'investor_pending' ? { background: '#B8860B' } : undefined}>
+                {tier === 'investor' ? 'Investor — revert to team role'
+                  : tier === 'investor_pending' ? 'Grant investor access'
+                  : 'Make Investor'}
               </button>
             )}
             {isExec && (

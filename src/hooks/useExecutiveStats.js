@@ -20,8 +20,11 @@ import { useWeeklyMrr } from './useWeeklyMrr.js'
 //  annual targets, the weekly MRR trajectory, and the manual/stored economics
 //  actuals used by the lower "Unit Economics" tiles.
 // =============================================================================
-export function useExecutiveStats() {
-  const rev = useRevenueBreakdown()
+// includeLive=false (the Investor view) disables the Stripe/commission query
+// entirely, so MRR/customers/ARPU resolve purely from atlas_targets aggregates —
+// investors never touch per-customer revenue data, regardless of table RLS.
+export function useExecutiveStats({ includeLive = true } = {}) {
+  const rev = useRevenueBreakdown({ enabled: includeLive })
   const targets = useAtlasTargets()
 
   // Live Stripe-derived actuals.

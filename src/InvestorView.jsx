@@ -1264,7 +1264,9 @@ const CHART_TOOLTIP_STYLE = {
 function ExecutiveView() {
   const { monthly } = useContext(DataContext);
   const exec = deriveExecMetrics(monthly);
-  const stats = useExecutiveStats();
+  // includeLive:false — the Investor view resolves MRR from atlas_targets aggregates
+  // only; it must never query the per-customer commission tables.
+  const stats = useExecutiveStats({ includeLive: false });
 
   // Piped from the shared executive source (same as the Odyssey hero) — edits propagate.
   const realMrr = stats.mrr.value;                  // live Stripe / manual / stored

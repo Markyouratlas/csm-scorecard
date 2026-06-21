@@ -162,15 +162,18 @@ async function fetchRevenueBreakdown() {
 // Return shape is identical to the legacy hook: the aggregated fields plus
 // { loading, error, refresh }. `error` stays the raw error object (not stringified)
 // to preserve the old contract.
-export function useRevenueBreakdown() {
+export function useRevenueBreakdown({ enabled = true } = {}) {
   const { data, isPending, error: queryError, refetch } = useQuery({
     queryKey: ['revenue-breakdown'],
     queryFn: fetchRevenueBreakdown,
+    enabled,
   })
 
   return {
     ...(data ?? EMPTY),
-    loading: isPending,
+    // When disabled (e.g. the investor view, which must never touch the
+    // commission tables), no fetch runs — report not-loading with empty data.
+    loading: enabled && isPending,
     error: queryError ?? null,
     refresh: refetch,
   }
