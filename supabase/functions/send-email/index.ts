@@ -74,7 +74,15 @@ Deno.serve(async (req) => {
 
   let payload: { type?: string; userId?: string; email?: string };
   try { payload = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
-  const { type, userId, email } = payload;
+  let { type, userId, email } = payload;
+  // Supabase Database Webhook on profiles INSERT posts { type:'INSERT', table, record }.
+  // Treat a newly-inserted profile row as a new-signup notification (reliable,
+  // server-side — doesn't depend on the browser firing during signup).
+  const rec = (payload as any).record;
+  if (rec?.id && (payload as any).table === "profiles") {
+    type = "new_signup";
+    userId = rec.id;
+  }
   if (!type) return json({ error: "type is required" }, 400);
 
   const admin = createClient(
@@ -118,7 +126,7 @@ Deno.serve(async (req) => {
     if (!userId) return json({ error: "userId is required" }, 400);
 
     // The subject user's profile + email.
-    const { data: prof } = await admin.from("profiles").select("name, title, team, role_type").eq("id", userId).single();
+    const { data: prof } = await admin.from("profiles").select("name, title, team, role_type, role").eq("id", userId).single();
     const { data: userRes } = await admin.auth.admin.getUserById(userId);
     const userEmail = userRes?.user?.email || null;
     const name = prof?.name || "Someone";
@@ -133,20 +141,28 @@ Deno.serve(async (req) => {
       }
       if (execEmails.length === 0) return json({ ok: true, skipped: "no executives" });
 
-      const isPendingInvestor = prof?.role_type === "investor_pending";
+      // Who needs an exec to approve them: pending investors AND leadership
+      // signups (they wait for executive promotion). Everyone else is just an FYI.
+      const isInvestorPending = prof?.role_type === "investor_pending";
+      const isLeadershipPending = prof?.team === "leadership" && prof?.role !== "executive" && prof?.role_type !== "executive";
+      const needsApproval = isInvestorPending || isLeadershipPending;
+      const grantWhat = isInvestorPending ? "investor access" : "executive access";
+      const grantWhere = isInvestorPending ? "Grant investor access" : "Make exec";
       const dept = prof?.team || "—";
+
       const html = renderEmail({
-        eyebrow: "New signup",
+        eyebrow: needsApproval ? "Approval needed" : "New signup",
         heading: `${name} just signed up`,
         intro: `<strong>${name}</strong> (${prof?.title || "—"}) created an account${userEmail ? ` with <strong>${userEmail}</strong>` : ""}. Department: <strong>${dept}</strong>.`,
-        highlight: isPendingInvestor
-          ? `<strong>Action needed:</strong> this is an <strong>investor</strong> awaiting access. Open Manager → Roster and click <strong>Grant investor access</strong> to let them in.`
+        highlight: needsApproval
+          ? `<strong>Action needed:</strong> this person is awaiting <strong>${grantWhat}</strong>. Open Manager → Roster and click <strong>${grantWhere}</strong> to let them in.`
           : undefined,
-        ctaText: isPendingInvestor ? "Review in Roster" : "Open Scorecard",
+        ctaText: needsApproval ? "Review in Roster" : "Open Scorecard",
         ctaUrl: APP_URL,
         footer: "You're receiving this because you're an Atlas executive.",
       });
-      await sendViaResend(apiKey, execEmails, isPendingInvestor ? `Investor access requested — ${name}` : `New signup — ${name}`, html);
+      const subject = needsApproval ? `Approval needed — ${name} (${grantWhat})` : `New signup — ${name}`;
+      await sendViaResend(apiKey, execEmails, subject, html);
       return json({ ok: true, notified: execEmails.length });
     }
 

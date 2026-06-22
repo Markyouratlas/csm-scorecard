@@ -73,11 +73,9 @@ export default function AuthScreen() {
     })
     if (profileError) throw profileError
 
-    // Notify executives a new person signed up (flagged if they need access granted).
-    // Best-effort — never block signup on the email.
-    try {
-      await supabase.functions.invoke('send-email', { body: { type: 'new_signup', userId: data.user.id } })
-    } catch (e) { console.warn('new_signup email failed (non-blocking):', e) }
+    // Executive "new signup" notification is sent server-side by a Supabase
+    // Database Webhook on profiles INSERT (reliable — the browser tearing down /
+    // re-establishing the session during signup would kill a client-side call).
 
     if (!data.session) {
       setInfo('Check your email to confirm your account, then come back and sign in.')
