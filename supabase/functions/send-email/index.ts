@@ -72,10 +72,10 @@ Deno.serve(async (req) => {
   const apiKey = Deno.env.get("RESEND_API_KEY");
   if (!apiKey) return json({ error: "RESEND_API_KEY not configured" }, 500);
 
-  let payload: { type?: string; userId?: string };
+  let payload: { type?: string; userId?: string; email?: string };
   try { payload = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
-  const { type, userId } = payload;
-  if (!type || !userId) return json({ error: "type and userId are required" }, 400);
+  const { type, userId, email } = payload;
+  if (!type) return json({ error: "type is required" }, 400);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -83,6 +83,40 @@ Deno.serve(async (req) => {
   );
 
   try {
+    // ---- Password reset ----
+    // Generate the recovery token server-side and email a link to OUR domain
+    // (scorecard.youratlas.com/?token_hash=…&type=recovery) — never a supabase.co
+    // link — so sender and link share the youratlas.com domain and Gmail doesn't
+    // flag it as deceptive. Branded via Resend, like our other emails.
+    if (type === "password_reset") {
+      if (!email) return json({ error: "email is required" }, 400);
+      let tokenHash: string | undefined;
+      try {
+        const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({ type: "recovery", email });
+        if (linkErr) throw linkErr;
+        tokenHash = linkData?.properties?.hashed_token;
+      } catch (e) {
+        // Don't reveal whether an account exists for this email.
+        console.warn("generateLink recovery failed:", (e as Error)?.message);
+        return json({ ok: true, skipped: "no user" });
+      }
+      if (!tokenHash) return json({ ok: true, skipped: "no token" });
+      const link = `${APP_URL}/?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`;
+      const html = renderEmail({
+        eyebrow: "Password reset",
+        heading: "Reset your password",
+        intro: "We received a request to reset your Atlas Scorecard password. Click below to choose a new one. This link expires soon — if you didn't request it, you can safely ignore this email.",
+        ctaText: "Reset password",
+        ctaUrl: link,
+        footer: "Atlas Scorecard · scorecard.youratlas.com",
+      });
+      await sendViaResend(apiKey, email, "Reset your Atlas password", html);
+      return json({ ok: true, notified: 1 });
+    }
+
+    // ---- Types below operate on a specific user ----
+    if (!userId) return json({ error: "userId is required" }, 400);
+
     // The subject user's profile + email.
     const { data: prof } = await admin.from("profiles").select("name, title, team, role_type").eq("id", userId).single();
     const { data: userRes } = await admin.auth.admin.getUserById(userId);

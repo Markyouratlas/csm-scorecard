@@ -27,8 +27,14 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  // True while the user is completing a password reset (arrived via the recovery link).
-  const [recovering, setRecovering] = useState(false)
+  // True while the user is completing a password reset. Seeded from the URL so
+  // a recovery link lands on the reset screen even before the auth event fires.
+  const [recovering, setRecovering] = useState(() => {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      return window.location.hash.includes('type=recovery') || (!!q.get('token_hash') && q.get('type') === 'recovery')
+    } catch { return false }
+  })
   // 'self' | 'manager' | 'feature_requests' | 'integrations' | 'cancellations' | 'api_guide' | 'leadership' | 'commissions'
   // Hydrate from sessionStorage so the user's current view survives across
   // tab switches and page reloads within the same browser session.
@@ -70,6 +76,20 @@ export default function App() {
       }
     })
     return () => subscription.unsubscribe()
+  }, [])
+
+  // Our custom reset email links to /?token_hash=…&type=recovery on our own domain.
+  // Verify the token to establish the recovery session, then the reset screen shows.
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      const tokenHash = q.get('token_hash')
+      if (tokenHash && q.get('type') === 'recovery') {
+        setRecovering(true)
+        supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+          .then(({ error }) => { if (error) console.error('verifyOtp recovery failed:', error.message) })
+      }
+    } catch {}
   }, [])
 
   // When the session changes (sign in / out), reset the profile state so we
@@ -159,11 +179,21 @@ export default function App() {
 
   if (loading) return <Shell><RocketLoader className="min-h-screen" /></Shell>
 
-  if (!session) return <Shell><AuthScreen /></Shell>
+  // Password recovery: the reset link establishes a temporary session and/or sets
+  // type=recovery in the URL. Show the set-new-password screen BEFORE the login
+  // gate so the user always lands on it (not the sign-in form).
+  if (recovering) {
+    return (
+      <Shell>
+        <ResetPasswordView onDone={() => {
+          try { window.history.replaceState(null, '', window.location.pathname) } catch {}
+          setRecovering(false)
+        }} />
+      </Shell>
+    )
+  }
 
-  // Password recovery: the reset link signs the user in with a temporary session
-  // and fires PASSWORD_RECOVERY. Show the set-new-password screen before anything else.
-  if (recovering) return <Shell><ResetPasswordView onDone={() => setRecovering(false)} /></Shell>
+  if (!session) return <Shell><AuthScreen /></Shell>
 
   if (!profile) {
     return (

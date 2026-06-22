@@ -96,8 +96,10 @@ export default function AuthScreen() {
       if (!email) { setError('Enter your email to reset your password.'); return }
       setLoading(true)
       try {
-        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
-        if (resetErr) throw resetErr
+        // Send via our own branded, on-domain reset email (not Supabase's built-in,
+        // whose supabase.co link gets flagged by Gmail).
+        const { error: fnErr } = await supabase.functions.invoke('send-email', { body: { type: 'password_reset', email } })
+        if (fnErr) throw fnErr
         setInfo("If an account exists for that email, a password-reset link is on its way.")
       } catch (e) { setError(e.message || 'Could not send the reset email.') }
       finally { setLoading(false) }
