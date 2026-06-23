@@ -212,12 +212,25 @@ export default function RevenueBreakdownCard() {
   const canceledRow = byStatus.find(s => s.status === 'canceled') || { subs: 0, mrr: 0 }
   const incExpRow   = byStatus.find(s => s.status === 'incomplete_expired') || { subs: 0, mrr: 0 }
 
+  // Subscription + distinct-customer counts behind each revenue pill — same predicate
+  // that drives the breakdown, so the subs count matches the expanded list. Customers
+  // are deduped by Stripe ID (or name) since one customer can hold several subs.
+  const subCountFor = (predicate) => allSubRecords.filter(predicate).length
+  const custCountFor = (predicate) =>
+    new Set(allSubRecords.filter(predicate).map((r) => r.stripeCustomerId || r.name)).size
+  const mrrSubCount = subCountFor(PILL_VIEWS.mrr.predicate)
+  const mrrCustCount = custCountFor(PILL_VIEWS.mrr.predicate)
+  const collectingSubCount = subCountFor(PILL_VIEWS.collecting.predicate)
+  const collectingCustCount = custCountFor(PILL_VIEWS.collecting.predicate)
+
   // Two revenue pills (show $), largest first.
   const revenuePills = [
     {
       key: 'mrr',
       label: 'MRR',
       value: fmtMoney(totals.committedContracted),
+      subCount: mrrSubCount,
+      custCount: mrrCustCount,
       color: '#6639A6',
       primary: true,
       tooltip:
@@ -230,6 +243,8 @@ export default function RevenueBreakdownCard() {
       key: 'collecting',
       label: 'Collecting',
       value: fmtMoney(totals.netContracted),
+      subCount: collectingSubCount,
+      custCount: collectingCustCount,
       color: '#15803D',
       tooltip:
         "Net recurring we're actively billing right now: active + trialing at billed " +
@@ -506,6 +521,17 @@ export default function RevenueBreakdownCard() {
                       >
                         {p.value}
                       </div>
+                      {p.subCount != null && (
+                        <div
+                          className="mono-text text-[10px] num-tabular mt-1.5 font-semibold"
+                          style={{ color: p.color, opacity: 0.7 }}
+                        >
+                          {p.subCount.toLocaleString('en-US')} sub{p.subCount === 1 ? '' : 's'}
+                          {p.custCount != null && (
+                            <> · {p.custCount.toLocaleString('en-US')} customer{p.custCount === 1 ? '' : 's'}</>
+                          )}
+                        </div>
+                      )}
                     </button>
                     <PillTooltip>{p.tooltip}</PillTooltip>
                   </div>

@@ -253,7 +253,10 @@ function aggregate(rows, manualRows = []) {
         committedMrr: recEcon.committedMrr,
         collecting: recEcon.collecting,
         inMrr: ['active', 'trialing', 'past_due'].includes(status), // paused is 'active'
-        inCollecting: recEcon.collecting === true,
+        // Gate on current status too: subEconomics' catch-all marks any non-special
+        // status as collecting, so canceled / expired / unpaid subs would otherwise
+        // leak in. Collecting must be a subset of MRR (active+trialing, billing now).
+        inCollecting: CURRENT_STATUSES.has(status) && recEcon.collecting === true,
         badge: recEcon.badge,
         manualId: null,
         otherProducts: recOtherProducts,
