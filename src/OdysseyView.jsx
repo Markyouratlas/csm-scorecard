@@ -25,6 +25,7 @@ import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 import WeeklyMrrModal from './WeeklyMrrModal.jsx'
+import DailyUpdateModal from './DailyUpdateModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -85,7 +86,7 @@ export default function OdysseyView({ onSwitchToManagerTeam, profile }) {
       <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
         {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
         {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
-        {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'log'       && <QuickLogView onSwitchToManagerTeam={onSwitchToManagerTeam} />}
         {view === 'tracking'  && <TrackingGuide />}
       </main>
@@ -743,8 +744,9 @@ function DailyCalBreakdownModal({ filter = 'all', onClose }) {
   )
 }
 
-function DailyView({ data, targets, canEdit, openModal }) {
+function DailyView({ data, targets, canEdit, openModal, userId }) {
   const td = data.today || {}
+  const [dailyUpdateOpen, setDailyUpdateOpen] = useState(false)
   const metaToday = useMetaAds('today')
   const metaSpendToday = metaToday.summary?.totalSpend ?? null
   const metaLeadsToday = metaToday.summary?.totalLeads ?? null
@@ -773,19 +775,34 @@ function DailyView({ data, targets, canEdit, openModal }) {
       <div className="card p-8 relative overflow-hidden">
         <div className="absolute -top-32 -right-32 w-[520px] h-[520px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.12), transparent 70%)' }} />
-        <div className="relative">
-          <div className="flex items-center gap-2 mono-text text-[10px] uppercase tracking-[0.18em] font-semibold mb-2" style={{ color: BRAND }}>
-            <Activity className="w-3 h-3" /> Live · Today's pulse
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mono-text text-[10px] uppercase tracking-[0.18em] font-semibold mb-2" style={{ color: BRAND }}>
+              <Activity className="w-3 h-3" /> Live · Today's pulse
+            </div>
+            <h1 className="display-text text-3xl md:text-4xl font-medium leading-tight text-stone-900">
+              {dayLabel}
+            </h1>
+            <div className="text-sm text-stone-600 mt-2">
+              What's been logged across the team so far today. Pulled from the daily rows of each
+              person's weekly scorecard.
+            </div>
           </div>
-          <h1 className="display-text text-3xl md:text-4xl font-medium leading-tight text-stone-900">
-            {dayLabel}
-          </h1>
-          <div className="text-sm text-stone-600 mt-2">
-            What's been logged across the team so far today. Pulled from the daily rows of each
-            person's weekly scorecard.
-          </div>
+          {canEdit && (
+            <button
+              onClick={() => setDailyUpdateOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50"
+              style={{ borderColor: 'rgba(102,57,166,0.3)', color: BRAND }}
+              title="Enter the investor daily update + weekly targets, and copy the Slack post"
+            >
+              <Edit3 className="w-3.5 h-3.5" /> Edit daily update
+            </button>
+          )}
         </div>
       </div>
+      {dailyUpdateOpen && (
+        <DailyUpdateModal open={dailyUpdateOpen} onClose={() => setDailyUpdateOpen(false)} userId={userId} />
+      )}
 
       <SectionHeader
         deptKey="sales"

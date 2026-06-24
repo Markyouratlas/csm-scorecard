@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useMemo } from 'react';
 import { useExecutiveStats } from './hooks/useExecutiveStats.js';
+import { useDailyUpdates } from './hooks/useDailyUpdates.js';
+import {
+  PACE_METRICS, DERIVED_METRICS,
+  fmtValue, fmtCurrency, fmtCount, fmtPacePP, paceHex, paceEmoji,
+  vsPacePP, expectedPct, workdayIndex, derivedRatio, derivedEmoji, derivedHex,
+  formatReportDate, buildSlackPost,
+} from './dailyUpdateFormat.js';
 import LiveLED from './LiveLED.jsx';
 import { createPortal } from 'react-dom';
 import {
@@ -11,11 +18,11 @@ import {
   TrendingUp, TrendingDown, Target, Users, DollarSign,
   Activity, Headphones, Code, Calendar, Clock,
   ArrowUpRight, ArrowDownRight, CheckCircle2, AlertCircle,
-  HeartHandshake, Rocket, Megaphone, ChevronRight,
+  HeartHandshake, Rocket, Megaphone, ChevronRight, ChevronLeft,
   Sparkles, Globe, Phone, GitPullRequest,
   FileSpreadsheet, BarChart3, ArrowRight,
   CircleDot, Timer, Briefcase, Info,
-  PencilLine, Save, Check, X,
+  PencilLine, Save, Check, X, Copy, ClipboardCheck,
 } from 'lucide-react';
 
 /* ============================================================
@@ -1597,103 +1604,227 @@ function WeeklyView() {
   );
 }
 
-/* ===================== DAILY VIEW ===================== */
+/* ===================== DAILY VIEW =====================
+   Renders the investors' mandated daily-update structure (read-only): a pace-vs-
+   weekly-target table, snapshot, derived WTD ratios, and the narrative fields.
+   Data comes from atlas_daily_updates + atlas_weekly_targets via useDailyUpdates
+   (investor-readable aggregates only) — an exec fills it from the Odyssey view. */
 function DailyView() {
-  const { today } = useContext(DataContext);
-  const t = deriveDailyMetrics(today);
-  const mrrDelta = t.mrrCurrent - t.mrrTarget;
-  const mrrPct = (t.mrrCurrent / t.mrrTarget) * 100;
+  const du = useDailyUpdates();
+  const [date, setDate] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  // Default to the most recent posted day once data loads.
+  useEffect(() => { if (!date && du.latestDate) setDate(du.latestDate); }, [du.latestDate, date]);
+  const activeDate = date || du.latestDate;
+
+  if (du.loading) {
+    return <div className="text-sm font-mono py-16 text-center" style={{ color: 'var(--text-4)' }}>Loading daily update…</div>;
+  }
+  if (!activeDate) {
+    return (
+      <div className="card-flat p-12 text-center fade-up">
+        <CircleDot className="w-6 h-6 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
+        <div className="font-display text-2xl mb-1" style={{ color: 'var(--text)' }}>No daily update posted yet</div>
+        <div className="text-sm font-body" style={{ color: 'var(--text-3)' }}>Once the team logs a day, it appears here in the investor pace format.</div>
+      </div>
+    );
+  }
+
+  const day = du.getDay(activeDate) || { update_date: activeDate };
+  const wtd = du.getWeekToDate(activeDate);
+  const wkTargets = du.getWeeklyTargets(activeDate);
+  const expPct = expectedPct(activeDate);
+  const wi = workdayIndex(activeDate);
+
+  // Day navigation across posted days (availableDates is newest → oldest).
+  const idx = du.availableDates.indexOf(activeDate);
+  const olderDate = du.availableDates[idx + 1] || null;
+  const newerDate = du.availableDates[idx - 1] || null;
+
+  const copySlack = async () => {
+    const post = buildSlackPost(day, wtd, wkTargets);
+    try { await navigator.clipboard.writeText(post); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { window.prompt('Copy the Slack update:', post); }
+  };
+
+  const navBtn = 'inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors disabled:opacity-30';
 
   return (
-    <div className="space-y-12">
-      {/* MRR ticker */}
-      <section
-        className="glass fade-up relative overflow-hidden"
-        style={{ padding: '40px' }}
-      >
+    <div className="space-y-10">
+      {/* HEADER */}
+      <section className="glass fade-up relative overflow-hidden" style={{ padding: '32px 36px' }}>
         <div className="absolute inset-0 bg-noise opacity-30 pointer-events-none" />
-        <div
-          className="absolute -top-24 -left-20 w-[400px] h-[400px] rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(closest-side, rgba(102,57,166,0.14), transparent 70%)' }}
-        />
-        <div className="relative grid lg:grid-cols-3 gap-8 items-end">
-          <div className="lg:col-span-2">
-            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3 flex items-center gap-2" style={{ color: BRAND }}>
-              <CircleDot className="w-3 h-3 pulse-soft" style={{ color: BRAND }} /> Live · Today's MRR vs Target
+        <LiveLED status="green" reason={`Entered by the Atlas team for ${formatReportDate(activeDate)}. The investor view reads these aggregates only — never per-customer data.`} />
+        <div className="relative flex items-start justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-2 flex items-center gap-2" style={{ color: BRAND }}>
+              <Activity className="w-3 h-3" /> Daily Update
             </div>
-            <div className="flex items-end gap-6 flex-wrap">
-              <div className="font-display text-7xl lg:text-8xl leading-[0.85] tracking-tighter" style={{ color: BRAND }}>
-                ${(t.mrrCurrent / 1000).toFixed(1)}<span style={{ color: 'rgba(102,57,166,0.55)' }}>K</span>
+            <h1 className="font-display text-4xl lg:text-5xl leading-[0.95] tracking-tight" style={{ color: 'var(--text)' }}>
+              {formatReportDate(activeDate)}
+            </h1>
+            {day.focus && (
+              <div className="mt-3 text-[15px] font-body" style={{ color: 'var(--text-2)' }}>
+                <span className="font-semibold" style={{ color: BRAND }}>#1 Focus:</span> {day.focus}
               </div>
-              <div>
-                <div className="font-display-i text-2xl" style={{ color: 'var(--text-2)' }}>target</div>
-                <div className="font-display text-3xl" style={{ color: 'var(--text)' }}>${(t.mrrTarget / 1000).toFixed(1)}K</div>
-              </div>
-              <div
-                className="px-3 py-1.5 rounded-md font-mono text-sm"
-                style={{
-                  background: mrrDelta >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)',
-                  color:      mrrDelta >= 0 ? '#15803D'             : '#DC2626',
-                }}
-              >
-                Δ {mrrDelta >= 0 ? '+' : ''}${(mrrDelta/1000).toFixed(1)}K
-              </div>
-            </div>
-            <div className="mt-5 max-w-2xl">
-              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(102,57,166,0.12)' }}>
-                <div
-                  className="h-full rounded-full"
-                  style={{ background: 'linear-gradient(90deg, #6639A6, #9B6EE0)', width: `${Math.min(100, mrrPct)}%` }}
-                />
-              </div>
-              <div className="flex justify-between mt-2 text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
-                <span>{mrrPct.toFixed(1)}% of today's pace</span>
-                <span>ARPU ${t.arpu}</span>
-              </div>
+            )}
+            <div className="mt-2 text-[12px] font-mono" style={{ color: 'var(--text-3)' }}>
+              Pace vs. weekly target — Day {wi} of 5 ({expPct}% expected)
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <button className={navBtn} style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}
+              disabled={!olderDate} onClick={() => olderDate && setDate(olderDate)} aria-label="Previous day">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button className={navBtn} style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}
+              disabled={!newerDate} onClick={() => newerDate && setDate(newerDate)} aria-label="Next day">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button onClick={copySlack}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[12px] font-body font-semibold transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}>
+              {copied ? <ClipboardCheck className="w-3.5 h-3.5" style={{ color: '#15803D' }} /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy as Slack update'}
+            </button>
+          </div>
+        </div>
+      </section>
 
+      <InvestorDailyBody activeDate={activeDate} day={day} wtd={wtd} wkTargets={wkTargets} />
+    </div>
+  );
+}
+
+/* Shared read-only render of the investor Daily output — the pace table, snapshot,
+   derived ratios, and narrative for one day. Used by the investor DailyView AND by
+   the exec DailyUpdateModal's "Preview" so both show identical output. */
+export function InvestorDailyBody({ activeDate, day, wtd, wkTargets }) {
+  const expPct = expectedPct(activeDate);
+  return (
+    <>
+      {/* PACE TABLE */}
+      <section className="fade-up">
+        <SectionHeader deptKey="exec" eyebrow="Pace" title="Vs. weekly target" description="Today, week-to-date, the weekly target, and how far ahead or behind pace we are." />
+        <div className="card-flat overflow-x-auto">
+          <table className="w-full text-left" style={{ minWidth: '560px' }}>
+            <thead>
+              <tr className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-4)' }}>
+                <th className="px-5 py-3">Metric</th>
+                <th className="px-3 py-3 text-right">Today</th>
+                <th className="px-3 py-3 text-right">WTD</th>
+                <th className="px-3 py-3 text-right">Target</th>
+                <th className="px-5 py-3 text-right">vs Pace</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PACE_METRICS.map((m) => {
+                const target = wkTargets[m.key] ?? null;
+                const pp = vsPacePP(wtd[m.key], target, expPct);
+                const hex = paceHex(pp);
+                return (
+                  <tr key={m.key} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-sm font-body" style={{ color: 'var(--text)' }}>{m.label}</span>
+                        <InfoTooltip content={m.definition} />
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--text-2)' }}>
+                      {day[m.key] == null ? <span style={{ color: 'var(--text-4)' }}>N/A</span> : fmtValue(m.unit, day[m.key])}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--text)' }}>
+                      {wtd[m.key] == null ? <span style={{ color: 'var(--text-4)' }}>N/A</span> : fmtValue(m.unit, wtd[m.key])}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--text-3)' }}>
+                      {target == null ? 'N/A' : fmtValue(m.unit, target)}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-[13px] whitespace-nowrap" style={{ color: hex || 'var(--text-4)' }}>
+                      {pp == null ? '—' : <>{fmtPacePP(pp)} <span>{paceEmoji(pp)}</span></>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* SNAPSHOT + DERIVED */}
+      <section className="fade-up grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Snapshot</div>
           <div className="grid grid-cols-2 gap-3">
-            <DailyTile label="Closes Today"  value={t.customersClosedToday}  color="#15803D" icon={CheckCircle2} />
-            <DailyTile label="Close Rate"    value={`${t.closeRateToday}%`}  color="#15803D" icon={Target} />
-            <DailyTile label="Calls Booked"  value={t.callsBookedToday}      color="#1D4ED8" icon={Calendar} />
-            <DailyTile label="Calls Held"    value={t.callsHeldToday}        color="#1D4ED8" icon={Phone} />
+            <SnapTile label="Total MRR" value={fmtCurrency(day.total_mrr) ?? 'N/A'} />
+            <SnapTile label="Total Customers" value={fmtCount(day.total_customers) ?? 'N/A'} />
+          </div>
+        </div>
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Derived · WTD</div>
+          <div className="grid grid-cols-2 gap-3">
+            {DERIVED_METRICS.map((d) => {
+              const ratio = derivedRatio(wtd[d.numKey], wtd[d.denKey]);
+              const target = wkTargets[d.key] ?? null;
+              if (!ratio) return <SnapTile key={d.key} label={d.label} value="N/A" muted />;
+              const hex = derivedHex(ratio.pct, target);
+              return (
+                <SnapTile
+                  key={d.key}
+                  label={d.label}
+                  value={`${ratio.pct}%`}
+                  valueColor={hex}
+                  sub={`${ratio.num}/${ratio.den}${target != null ? ` · target ${Math.round(target)}% ${derivedEmoji(ratio.pct, target)}` : ''}`}
+                />
+              );
+            })}
           </div>
         </div>
       </section>
 
-      <section className="fade-up">
-        <SectionHeader deptKey="sales" eyebrow="Sales · Today" title="Daily sales pulse" description="The shape of today's pipeline activity." />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <NumberBlock label="Demos Booked" value={t.demosBookedToday} color="#15803D" comparison="today" />
-          <NumberBlock label="Calls Held"   value={t.callsHeldToday}    color="#15803D" comparison="today" />
-          <NumberBlock label="No-Shows"     value={t.noShowsToday}      color="#15803D" invertDelta comparison="today" />
-          <NumberBlock label="Show Rate"    value={t.showRateToday} suffix="%" color="#15803D" comparison="vs 80% goal" />
-          <NumberBlock label="Closes"       value={t.customersClosedToday} color="#15803D" comparison="today" />
-          <NumberBlock label="Close Rate"   value={t.closeRateToday} suffix="%" color="#15803D" comparison="vs 25% goal" />
-        </div>
-      </section>
+      {/* NARRATIVE */}
+      {(day.focus_metric || day.plan_to_improve || day.key_learning || day.blocker || day.plan_url || day.scorecard_url) && (
+        <section className="fade-up card-flat p-6 space-y-4">
+          {(day.focus_metric || day.plan_to_improve) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NarrativeLine label="Focus metric" value={day.focus_metric} />
+              <NarrativeLine label="Plan to improve" value={day.plan_to_improve} accent />
+            </div>
+          )}
+          {(day.key_learning || day.blocker) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NarrativeLine label="Key learning" value={day.key_learning} />
+              <NarrativeLine label="Blocker" value={day.blocker || 'none'} />
+            </div>
+          )}
+          {(day.plan_url || day.scorecard_url) && (
+            <div className="flex items-center gap-5 pt-1">
+              {day.plan_url && <a href={day.plan_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-body font-semibold hover:underline" style={{ color: BRAND }}>Plan <ArrowUpRight className="w-3 h-3" /></a>}
+              {day.scorecard_url && <a href={day.scorecard_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-body font-semibold hover:underline" style={{ color: BRAND }}>Scorecard <ArrowUpRight className="w-3 h-3" /></a>}
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
 
-      <section className="fade-up">
-        <SectionHeader deptKey="marketing" eyebrow="Paid · Today" title="Ad performance" description="Spend efficiency and demo flow from paid channels today." />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <NumberBlock label="Ad Spend"       value={t.adSpendToday} prefix="$" color="#DC2649" comparison="today" />
-          <NumberBlock label="Cost per Click" value={t.cpcToday} prefix="$" color="#DC2649" invertDelta comparison="today" />
-          <NumberBlock label="Demos Booked"   value={t.demosBookedToday} color="#DC2649" comparison="today" />
-          <NumberBlock label="Cash Collected" value={t.cashCollectedToday} prefix="$" color="#DC2649" comparison="today" />
-          <NumberBlock label="Positive Cash"  value={t.positiveCashToday} prefix="$" color="#DC2649" comparison="today" />
-          <NumberBlock label="ARPU"           value={t.arpu} prefix="$" color="#DC2649" comparison="this month" />
-        </div>
-      </section>
+function SnapTile({ label, value, sub, valueColor, muted }) {
+  return (
+    <div className="card p-4">
+      <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold mb-1" style={{ color: 'var(--text-3)' }}>{label}</div>
+      <div className="font-display text-3xl" style={{ color: muted ? 'var(--text-4)' : (valueColor || 'var(--text)') }}>{value}</div>
+      {sub && <div className="text-[11px] font-mono mt-1" style={{ color: 'var(--text-4)' }}>{sub}</div>}
+    </div>
+  );
+}
 
-      <section className="fade-up">
-        <SectionHeader deptKey="growth" eyebrow="Channel · Today" title="Partnerships" description="Opportunities registered, partner-driven calls, and live pipeline." />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <NumberBlock label="Opportunities Registered" value={t.partnerOppsToday} color="#B45309" comparison="today" />
-          <NumberBlock label="Partner Calls"            value={t.partnerCallsToday} color="#B45309" comparison="today" />
-          <NumberBlock label="Pipeline Value"           value={t.partnerPipeline} prefix="$" color="#B45309" comparison="open pipeline" />
-        </div>
-      </section>
+function NarrativeLine({ label, value, accent }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold mb-1" style={{ color: accent ? BRAND : 'var(--text-3)' }}>{label}</div>
+      <div className="text-[14px] font-body leading-relaxed" style={{ color: 'var(--text)' }}>{value}</div>
     </div>
   );
 }

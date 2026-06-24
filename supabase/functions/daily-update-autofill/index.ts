@@ -1,0 +1,280 @@
+// ============================================================
+// Supabase Edge Function: daily-update-autofill
+// ============================================================
+// Runs each morning (via cron) to seed the PREVIOUS day's row in
+// atlas_daily_updates from live sources, so the investor Daily Update is
+// ready to review without anyone opening the form:
+//
+//   cash_stripe     ← Stripe charges (succeeded, captured, USD) for the day
+//   cash_collected  ← cash_stripe + any existing wire/ACH
+//   calls_booked    ← cal_bookings created that day (Toronto)
+//   calls_held      ← AE scorecards: demosCompleted at that day index
+//   deals_closed    ← AE scorecards: trialSignups at that day index
+//   ad_spend        ← Growth + Ad Strategist scorecards: adSpend that day
+//   total_mrr       ← latest atlas_targets 'total-mrr' actual (aggregate)
+//   total_customers ← latest atlas_targets 'total-customers' actual
+//
+// FILL-ONLY-BLANKS: it never overwrites a value already in the row, so an
+// exec's manual edits always win. Stripe cash + Cal calls are authoritative
+// (a real 0 is written); scorecard-derived fields are only written when > 0
+// (so an un-logged day stays blank for manual entry rather than a wrong 0).
+//
+// Auth: a cron call (header X-Cron-Secret == CRON_SHARED_SECRET) OR a signed-in
+// executive (for manual trigger / backfill). Body: { date?: 'YYYY-MM-DD' }
+// (defaults to yesterday in America/Toronto).
+//
+// Deploy:
+//   supabase functions deploy daily-update-autofill
+//   (uses existing STRIPE_SECRET_KEY + CRON_SHARED_SECRET secrets)
+// ============================================================
+
+// deno-lint-ignore-file no-explicit-any
+
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const STRIPE_API = "https://api.stripe.com/v1";
+const TZ = "America/Toronto";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+};
+const json = (b: unknown, status = 200) =>
+  new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+// ---- Stripe ----
+async function stripeRequest(path: string, sk: string): Promise<any> {
+  const res = await fetch(`${STRIPE_API}${path}`, { headers: { Authorization: `Bearer ${sk}` } });
+  if (!res.ok) throw new Error(`Stripe ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
+async function stripePaginate(resource: string, sk: string, query = ""): Promise<any[]> {
+  const items: any[] = [];
+  let startingAfter: string | null = null;
+  let pages = 0;
+  while (true) {
+    if (++pages > 100) throw new Error(`Pagination runaway on ${resource}`);
+    const params = new URLSearchParams(query);
+    params.set("limit", "100");
+    if (startingAfter) params.set("starting_after", startingAfter);
+    const j = await stripeRequest(`/${resource}?${params.toString()}`, sk);
+    items.push(...(j.data || []));
+    if (!j.has_more) break;
+    startingAfter = j.data[j.data.length - 1].id;
+  }
+  return items;
+}
+
+// ---- Dates ----
+function torontoMidnightUnix(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(base).reduce((a: any, x) => (a[x.type] = x.value, a), {});
+  const asTor = Date.UTC(+p.year, +p.month - 1, +p.day, +(p.hour === "24" ? "0" : p.hour), +p.minute, +p.second);
+  return Math.floor((base.getTime() + (base.getTime() - asTor)) / 1000);
+}
+function torontoDateMinus(n: number): string {
+  const s = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - n);
+  return dt.toISOString().slice(0, 10);
+}
+function dayIdxOf(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat (matches scorecards)
+}
+function mondayOf(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dow = dt.getUTCDay();
+  dt.setUTCDate(dt.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  return dt.toISOString().slice(0, 10);
+}
+
+const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+// Monthly recurring revenue of a Stripe subscription (normalize any interval → month).
+function mrrOfSub(sub: any): number {
+  if (!sub.items?.data) return 0;
+  let cents = 0;
+  for (const item of sub.items.data) {
+    const unit = item.price?.unit_amount || 0;
+    const qty = item.quantity || 1;
+    const interval = item.price?.recurring?.interval || "month";
+    const ic = item.price?.recurring?.interval_count || 1;
+    let f = 1 / ic;
+    if (interval === "year") f = 1 / (12 * ic);
+    else if (interval === "week") f = (52 / 12) / ic;
+    else if (interval === "day") f = (365 / 12) / ic;
+    cents += unit * qty * f;
+  }
+  return cents / 100;
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    // ---- Auth: cron secret / service-role / executive ----
+    // Accept a matching X-Cron-Secret OR a service-role bearer (whichever the
+    // schedule sends), else require a signed-in executive for manual runs.
+    const cronSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
+    const authHeader = req.headers.get("Authorization") || "";
+    const isServiceRole = authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+    const isCron = isServiceRole || (!!cronSecret && (req.headers.get("X-Cron-Secret") || "") === cronSecret);
+    if (!isCron) {
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } },
+      );
+      const { data: { user } } = await userClient.auth.getUser();
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const { data: prof } = await userClient.from("profiles").select("role, role_type").eq("id", user.id).single();
+      if (!(prof?.role === "executive" || prof?.role_type === "executive")) {
+        return json({ error: "Forbidden — executive access required" }, 403);
+      }
+    }
+
+    // ---- Target date (default: yesterday Toronto) + preview flag ----
+    let date = torontoDateMinus(1);
+    let preview = false;
+    try {
+      const body = await req.json();
+      if (body?.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) date = body.date;
+      if (body?.preview === true) preview = true;
+    } catch { /* default */ }
+
+    const dayIdx = dayIdxOf(date);
+    const weekKey = mondayOf(date);
+
+    // ---- Existing row (fill-only-blanks) ----
+    const { data: existing } = await admin
+      .from("atlas_daily_updates").select("*").eq("update_date", date).maybeSingle();
+
+    // ---- 1) Stripe cash for the day ----
+    let cashStripe: number | null = null;
+    const sk = Deno.env.get("STRIPE_SECRET_KEY");
+    if (sk) {
+      const start = torontoMidnightUnix(date);
+      const charges = await stripePaginate("charges", sk, `created[gte]=${start}&created[lt]=${start + 86400}`);
+      let gross = 0;
+      for (const ch of charges) {
+        if (ch.status !== "succeeded" || ch.paid !== true) continue;
+        if (ch.currency && ch.currency !== "usd") continue;
+        const cap = (ch.amount_captured != null ? ch.amount_captured : ch.amount) || 0;
+        if (cap > 0) gross += cap / 100;
+      }
+      cashStripe = Math.round(gross * 100) / 100;
+    }
+
+    // ---- 1b) MRR added: gross new MRR from subscriptions created that day ----
+    let mrrAdded: number | null = null;
+    if (sk) {
+      const start = torontoMidnightUnix(date);
+      const subs = await stripePaginate("subscriptions", sk,
+        `created[gte]=${start}&created[lt]=${start + 86400}&status=all&expand[]=data.items.data.price`);
+      let m = 0;
+      for (const s of subs) m += mrrOfSub(s);
+      mrrAdded = Math.round(m * 100) / 100;
+    }
+
+    // ---- Scorecard-derived: calls booked, calls held, deals closed, ad spend ----
+    // All from the AE/Growth/Ad daily scorecard entries at the date's day index.
+    // Calls Booked (demos booked) + Calls Held (demos completed) come from the same
+    // source, so the show-up rate always reconciles (held ≤ booked).
+    let callsBooked = 0, callsHeld = 0, dealsClosed = 0, adSpend = 0;
+    {
+      const { data: profs } = await admin.from("profiles").select("id, role_type").is("archived_at", null);
+      const roleById: Record<string, string> = {};
+      for (const p of profs || []) roleById[p.id] = p.role_type;
+      const { data: cards } = await admin.from("weekly_scorecards").select("user_id, data").eq("week_key", weekKey);
+      for (const c of cards || []) {
+        const role = roleById[c.user_id];
+        const day = (c.data?.daily || [])[dayIdx] || {};
+        if (role === "account_executive") {
+          callsBooked += num(day.demosBooked);
+          callsHeld += num(day.demosCompleted);
+          dealsClosed += num(day.trialSignups);
+        }
+        if (role === "growth_manager" || role === "ad_strategist") {
+          adSpend += num(day.adSpend);
+        }
+      }
+    }
+
+    // ---- 4) Snapshot from atlas_targets latest actuals ----
+    const latestActual = async (metricKey: string): Promise<number | null> => {
+      const { data } = await admin
+        .from("atlas_targets").select("actual_value")
+        .eq("metric_key", metricKey).not("actual_value", "is", null)
+        .order("month_key", { ascending: false }).limit(1).maybeSingle();
+      return data?.actual_value != null ? Number(data.actual_value) : null;
+    };
+    const totalMrr = await latestActual("total-mrr");
+    const totalCustomers = await latestActual("total-customers");
+    const newCustomers = dealsClosed; // spec: same trigger as Deals Closed
+
+    // ---- Preview mode: return the computed source values WITHOUT writing ----
+    // Used by the exec form to pre-fill the SELECTED date (any date) from one
+    // server-side calc. Authoritative sources (Stripe cash, Cal calls) return a
+    // real 0; scorecard-derived fields return null when 0 so an un-logged past
+    // day stays blank for manual entry rather than a misleading 0.
+    if (preview) {
+      return json({ date, computed: {
+        cash_stripe: cashStripe,
+        calls_booked: callsBooked > 0 ? callsBooked : null,
+        calls_held: callsHeld > 0 ? callsHeld : null,
+        deals_closed: dealsClosed > 0 ? dealsClosed : null,
+        new_customers: newCustomers > 0 ? newCustomers : null,
+        ad_spend: adSpend > 0 ? adSpend : null,
+        mrr_added: mrrAdded,
+        total_mrr: totalMrr,
+        total_customers: totalCustomers,
+      } });
+    }
+
+    // ---- Build patch: only set columns that are currently blank ----
+    const blank = (k: string) => !existing || existing[k] == null;
+    const patch: Record<string, any> = {};
+    // authoritative (write even 0)
+    if (blank("cash_stripe") && cashStripe != null) patch.cash_stripe = cashStripe;
+    if (blank("calls_booked") && callsBooked > 0) patch.calls_booked = callsBooked;
+    // scorecard-derived (only when > 0, so un-logged days stay blank)
+    if (blank("calls_held") && callsHeld > 0) patch.calls_held = callsHeld;
+    if (blank("deals_closed") && dealsClosed > 0) patch.deals_closed = dealsClosed;
+    if (blank("new_customers") && newCustomers > 0) patch.new_customers = newCustomers;
+    if (blank("ad_spend") && adSpend > 0) patch.ad_spend = adSpend;
+    if (blank("mrr_added") && mrrAdded != null) patch.mrr_added = mrrAdded;
+    // snapshot
+    if (blank("total_mrr") && totalMrr != null) patch.total_mrr = totalMrr;
+    if (blank("total_customers") && totalCustomers != null) patch.total_customers = totalCustomers;
+    // total cash = (new or existing) stripe + existing wire/ACH, only if total is blank
+    if (blank("cash_collected")) {
+      const stripe = patch.cash_stripe ?? existing?.cash_stripe ?? null;
+      const wire = existing?.cash_wire_ach ?? null;
+      if (stripe != null || wire != null) patch.cash_collected = (Number(stripe) || 0) + (Number(wire) || 0);
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return json({ ok: true, date, wrote: [], message: "Nothing to fill (row already complete or no source data)." });
+    }
+
+    const { error: upErr } = await admin
+      .from("atlas_daily_updates")
+      .upsert({ update_date: date, ...patch, updated_at: new Date().toISOString() }, { onConflict: "update_date" });
+    if (upErr) throw upErr;
+
+    return json({ ok: true, date, wrote: Object.keys(patch), values: patch, triggered_by: isCron ? "cron" : "exec" });
+  } catch (e: any) {
+    return json({ error: e?.message || String(e) }, 500);
+  }
+});
