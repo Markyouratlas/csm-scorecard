@@ -100,6 +100,54 @@ function mondayOf(dateStr: string): string {
 
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
+// ---- Live committed MRR + distinct in-MRR customers ----
+// Mirrors useRevenueBreakdown so the snapshot matches the Odyssey hero: sum each
+// current subscription's net (after ongoing discounts) committed MRR across the
+// synced Stripe data, plus recurring manual_revenue. Current = active/trialing/
+// past_due (paused subs keep 'active' status); canceled/expired are excluded.
+const CURRENT_SUB = new Set(["active", "trialing", "past_due"]);
+function discountedNet(listMrr: number, d: any): number {
+  const applies = d && (d.duration === "forever" || d.duration === "repeating");
+  if (!applies) return listMrr;
+  if (d.percent_off > 0) return listMrr * (1 - d.percent_off / 100);
+  if (d.amount_off > 0) return Math.max(0, listMrr - d.amount_off / 100);
+  return listMrr;
+}
+async function liveMrrAndCustomers(admin: any): Promise<{ mrr: number; customers: number }> {
+  // Paginate (Supabase caps a query at ~1000 rows).
+  const rows: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from("commission_customers")
+      .select("stripe_customer_id, name, subscriptions")
+      .range(from, from + 999);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  let mrr = 0;
+  const keys = new Set<string>();
+  for (const c of rows) {
+    const subs = Array.isArray(c.subscriptions) ? c.subscriptions : [];
+    let inMrr = false;
+    for (const s of subs) {
+      if (!s || !CURRENT_SUB.has(s.status)) continue;
+      mrr += discountedNet(num(s.mrr), s.discount || null);
+      inMrr = true;
+    }
+    if (inMrr) keys.add(c.stripe_customer_id || c.name || "");
+  }
+  // Recurring manual revenue (bank transfers Stripe didn't see) counts too.
+  const { data: manual } = await admin
+    .from("manual_revenue").select("amount, customer_name")
+    .eq("voided", false).eq("entry_type", "recurring");
+  for (const m of manual || []) {
+    mrr += num(m.amount);
+    keys.add("manual:" + (m.customer_name || ""));
+  }
+  return { mrr: Math.round(mrr), customers: keys.size };
+}
+
 // Monthly recurring revenue of a Stripe subscription (normalize any interval → month).
 function mrrOfSub(sub: any): number {
   if (!sub.items?.data) return 0;
@@ -219,8 +267,12 @@ serve(async (req: Request) => {
         .order("month_key", { ascending: false }).limit(1).maybeSingle();
       return data?.actual_value != null ? Number(data.actual_value) : null;
     };
-    const totalMrr = await latestActual("total-mrr");
-    const totalCustomers = await latestActual("total-customers");
+    // Snapshot: live committed MRR + customers from the synced Stripe data
+    // (matches the Odyssey hero). Fall back to the latest stored atlas_targets
+    // actual only if the Stripe data isn't synced yet.
+    const live = await liveMrrAndCustomers(admin);
+    const totalMrr = live.mrr > 0 ? live.mrr : await latestActual("total-mrr");
+    const totalCustomers = live.customers > 0 ? live.customers : await latestActual("total-customers");
     const newCustomers = dealsClosed; // spec: same trigger as Deals Closed
 
     // ---- Preview mode: return the computed source values WITHOUT writing ----
