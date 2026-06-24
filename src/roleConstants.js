@@ -65,6 +65,16 @@ const blankAeDay = () => ({
 
 export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', 'Lost']
 
+// ----- AE meeting/deal lifecycle (ae_deals table) -----
+// Per-meeting outcome statuses the AE sets. Order = rough lifecycle.
+export const AE_MEETING_STATUSES = [
+  'Scheduled', 'Showed', 'No-show', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost',
+]
+// Statuses that mean the prospect attended (drive show + close rates).
+export const AE_ATTENDED_STATUSES = ['Showed', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']
+// Terminal statuses → routed to the Closed bucket (everything else is Active Pipeline).
+export const AE_CLOSED_STATUSES = ['Closed Won', 'Closed Lost']
+
 // ----- Growth Manager -----
 export const BLANK_GROWTH_WEEK = () => ({
   daily: [

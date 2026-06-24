@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
+import { useAeDeals } from './hooks/useAeDeals'
 import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
-import { BLANK_AE_WEEK, AE_DEAL_STAGES, newId } from './roleConstants'
-import { sumDays, showUpRate, closeRate, fmtPct } from './metrics'
+import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
+import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
   NorthStarTile, SectionTabs, PageHeader, MoneyField
@@ -81,8 +82,8 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
-        {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} />}
-        {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} />}
+        {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} />}
+        {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} canEdit={true} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'commission' && <CommissionsTab profile={profile} />}
         {section === 'notes' && <NotesSection weekData={weekData} update={update} />}
@@ -134,7 +135,7 @@ function AeMonthlyView({ profile, monthKey, targets }) {
   )
 }
 
-function FunnelSection({ weekData, update, workDayIdxs, weekKey }) {
+function FunnelSection({ weekData, update, workDayIdxs, weekKey, profile, canEdit }) {
   const setCell = (dayIdx, key, value) => update(d => ({
     ...d,
     daily: d.daily.map((day, i) => i === dayIdx ? { ...day, [key]: Number(value) || 0 } : day),
@@ -155,6 +156,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey }) {
   }, { demosBooked: 0, demosCompleted: 0, trialSignups: 0 })
 
   return (
+    <div className="space-y-6">
     <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
       <div className="display-font text-2xl font-medium text-stone-900 mb-1">Daily funnel</div>
       <p className="text-sm text-stone-600 mb-6">Track your daily demo and trial conversion. Targets: <strong>75%</strong> show-up, <strong>30%</strong> close.</p>
@@ -213,6 +215,8 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey }) {
         </tbody>
       </table>
     </div>
+    <MeetingsTable profile={profile} weekKey={weekKey} canEdit={canEdit} />
+    </div>
   )
 }
 
@@ -232,7 +236,337 @@ function DerivedCell({ value, target, comparator, format }) {
   )
 }
 
-function PipelineSection({ weekData, update, profile }) {
+// Insert a commission_pending_deals row when a meeting is marked Closed Won, so
+// the sale shows up on the AE's commission tracker. The unique (ae_id, email,
+// closed_date) index makes re-marking idempotent (23505 is treated as "already there").
+async function recordCommissionDeal(profile, deal) {
+  const email = (deal.payment_email || deal.customer_email || '').trim().toLowerCase()
+  if (!email) return { skipped: 'no email' }
+  const closed = (deal.meeting_at ? new Date(deal.meeting_at) : new Date()).toISOString().slice(0, 10)
+  const { error } = await supabase.from('commission_pending_deals').insert({
+    ae_id: profile.id,
+    ae_name: profile.name || 'AE',
+    customer_name: deal.customer_name || email,
+    customer_email: email,
+    mrr_amount: Number(deal.mrr) || 0,
+    upfront_amount: Number(deal.one_time) || 0,
+    closed_date: closed,
+    notes: 'Auto-added from the AE meeting tracker.',
+    status: 'submitted',
+  })
+  if (error && error.code !== '23505') throw error // ignore duplicate
+  return { ok: true }
+}
+
+// ===== Per-meeting tracker (ae_deals) — sits under the Daily Funnel =====
+function MeetingsTable({ profile, weekKey, canEdit }) {
+  const { deals, importCalMeetings, save, addManual, remove, matchStripe } = useAeDeals(profile.id)
+  const [importing, setImporting] = useState(false)
+  const [expanded, setExpanded] = useState(null)
+  const [err, setErr] = useState(null)
+
+  // Save wrapper: on Closed Won, also record the sale on the commission tracker.
+  const saveDeal = async (id, patch) => {
+    await save(id, patch)
+    if (patch.status === 'Closed Won') {
+      const deal = deals.find(d => d.id === id)
+      if (deal) {
+        try { await recordCommissionDeal(profile, { ...deal, ...patch }) }
+        catch (e) { setErr('Saved — but adding to the commission tracker failed: ' + (e.message || e)) }
+      }
+    }
+  }
+
+  const weekMeetings = useMemo(() => deals
+    .filter(d => d.meeting_at && getWeekKey(new Date(d.meeting_at)) === weekKey)
+    .sort((a, b) => new Date(a.meeting_at) - new Date(b.meeting_at)), [deals, weekKey])
+  const manualNoDate = useMemo(() => deals.filter(d => !d.meeting_at), [deals])
+  const rows = [...weekMeetings, ...manualNoDate]
+
+  const attended = weekMeetings.filter(d => AE_ATTENDED_STATUSES.includes(d.status)).length
+  const noShow = weekMeetings.filter(d => d.status === 'No-show').length
+  const won = weekMeetings.filter(d => d.status === 'Closed Won').length
+  const showRate = safeDiv(attended, attended + noShow)
+  const closeR = safeDiv(won, attended)
+
+  const doImport = async () => {
+    setImporting(true); setErr(null)
+    try {
+      const n = await importCalMeetings(weekKey, profile.name)
+      if (n === 0) setErr(`No new calendar meetings found this week for host "${profile.name}".`)
+    } catch (e) { setErr(e.message || 'Import failed.') }
+    finally { setImporting(false) }
+  }
+  const addRow = async () => {
+    setErr(null)
+    try { const r = await addManual({ meeting_at: new Date(weekKey + 'T12:00:00').toISOString() }); setExpanded(r?.id) }
+    catch (e) { setErr(e.message || 'Could not add a row.') }
+  }
+
+  return (
+    <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
+        <div>
+          <div className="display-font text-2xl font-medium text-stone-900">Meetings</div>
+          <p className="text-sm text-stone-600 mt-1">This week's booked meetings, pulled from your calendar. Mark each outcome — MRR &amp; cash match from Stripe (manual for wire/ACH).</p>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <button onClick={doImport} disabled={importing || !profile?.name}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700 disabled:opacity-50">
+              <RefreshCw className={`w-3.5 h-3.5 ${importing ? 'animate-spin' : ''}`} /> {importing ? 'Importing…' : 'Sync meetings'}
+            </button>
+            <button onClick={addRow} className="inline-flex items-center gap-1.5 px-3 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium">
+              <Plus className="w-4 h-4" /> Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-8 my-4">
+        <div>
+          <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Show rate</span>
+          <span className="num-tabular font-semibold text-stone-900 ml-2">{showRate == null ? '—' : `${Math.round(showRate * 100)}%`}</span>
+          <span className="text-[11px] text-stone-400 ml-1">({attended}/{attended + noShow})</span>
+        </div>
+        <div>
+          <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Close rate</span>
+          <span className="num-tabular font-semibold text-stone-900 ml-2">{closeR == null ? '—' : `${Math.round(closeR * 100)}%`}</span>
+          <span className="text-[11px] text-stone-400 ml-1">({won}/{attended})</span>
+        </div>
+      </div>
+
+      {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
+
+      {rows.length === 0 ? (
+        <div className="border-2 border-dashed border-stone-300 p-8 text-center">
+          <div className="display-font text-lg font-medium text-stone-700 mb-1">No meetings yet</div>
+          <p className="text-sm text-stone-500">{canEdit ? 'Click “Sync meetings” to pull this week’s calendar, or add one manually.' : 'No meetings recorded for this week.'}</p>
+        </div>
+      ) : (
+        <table className="w-full text-sm min-w-[860px]">
+          <thead>
+            <tr className="border-b border-stone-200 bg-stone-50">
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">When</th>
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Prospect</th>
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[150px]">Status</th>
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[110px]">Payment</th>
+              <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[100px]">MRR</th>
+              <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[100px]">Cash collected</th>
+              <th className="w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(d => (
+              <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function MoneyCell({ value, editable, onSave }) {
+  if (!editable) {
+    return <span className="num-tabular text-stone-700">{value == null || value === '' ? '—' : `$${Number(value).toLocaleString()}`}</span>
+  }
+  return (
+    <input type="number" min="0" step="any" defaultValue={value ?? ''} placeholder="0"
+      onBlur={(e) => onSave(e.target.value === '' ? null : Number(e.target.value))}
+      className="w-24 py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm text-right" />
+  )
+}
+
+function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch }) {
+  const isWire = deal.payment_method === 'wire_ach'
+  const when = deal.meeting_at ? new Date(deal.meeting_at) : null
+  const setField = (patch) => onSave(deal.id, patch).catch(e => console.error('ae_deals save:', e))
+  const [matching, setMatching] = useState(false)
+  const [matchMsg, setMatchMsg] = useState(null)
+  // Controlled copy of the override email so "Match" uses what's typed RIGHT NOW,
+  // not the last-saved value (avoids the blur-save race where the first click missed).
+  const [payEmail, setPayEmail] = useState(deal.payment_email || '')
+  useEffect(() => { setPayEmail(deal.payment_email || '') }, [deal.payment_email])
+  const runMatch = async () => {
+    const email = (payEmail || deal.customer_email || '').trim()
+    setMatching(true); setMatchMsg(null)
+    try {
+      // Persist the override (fire-and-forget) so it sticks, then match on the live value.
+      if ((payEmail || '').trim() !== (deal.payment_email || '')) {
+        onSave(deal.id, { payment_email: payEmail.trim() || null }).catch(() => {})
+      }
+      const r = await onMatch(deal.id, email)
+      setMatchMsg(r?.matched ? `Matched${r.name ? ` · ${r.name}` : ''}` : 'No Stripe customer found for that email.')
+    } catch (e) { setMatchMsg(e.message || 'Match failed.') }
+    finally { setMatching(false) }
+  }
+  const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40' : deal.status === 'Closed Lost' ? 'opacity-60' : ''
+  const ctrl = 'py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white'
+  return (
+    <>
+      <tr className={`border-b border-stone-100 ${rowCls}`}>
+        <td className="py-2 px-3 align-top">
+          <button onClick={onToggle} className="inline-flex items-center gap-1 text-left">
+            {expanded ? <ChevronDown className="w-3.5 h-3.5 text-stone-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />}
+            <span className="num-tabular text-stone-700 whitespace-nowrap">
+              {when ? when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '—'}
+              {when ? `, ${when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
+            </span>
+          </button>
+        </td>
+        <td className="py-2 px-3">
+          <div className="text-stone-800">{deal.customer_name || <span className="text-stone-400">(no name)</span>}</div>
+          {deal.event_type && <div className="text-[10px] text-stone-400">{deal.event_type}</div>}
+        </td>
+        <td className="py-2 px-3">
+          <select disabled={!canEdit} value={deal.status} onChange={(e) => setField({ status: e.target.value })} className={`w-full ${ctrl}`}>
+            {AE_MEETING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </td>
+        <td className="py-2 px-3">
+          <select disabled={!canEdit} value={deal.payment_method || 'stripe'} onChange={(e) => setField({ payment_method: e.target.value })} className={`w-full ${ctrl}`}>
+            <option value="stripe">Stripe</option>
+            <option value="wire_ach">Wire/ACH</option>
+          </select>
+        </td>
+        <td className="py-2 px-3 text-right"><MoneyCell value={deal.mrr} editable={canEdit && isWire} onSave={(v) => setField({ mrr: v })} /></td>
+        <td className="py-2 px-3 text-right"><MoneyCell value={deal.one_time} editable={canEdit && isWire} onSave={(v) => setField({ one_time: v })} /></td>
+        <td className="py-2 px-3 text-right">
+          {canEdit && deal.source === 'manual' && (
+            <button onClick={() => onRemove(deal.id)} className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
+          )}
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-stone-100 bg-stone-50/60">
+          <td colSpan={7} className="py-4 px-3">
+            <div className="grid sm:grid-cols-2 gap-4 pl-5">
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Payment email (if different)</div>
+                <input disabled={!canEdit} value={payEmail} placeholder={deal.customer_email || 'email used for the payment'}
+                  onChange={(e) => setPayEmail(e.target.value)}
+                  onBlur={(e) => setField({ payment_email: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+                <div className="text-[10px] text-stone-400 mt-1">Used to match the Stripe customer when they pay from a different address than they booked with.</div>
+              </div>
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Notes</div>
+                <input disabled={!canEdit} defaultValue={deal.notes || ''} onBlur={(e) => setField({ notes: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+              </div>
+            </div>
+            {!isWire && canEdit && (
+              <div className="pl-5 mt-3 flex items-center gap-3 flex-wrap">
+                <button onClick={runMatch} disabled={matching}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-xs font-medium text-stone-700 disabled:opacity-50">
+                  <RefreshCw className={`w-3.5 h-3.5 ${matching ? 'animate-spin' : ''}`} /> {matching ? 'Matching…' : 'Match in Stripe'}
+                </button>
+                {matchMsg && <span className="text-[11px] text-stone-500">{matchMsg}</span>}
+                {deal.matched_stripe_customer_id && !matchMsg && <span className="text-[11px] text-emerald-700">✓ Matched to Stripe</span>}
+              </div>
+            )}
+            <div className="pl-5 mt-2 text-[11px] text-stone-500">
+              {isWire
+                ? 'Wire/ACH: enter MRR & cash collected manually above.'
+                : 'Stripe payment: enter the payment email (if different), then “Match in Stripe” to auto-fill MRR & cash collected. Marking Closed Won adds it to your commission tracker.'}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+function PipeTile({ label, value, emerald }) {
+  return (
+    <div className="border border-stone-200 bg-white p-4">
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">{label}</div>
+      <div className={`display-font text-2xl font-medium num-tabular ${emerald ? 'text-emerald-700' : 'text-stone-900'}`}>{value}</div>
+    </div>
+  )
+}
+
+// Active Pipeline + Closed bucket, both driven by ae_deals (open = not Won/Lost).
+// Open meetings "roll" here automatically as the week advances — it's just a filter.
+function AeDealsPipeline({ profile, canEdit }) {
+  const { deals, save, remove, matchStripe } = useAeDeals(profile.id)
+  const [bucket, setBucket] = useState('active')
+  const [expanded, setExpanded] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const saveDeal = async (id, patch) => {
+    await save(id, patch)
+    if (patch.status === 'Closed Won') {
+      const deal = deals.find(d => d.id === id)
+      if (deal) { try { await recordCommissionDeal(profile, { ...deal, ...patch }) } catch (e) { setErr('Saved — but adding to the commission tracker failed: ' + (e.message || e)) } }
+    }
+  }
+
+  const open = deals.filter(d => !AE_CLOSED_STATUSES.includes(d.status))
+  const closed = deals.filter(d => AE_CLOSED_STATUSES.includes(d.status))
+  const rows = (bucket === 'active' ? open : closed)
+    .slice().sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
+
+  const pipelineMrr = open.reduce((s, d) => s + (Number(d.mrr) || 0), 0)
+  const wonDeals = deals.filter(d => d.status === 'Closed Won')
+  const wonMrr = wonDeals.reduce((s, d) => s + (Number(d.mrr) || 0), 0)
+  const wonOneTime = wonDeals.reduce((s, d) => s + (Number(d.one_time) || 0), 0)
+
+  const tabBtn = (id, label, n) => (
+    <button onClick={() => setBucket(id)}
+      className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${bucket === id ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-700'}`}>
+      {label} <span className="text-stone-400">({n})</span>
+    </button>
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <PipeTile label="Active deals" value={open.length} />
+        <PipeTile label="Pipeline MRR" value={`$${Math.round(pipelineMrr).toLocaleString()}`} />
+        <PipeTile label="Won MRR" value={`$${Math.round(wonMrr).toLocaleString()}`} emerald />
+        <PipeTile label="Won one-time" value={`$${Math.round(wonOneTime).toLocaleString()}`} emerald />
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+        <div className="display-font text-2xl font-medium text-stone-900">Deals from meetings</div>
+        <p className="text-sm text-stone-600 mt-1">Open meetings carry here automatically as weeks pass; Closed Won/Lost move to the Closed bucket.</p>
+        <div className="flex gap-2 border-b border-stone-200 mt-3 mb-4">
+          {tabBtn('active', 'Active pipeline', open.length)}
+          {tabBtn('closed', 'Closed', closed.length)}
+        </div>
+        {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
+        {rows.length === 0 ? (
+          <div className="text-sm text-stone-500 py-6 text-center">No {bucket === 'active' ? 'open' : 'closed'} deals.</div>
+        ) : (
+          <table className="w-full text-sm min-w-[860px]">
+            <thead>
+              <tr className="border-b border-stone-200 bg-stone-50">
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">When</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Prospect</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[150px]">Status</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[110px]">Payment</th>
+                <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[100px]">MRR</th>
+                <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium w-[100px]">Cash collected</th>
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(d => (
+                <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                  expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                  onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PipelineSection({ weekData, update, profile, canEdit }) {
   const deals = weekData.deals || []
   const addDeal = () => update(d => ({
     ...d,
@@ -252,6 +586,10 @@ function PipelineSection({ weekData, update, profile }) {
 
   return (
     <div className="space-y-6">
+      {/* New meeting-based pipeline (ae_deals) */}
+      <AeDealsPipeline profile={profile} canEdit={canEdit} />
+
+      {/* Legacy weekly deal tracker — being phased out in favor of the meeting pipeline above */}
       {/* Pipeline summary */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="border border-stone-200 bg-white p-4">
@@ -275,8 +613,8 @@ function PipelineSection({ weekData, update, profile }) {
       <div className="bg-white border border-stone-200 p-6">
         <div className="flex items-start justify-between mb-1 gap-4 flex-wrap">
           <div>
-            <div className="display-font text-2xl font-medium text-stone-900">Active deals</div>
-            <p className="text-sm text-stone-600 mt-1">All your in-flight opportunities. Enter MRR for recurring + one-time value for setup fees or upfront contracts.</p>
+            <div className="display-font text-2xl font-medium text-stone-900">Active deals · legacy</div>
+            <p className="text-sm text-stone-600 mt-1">The old weekly tracker — being replaced by the meeting-based pipeline above. Kept for now so nothing's lost.</p>
           </div>
           <button onClick={addDeal} className="flex items-center gap-2 px-3 py-2 bg-stone-900 text-stone-50 hover:bg-stone-800 transition-colors text-sm font-medium">
             <Plus className="w-4 h-4" /> Add deal
