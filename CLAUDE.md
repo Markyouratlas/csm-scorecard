@@ -184,6 +184,46 @@ When wiring any of these, the contract is: write `actual_value` to `atlas_target
 
 The Tracking Guide tab in Odyssey is the user-facing version of this list.
 
+## Integration data — schema sources of truth (READ THIS BEFORE PLANNING)
+
+When planning any feature that touches data we sync from an external API (Stripe,
+Cal.com, Meta, ProfitWell, or anything added later), establish the **real schema of
+every table involved first**. Do **not** infer a table's columns from a React hook's
+`.select(...)` — hooks routinely select a small subset. (A real bug from this: an
+explore pass read `useCalBookings` (5 columns) and wrongly concluded `cal_bookings`
+had no host/attendee info, when the table actually has 23 columns including
+`host_email`, `attendee_name`, `attendee_email`.)
+
+For each relevant table, read the **source of truth**, in this order:
+1. The **migration SQL** that creates it (root `*.sql` / `supabase-*.sql`).
+2. The **`supabase/functions/<provider>-sync/index.ts`** edge function that writes it
+   — its row-mapping object (e.g. cal-sync's `mapBooking`) lists every column we
+   actually populate, which is the most complete picture.
+3. Confirm against the live DB in the Supabase SQL editor:
+   `select column_name, data_type from information_schema.columns where table_name = '<table>' order by ordinal_position;`
+
+Only plan against the full, confirmed column list.
+
+**Where each integration's data lives (sync function → tables, schema files):**
+- **Stripe** → `stripe-sync` writes `commission_customers` (incl. `subscriptions`
+  jsonb, `monthly_mrr`, `monthly_cash_received`) and `oneoff_payments`. Related:
+  `manual_revenue` (wire/ACH), `commission_assignments` (customer→AE), and
+  `commission_pending_deals`. Schema: `01-commissions-migration.sql`,
+  `03-pending-deals-migration.sql`, `08-monthly-cash-received-migration.sql`,
+  `src/09-manual-revenue.sql`. Live per-customer/day lookups (no full sync):
+  `stripe-daily-cash`, `stripe-customer-match`.
+- **Cal.com** → `cal-sync` writes `cal_bookings` (23 cols — `host_name/host_email`,
+  `attendee_name/attendee_email`, `start_time`, `status`, `event_type_slug`, `raw`,
+  …) and reads `cal_event_type_config`; state in `cal_sync_state`.
+- **Meta** → `meta-sync` writes `meta_ads_metrics`.
+- **ProfitWell** → `profitwell-sync`.
+- **App-internal** (not external sync, but same "read the migration" rule):
+  `weekly_scorecards`, `atlas_targets`, `weekly_mrr`, `ae_deals`,
+  `atlas_daily_updates`, `atlas_weekly_targets`.
+
+When you add a new integration, add its sync function + table(s) + schema file(s) to
+this list so the next session knows where to look.
+
 ## Patterns to follow
 
 - **Prefer extending the existing pattern over inventing a new one.** Several things in this codebase look slightly inconsistent because they evolved through migrations (the `role` / `role_type` dual columns, the legacy `metric_targets` vs the new `atlas_targets`). Resist the urge to "clean these up" without an explicit reason — they're load-bearing for backward compatibility.
