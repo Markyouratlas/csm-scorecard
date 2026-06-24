@@ -48,9 +48,10 @@ export function todayStr() {
 }
 
 async function fetchDailyUpdates() {
-  // Last ~28 days is plenty for "current week + a little history" navigation.
+  // ~180 days of history so the investor Daily tab can browse back through stored
+  // days (one row/day, so this is tiny). WTD math still filters by week.
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 28)
+  cutoff.setDate(cutoff.getDate() - 180)
   const { data, error } = await supabase
     .from('atlas_daily_updates')
     .select('*')

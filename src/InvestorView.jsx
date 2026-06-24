@@ -1678,6 +1678,17 @@ function DailyView() {
               disabled={!olderDate} onClick={() => olderDate && setDate(olderDate)} aria-label="Previous day">
               <ChevronLeft className="w-4 h-4" />
             </button>
+            <select
+              value={activeDate}
+              onChange={(e) => setDate(e.target.value)}
+              aria-label="Jump to a day"
+              className="h-8 px-2 rounded-lg border text-[12px] font-body font-semibold bg-transparent cursor-pointer"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)', maxWidth: '180px' }}
+            >
+              {du.availableDates.map((d) => (
+                <option key={d} value={d}>{formatReportDate(d)}</option>
+              ))}
+            </select>
             <button className={navBtn} style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}
               disabled={!newerDate} onClick={() => newerDate && setDate(newerDate)} aria-label="Next day">
               <ChevronRight className="w-4 h-4" />
