@@ -1281,6 +1281,7 @@ const CHART_TOOLTIP_STYLE = {
 /* ===================== EXECUTIVE VIEW ===================== */
 function ExecutiveView() {
   const { monthly } = useContext(DataContext);
+  const { mode: visMode, isVisible: visIsVisible } = useVis();
   const exec = deriveExecMetrics(monthly);
   // includeLive:false — the Investor view resolves MRR from atlas_targets aggregates
   // only; it must never query the per-customer commission tables.
@@ -1300,12 +1301,12 @@ function ExecutiveView() {
   const arpuVal = realArpu != null ? realArpu : exec.arpu;
 
   const subStats = [
-    { label: 'Customers', v: realCustomers != null ? Math.round(realCustomers).toLocaleString() : '—',
+    { label: 'Customers', k: 'exec.hero.customers', v: realCustomers != null ? Math.round(realCustomers).toLocaleString() : '—',
       t: stats.customersAnnualTarget ?? ANNUAL.totalCustomers.target,
       led: { status: 'green', reason: 'Live from Stripe — distinct customers with a committed subscription.' } },
-    { label: 'LTV : CAC', v: `${ltvCacVal.toFixed(1)}:1`, t: `${ANNUAL.ltvCac.target}:1`,
+    { label: 'LTV : CAC', k: 'exec.hero.ltvcac', v: `${ltvCacVal.toFixed(1)}:1`, t: `${ANNUAL.ltvCac.target}:1`,
       led: { status: 'yellow', reason: 'Needs CAC (sales & marketing cost ÷ new customers). Showing a manually-entered figure until cost data is wired.' } },
-    { label: 'Gross Margin', v: `${Math.round(grossMarginVal)}%`, t: `${ANNUAL.grossMargin.target}%`,
+    { label: 'Gross Margin', k: 'exec.hero.grossmargin', v: `${Math.round(grossMarginVal)}%`, t: `${ANNUAL.grossMargin.target}%`,
       led: { status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' } },
   ];
 
@@ -1359,15 +1360,17 @@ function ExecutiveView() {
 
             <div className="grid grid-cols-3 gap-4 mt-8">
               {subStats.map((s) => (
-                <div key={s.label} className="relative pr-4">
-                  <LiveLED status={s.led.status} reason={s.led.reason} style={{ top: 0, right: 0 }} />
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>{s.label}</div>
-                    <InfoTooltip content={FORMULAS[s.label]} label={s.label} />
+                <GateTile key={s.label} id={s.k} label={s.label}>
+                  <div className="relative pr-4">
+                    <LiveLED status={s.led.status} reason={s.led.reason} style={{ top: 0, right: 0 }} />
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>{s.label}</div>
+                      <InfoTooltip content={FORMULAS[s.label]} label={s.label} />
+                    </div>
+                    <div className="font-display text-2xl mt-1" style={{ color: 'var(--text)' }}>{s.v}</div>
+                    <div className="text-[11px] font-mono" style={{ color: 'var(--text-4)' }}>target {s.t}</div>
                   </div>
-                  <div className="font-display text-2xl mt-1" style={{ color: 'var(--text)' }}>{s.v}</div>
-                  <div className="text-[11px] font-mono" style={{ color: 'var(--text-4)' }}>target {s.t}</div>
-                </div>
+                </GateTile>
               ))}
             </div>
           </div>
@@ -1455,10 +1458,12 @@ function ExecutiveView() {
               <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Quarterly OKRs</div>
               <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>How the quarter is shaping up</h2>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
-              <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
-              Q4 · Week 8 of 13
-            </div>
+            {(visMode === 'access' || visIsVisible('exec.okrs')) && (
+              <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
+                <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
+                Q4 · Week 8 of 13
+              </div>
+            )}
           </div>
         )}>
 
@@ -2851,6 +2856,7 @@ function QuickLogView() {
 
 /* ===================== ROOT ===================== */
 const INVESTOR_TAB_IDS = ['executive', 'weekly', 'daily', 'log', 'tracking'];
+const NOOP = () => {};
 
 // mode: 'live' (what investors see — gated) | 'access' (exec curation, checkboxes)
 export default function InvestorView({ mode = 'live' }) {
@@ -2871,9 +2877,12 @@ export default function InvestorView({ mode = 'live' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, view, vis.visible]);
 
+  // Drill-down magnifier is OFF by default (its modal currently shows inaccurate
+  // data). Exec enables it per the master toggle in Access mode; never in access.
+  const drillEnabled = mode !== 'access' && vis.isVisible('feature.drilldown');
   const ctx = useMemo(
-    () => ({ trends, today, monthly, drill, setTrends, setToday, setMonthly, setDrill }),
-    [trends, today, monthly, drill]
+    () => ({ trends, today, monthly, drill, setTrends, setToday, setMonthly, setDrill: drillEnabled ? setDrill : NOOP }),
+    [trends, today, monthly, drill, drillEnabled]
   );
 
   return (
@@ -2886,6 +2895,17 @@ export default function InvestorView({ mode = 'live' }) {
       */}
       <div className="atlas-prototype-scope font-body" style={{ color: 'var(--text)' }}>
         <style>{FONT_STYLES}</style>
+
+        {/* Access-mode master controls (features that aren't tied to one tile). */}
+        {mode === 'access' && (
+          <div className="max-w-[1400px] mx-auto px-2 sm:px-4 pt-4">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 cursor-pointer">
+              <input type="checkbox" checked={vis.isVisible('feature.drilldown')} onChange={() => vis.toggle('feature.drilldown')} style={{ accentColor: '#6639A6', width: 15, height: 15 }} />
+              <span className="text-[11px] font-semibold" style={{ color: '#56506A' }}>Enable drill-down magnifier</span>
+              <span className="text-[10px]" style={{ color: '#9CA3AF' }}>— off by default; its modal currently shows inaccurate data</span>
+            </label>
+          </div>
+        )}
 
         {/* Inline tab nav — replaces the standalone Header.
             (No logo / sign-out — the parent Leadership view supplies those.) */}
