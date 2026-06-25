@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, createContext, useContext, useMemo 
 import { useExecutiveStats } from './hooks/useExecutiveStats.js';
 import { useDailyUpdates } from './hooks/useDailyUpdates.js';
 import { useWeeklyUpdate } from './hooks/useWeeklyUpdate.js';
+import { useInvestorWeeklyTrends } from './hooks/useInvestorWeeklyTrends.js';
+import ComingSoonBanner from './ComingSoonBanner.jsx';
 import {
   PACE_METRICS, DERIVED_METRICS,
   fmtValue, fmtCurrency, fmtCount, fmtPacePP, paceHex, paceEmoji,
@@ -1725,107 +1727,105 @@ export function InvestorWeeklyBody({ week, thisWk, targets, deltas }) {
 }
 
 /* ===================== WEEKLY VIEW (Atlas Odyssey) ===================== */
+// Lineage tooltips for the wired weekly tiles (investor-readable sources only).
+const WK_SRC = {
+  adSpend:   'Source: atlas_daily_updates.ad_spend → weekly sum (Mon–Sun, America/Toronto). Entered by the team in the Daily Update; surfaced via the Executive view (editable).',
+  costDemo:  'Computed: weekly Ad Spend ÷ Demos Booked — both from atlas_daily_updates.',
+  booked:    'Source: atlas_daily_updates.calls_booked → weekly sum. Auto-derived from the AE meeting tracker.',
+  held:      'Source: atlas_daily_updates.calls_held → weekly sum (demos attended, incl. unqualified).',
+  showRate:  'Computed: Demos Held ÷ Demos Booked over the week.',
+  closeRate: 'Computed: Closed-Won ÷ closeable demos held (unqualified excluded) over the week.',
+  newMRR:    'Source: atlas_daily_updates.mrr_added → weekly sum. Surfaced via the Executive view.',
+  avgDeal:   'Computed: weekly New MRR ÷ Closed-Won.',
+  churn:     'Source: atlas_targets “churn-pct” (ProfitWell, monthly). Shows the latest full month (MTD), not a weekly figure.',
+  nrr:       'Source: atlas_targets “net-rev-retention” (monthly). Latest full month (MTD).',
+  prs:       'Source: atlas_targets “prs-deployed” (entered in the Executive view, monthly). Latest full month.',
+};
+// "Not yet available" tooltips for the blocked tiles — name the exact gap.
+const cs = (req) => `Not yet available. Requires: ${req}. Populates automatically once that source is connected and surfaced through the Executive view.`;
+
 function WeeklyView() {
-  const { trends } = useContext(DataContext);
+  const { real } = useInvestorWeeklyTrends();
+  const has  = (k) => Array.isArray(real[k]) && real[k].length > 0;
+  const last = (k) => (has(k) ? real[k].at(-1) : null);
+
   return (
     <div className="space-y-14">
 
-      {/* NEW: real investor Weekly Update, above the prototype scorecards */}
+      {/* Real investor Weekly Update (pace table, snapshot, narrative) */}
       <WeeklyUpdateSection />
 
-      {/* MARKETING */}
+      {/* MARKETING — only Ad Spend + Cost/Booked Demo have an investor-readable source */}
       <section className="fade-up">
-        <SectionHeader
-          deptKey="marketing"
-          eyebrow="Marketing Scorecard"
-          title="Top of funnel & efficiency"
-          description="Did our paid + organic engine produce qualified pipeline this week, and at what cost?"
-        />
+        <SectionHeader deptKey="marketing" eyebrow="Marketing Scorecard" title="Spend & efficiency"
+          description="What we spent to create pipeline this week, and the cost of each booked demo." />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <GaugeCard     label="Opt-In Rate"        value={trends.optInRate.at(-1)} target={20} suffix="%" trend={trends.optInRate} color="#DC2649" />
-          <GaugeCard     label="CAC"                value={trends.CAC.at(-1)} target={750} prefix="$" trend={trends.CAC} color="#DC2649" invertDelta />
-          <BarChartCard  label="Website Visitors"   value={trends.websiteVisitors.at(-1)} trend={trends.websiteVisitors} color="#DC2649" />
-          <BarChartCard  label="Total Ad Spend"     value={trends.totalAdSpend.at(-1)} prefix="$" trend={trends.totalAdSpend} color="#DC2649" />
-          <MetricCard    label="Organic Leads"      value={trends.organicLeads.at(-1)} trend={trends.organicLeads} color="#DC2649" />
-          <MetricCard    label="Paid Ad Leads"      value={trends.paidLeads.at(-1)} trend={trends.paidLeads} color="#DC2649" />
-          <MetricCard    label="Cost / Lead"        value={trends.costPerLead.at(-1)} prefix="$" trend={trends.costPerLead} color="#DC2649" invertDelta />
-          <MetricCard    label="Cost / Booked Demo" value={trends.costPerDemo.at(-1)} prefix="$" trend={trends.costPerDemo} color="#DC2649" invertDelta />
+          <BarChartCard label="Total Ad Spend"     value={last('totalAdSpend')} prefix="$" trend={real.totalAdSpend} color="#DC2649" info={WK_SRC.adSpend} hint="weekly" />
+          <MetricCard   label="Cost / Booked Demo" value={last('costPerDemo')} prefix="$" trend={real.costPerDemo} color="#DC2649" invertDelta info={WK_SRC.costDemo} hint="weekly" />
         </div>
       </section>
 
-      {/* SALES — funnel hero + 4 supporting cards */}
+      {/* SALES — funnel hero + supporting cards, all from atlas_daily_updates */}
       <section className="fade-up">
-        <SectionHeader
-          deptKey="sales"
-          eyebrow="Sales Scorecard"
-          title="Pipeline → revenue"
-          description="Leading indicators that turn into closed business: demos, show rates, and new MRR."
-        />
+        <SectionHeader deptKey="sales" eyebrow="Sales Scorecard" title="Pipeline → revenue"
+          description="Demos, show + close rates, and new MRR — summed from the team's daily entries." />
         <FunnelCard
           title="Demo Funnel · This Week"
           color="#15803D"
-          summary={`$${trends.newMRR.at(-1).toLocaleString()} new MRR closed`}
+          summary={`$${(last('newMRR') || 0).toLocaleString()} new MRR closed`}
           stages={[
-            { label: 'Demos Booked',  value: trends.demosBooked.at(-1) },
-            { label: 'Demos Held',    value: trends.demosCompleted.at(-1), conversion: `${trends.showRate.at(-1)}%`, conversionLabel: 'show rate' },
-            { label: 'Closed-Won',    value: Math.round(trends.demosCompleted.at(-1) * trends.closeRate.at(-1) / 100), conversion: `${trends.closeRate.at(-1)}%`, conversionLabel: 'close rate' },
+            { label: 'Demos Booked', value: last('demosBooked') },
+            { label: 'Demos Held',   value: last('demosCompleted'), conversion: `${last('showRate')}%`, conversionLabel: 'show rate' },
+            { label: 'Closed-Won',   value: Math.round((last('demosCompleted') || 0) * (last('closeRate') || 0) / 100), conversion: `${last('closeRate')}%`, conversionLabel: 'close rate' },
           ]}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-          <GaugeCard    label="Show-Up Rate"     value={trends.showRate.at(-1)} target={80} suffix="%" trend={trends.showRate} color="#15803D" />
-          <GaugeCard    label="Close Rate"       value={trends.closeRate.at(-1)} target={25} suffix="%" trend={trends.closeRate} color="#15803D" />
-          <BarChartCard label="New MRR Closed"   value={trends.newMRR.at(-1)} prefix="$" target={7000} trend={trends.newMRR} color="#15803D" />
-          <MetricCard   label="Avg Deal Size"    value={trends.avgDealSize.at(-1)} prefix="$" trend={trends.avgDealSize} color="#15803D" />
+          <GaugeCard    label="Show-Up Rate"   value={last('showRate')} target={80} suffix="%" trend={real.showRate} color="#15803D" info={WK_SRC.showRate} />
+          <GaugeCard    label="Close Rate"     value={last('closeRate')} target={25} suffix="%" trend={real.closeRate} color="#15803D" info={WK_SRC.closeRate} />
+          <BarChartCard label="New MRR Closed" value={last('newMRR')} prefix="$" trend={real.newMRR} color="#15803D" info={WK_SRC.newMRR} />
+          <MetricCard   label="Avg Deal Size"  value={last('avgDealSize')} prefix="$" trend={real.avgDealSize} color="#15803D" info={WK_SRC.avgDeal} />
         </div>
       </section>
 
-      {/* CUSTOMER SUCCESS — gauge-heavy (lots of goal-tracked metrics) */}
+      {/* CUSTOMER SUCCESS — churn + NRR from ProfitWell→atlas_targets (monthly) */}
       <section className="fade-up">
-        <SectionHeader
-          deptKey="cs"
-          eyebrow="Customer Success"
-          title="Retain, activate, support"
-          description="Churn, NRR, and the on-time activation bar — 70% of customers live within the 14-day mark."
-        />
+        <SectionHeader deptKey="cs" eyebrow="Customer Success" title="Retention"
+          description="Churn and net revenue retention — the latest full month from ProfitWell." />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <GaugeCard    label="On-Time Activation" value={trends.onTimeActivation.at(-1)} target={70} suffix="%" trend={trends.onTimeActivation} color="#1D4ED8" hint="14d standard · 30d enterprise" />
-          <GaugeCard    label="Churn Rate"         value={trends.churnRate.at(-1)} target={2.5} suffix="%" trend={trends.churnRate} color="#1D4ED8" invertDelta hint="monthly · ProfitWell" />
-          <GaugeCard    label="Net Rev Retention"  value={trends.NRR.at(-1)} target={110} suffix="%" trend={trends.NRR} color="#1D4ED8" hint="annualised" />
-          <BarChartCard label="Implementations"    value={trends.implementations.at(-1)} trend={trends.implementations} color="#1D4ED8" />
-          <BarChartCard label="Tickets Resolved"   value={trends.ticketsResolved.at(-1)} trend={trends.ticketsResolved} color="#1D4ED8" />
-          <MetricCard   label="Time-to-First-Value" value={trends.timeToValue.at(-1)} suffix=" d" trend={trends.timeToValue} color="#1D4ED8" invertDelta />
+          <GaugeCard label="Churn Rate"        value={last('churnRate')} target={2.5} suffix="%" trend={real.churnRate} color="#1D4ED8" invertDelta info={WK_SRC.churn} hint="monthly · MTD" />
+          <GaugeCard label="Net Rev Retention" value={last('NRR')} target={110} suffix="%" trend={real.NRR} color="#1D4ED8" info={WK_SRC.nrr} hint="monthly · MTD" />
         </div>
       </section>
 
-      {/* PRODUCT & ENGINEERING */}
+      {/* PRODUCT — PRs Deployed from atlas_targets (monthly) */}
       <section className="fade-up">
-        <SectionHeader
-          deptKey="product"
-          eyebrow="Product & Engineering"
-          title="Velocity vs quality"
-          description="Ship more, break less — and watch how users actually adopt what we build."
-        />
+        <SectionHeader deptKey="product" eyebrow="Product & Engineering" title="Velocity"
+          description="Engineering throughput — the latest full month." />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <BarChartCard label="PRs Deployed"        value={trends.prsDeployed.at(-1)} target={30} trend={trends.prsDeployed} color="#7C3AED" />
-          <BarChartCard label="New Bugs Reported"   value={trends.newBugs.at(-1)} target={8} trend={trends.newBugs} color="#7C3AED" invertDelta hint="log monitoring · Sentry" />
-          <GaugeCard    label="User Adoption Rate"  value={trends.userAdoption.at(-1)} target={70} suffix="%" trend={trends.userAdoption} color="#7C3AED" hint="Amplitude" />
+          <BarChartCard label="PRs Deployed" value={last('prsDeployed')} target={30} trend={real.prsDeployed} color="#7C3AED" info={WK_SRC.prs} hint="monthly · MTD" />
         </div>
       </section>
 
-      {/* GROWTH & OPS */}
-      <section className="fade-up">
-        <SectionHeader
-          deptKey="growth"
-          eyebrow="Growth & Ops"
-          title="Self-serve activation engine"
-          description="Trials in, paid out — and the activation loop in the middle that decides everything."
-        />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <BarChartCard label="Trials Started"        value={trends.trialsStarted.at(-1)} trend={trends.trialsStarted} color="#B45309" hint="monthly target: 480" />
-          <GaugeCard    label="Trial → Paid"          value={trends.trialToPaid.at(-1)} target={15} suffix="%" trend={trends.trialToPaid} color="#B45309" />
-          <GaugeCard    label="User Activation Rate"  value={trends.activationRate.at(-1)} target={55} suffix="%" trend={trends.activationRate} color="#B45309" hint="Amplitude" />
+      {/* Everything without a data source yet — intact tiles, real blocked tooltips */}
+      <ComingSoonBanner count={15} note="These tiles keep their real layout and labels; each tooltip names the exact integration still needed. They light up automatically once that source is connected and surfaced through the Executive view.">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard label="Opt-In Rate"          value="—" suffix="%" color="#DC2649" info={cs('a website-analytics integration for opt-ins ÷ visitors')} />
+          <MetricCard label="CAC"                  value="—" prefix="$" color="#DC2649" info={cs('the “cac” metric entered in the Executive view, or Stripe + ad-spend wiring')} />
+          <MetricCard label="Website Visitors"     value="—" color="#DC2649" info={cs('a web-analytics integration (e.g. GA / Plausible)')} />
+          <MetricCard label="Organic Leads"        value="—" color="#DC2649" info={cs('a CRM / leads integration')} />
+          <MetricCard label="Paid Ad Leads"        value="—" color="#DC2649" info={cs('a CRM / leads integration (Meta gives only rolling-window, non-calendar lead counts)')} />
+          <MetricCard label="Cost / Lead"          value="—" prefix="$" color="#DC2649" info={cs('lead counts (CRM) plus ad spend')} />
+          <MetricCard label="On-Time Activation"   value="—" suffix="%" color="#1D4ED8" info={cs('a CS-onboarding system feeding activation dates')} />
+          <MetricCard label="Implementations"      value="—" color="#1D4ED8" info={cs('a CS-onboarding / implementations system')} />
+          <MetricCard label="Tickets Resolved"     value="—" color="#1D4ED8" info={cs('a support-desk integration (e.g. Intercom / Zendesk)')} />
+          <MetricCard label="Time-to-First-Value"  value="—" suffix=" d" color="#1D4ED8" info={cs('a CS-onboarding system tracking first-value timestamps')} />
+          <MetricCard label="New Bugs Reported"    value="—" color="#7C3AED" info={cs('the “new-bugs” metric in the Executive view, or a Sentry integration')} />
+          <MetricCard label="User Adoption Rate"   value="—" suffix="%" color="#7C3AED" info={cs('a product-analytics integration (e.g. Amplitude)')} />
+          <MetricCard label="Trials Started"       value="—" color="#B45309" info={cs('a trials / billing integration')} />
+          <MetricCard label="Trial → Paid"         value="—" suffix="%" color="#B45309" info={cs('a trials / billing integration')} />
+          <MetricCard label="User Activation Rate" value="—" suffix="%" color="#B45309" info={cs('a product-analytics integration (e.g. Amplitude)')} />
         </div>
-      </section>
+      </ComingSoonBanner>
 
     </div>
   );
