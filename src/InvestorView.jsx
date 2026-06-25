@@ -1407,7 +1407,7 @@ function ExecutiveView() {
       </GateSection>
 
       {/* STRATEGIC INITIATIVES */}
-      <GateSection id="exec.strategic" single
+      <GateSection id="exec.strategic" keys={STRATEGIC_INITIATIVES.map((s) => `exec.strategic.${s.deptKey}`)}
         header={(
           <div className="flex items-end justify-between mb-5">
             <div>
@@ -1420,7 +1420,8 @@ function ExecutiveView() {
           {STRATEGIC_INITIATIVES.map((s) => {
             const D = DEPTS[s.deptKey];
             return (
-              <div key={s.name} className="card relative p-5">
+              <GateTile key={s.name} id={`exec.strategic.${s.deptKey}`} label={s.name}>
+              <div className="card relative p-5">
                 {INITIATIVE_LED[s.name] && <LiveLED status={INITIATIVE_LED[s.name].status} reason={INITIATIVE_LED[s.name].reason} />}
                 <div className="flex items-start justify-between mb-4 gap-2">
                   <div className="flex items-center gap-1.5">
@@ -1445,20 +1446,21 @@ function ExecutiveView() {
                   <span style={{ color: s.delta.startsWith('+') ? '#15803D' : '#DC2626' }}>{s.delta} WoW</span>
                 </div>
               </div>
+              </GateTile>
             );
           })}
         </div>
       </GateSection>
 
       {/* QUARTERLY OKRs */}
-      <GateSection id="exec.okrs" single
+      <GateSection id="exec.okrs" keys={OKRS.map((o) => `exec.okr.${o.dept}`)}
         header={(
           <div className="flex items-end justify-between mb-5">
             <div>
               <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Quarterly OKRs</div>
               <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>How the quarter is shaping up</h2>
             </div>
-            {(visMode === 'access' || visIsVisible('exec.okrs')) && (
+            {(visMode === 'access' || OKRS.some((o) => visIsVisible(`exec.okr.${o.dept}`))) && (
               <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
                 <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
                 Q4 · Week 8 of 13
@@ -1471,8 +1473,8 @@ function ExecutiveView() {
           {OKRS.map((o, i) => {
             const D = DEPTS[o.dept];
             return (
+              <GateTile key={o.title} id={`exec.okr.${o.dept}`} label={o.title}>
               <div
-                key={o.title}
                 className="grid grid-cols-12 gap-4 items-center px-5 py-4 transition-colors hover:bg-[var(--surface-2)]"
                 style={i === 0 ? {} : { borderTop: '1px solid var(--border)' }}
               >
@@ -1491,13 +1493,14 @@ function ExecutiveView() {
                 </div>
                 <div className="col-span-3 md:col-span-1 text-right text-xs font-body" style={{ color: 'var(--text-3)' }}>{o.owner}</div>
               </div>
+              </GateTile>
             );
           })}
         </div>
       </GateSection>
 
       {/* UNIT ECONOMICS */}
-      <GateSection id="exec.uniteconomics" single
+      <GateSection id="exec.uniteconomics" keys={['exec.unit.arpu','exec.unit.grossmargin','exec.unit.costservice','exec.unit.cac','exec.unit.cacpayback','exec.unit.ltvcac']}
         header={(
           <div className="flex items-end justify-between mb-5">
             <div>
@@ -1507,18 +1510,30 @@ function ExecutiveView() {
           </div>
         )}>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <MetricCard  label="ARPU"           value={Math.round(arpuVal)} prefix="$" trend={[420,425,430,438,445,452,455, Math.round(arpuVal)]} color={BRAND}
-            led={{ status: 'green', reason: 'Live from Stripe — Total MRR ÷ active customers.' }} />
-          <GaugeCard   label="Gross Margin"   value={Math.round(grossMarginVal)}  suffix="%" target={82} trend={[74,75,75,76,77,77,78, Math.round(grossMarginVal)]} color="#15803D"
-            led={{ status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' }} />
-          <MetricCard  label="Cost / Service" value={Math.round(exec.costPerService)} prefix="$" trend={[110,108,106,105,103,103,102, Math.round(exec.costPerService)]} color="#DC2649" invertDelta
-            led={{ status: 'red', reason: 'Needs cost-of-service data (CS team salaries + infrastructure spend). Illustrative for now.' }} />
-          <GaugeCard   label="CAC"            value={Math.round(exec.cac)} prefix="$" target={750} trend={[890,920,845,870,810,765,790, Math.round(exec.cac)]} color="#DC2649" invertDelta
-            led={{ status: 'red', reason: 'Needs sales & marketing cost (salaries + ad spend) ÷ new customers. Illustrative for now.' }} />
-          <MetricCard  label="CAC Payback"    value={Number(exec.cacPayback.toFixed(1))} suffix=" mo" trend={[5.4,5.2,5.0,4.9,4.8,4.7,4.7, Number(exec.cacPayback.toFixed(1))]} color="#1D4ED8" invertDelta
-            led={{ status: 'red', reason: 'Derived from CAC and gross margin — needs the cost inputs above first.' }} />
-          <GaugeCard   label="LTV : CAC"      value={Number(ltvCacVal.toFixed(1))} suffix=":1" target={5} trend={[3.8,3.9,4.1,4.2,4.4,4.5,4.5, Number(ltvCacVal.toFixed(1))]} color={BRAND}
-            led={{ status: 'yellow', reason: 'Needs CAC. Showing a manually-entered / stored figure until cost data is wired.' }} />
+          <GateTile id="exec.unit.arpu" label="ARPU">
+            <MetricCard  label="ARPU"           value={Math.round(arpuVal)} prefix="$" trend={[420,425,430,438,445,452,455, Math.round(arpuVal)]} color={BRAND}
+              led={{ status: 'green', reason: 'Live from Stripe — Total MRR ÷ active customers.' }} />
+          </GateTile>
+          <GateTile id="exec.unit.grossmargin" label="Gross Margin">
+            <GaugeCard   label="Gross Margin"   value={Math.round(grossMarginVal)}  suffix="%" target={82} trend={[74,75,75,76,77,77,78, Math.round(grossMarginVal)]} color="#15803D"
+              led={{ status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' }} />
+          </GateTile>
+          <GateTile id="exec.unit.costservice" label="Cost / Service">
+            <MetricCard  label="Cost / Service" value={Math.round(exec.costPerService)} prefix="$" trend={[110,108,106,105,103,103,102, Math.round(exec.costPerService)]} color="#DC2649" invertDelta
+              led={{ status: 'red', reason: 'Needs cost-of-service data (CS team salaries + infrastructure spend). Illustrative for now.' }} />
+          </GateTile>
+          <GateTile id="exec.unit.cac" label="CAC">
+            <GaugeCard   label="CAC"            value={Math.round(exec.cac)} prefix="$" target={750} trend={[890,920,845,870,810,765,790, Math.round(exec.cac)]} color="#DC2649" invertDelta
+              led={{ status: 'red', reason: 'Needs sales & marketing cost (salaries + ad spend) ÷ new customers. Illustrative for now.' }} />
+          </GateTile>
+          <GateTile id="exec.unit.cacpayback" label="CAC Payback">
+            <MetricCard  label="CAC Payback"    value={Number(exec.cacPayback.toFixed(1))} suffix=" mo" trend={[5.4,5.2,5.0,4.9,4.8,4.7,4.7, Number(exec.cacPayback.toFixed(1))]} color="#1D4ED8" invertDelta
+              led={{ status: 'red', reason: 'Derived from CAC and gross margin — needs the cost inputs above first.' }} />
+          </GateTile>
+          <GateTile id="exec.unit.ltvcac" label="LTV : CAC">
+            <GaugeCard   label="LTV : CAC"      value={Number(ltvCacVal.toFixed(1))} suffix=":1" target={5} trend={[3.8,3.9,4.1,4.2,4.4,4.5,4.5, Number(ltvCacVal.toFixed(1))]} color={BRAND}
+              led={{ status: 'yellow', reason: 'Needs CAC. Showing a manually-entered / stored figure until cost data is wired.' }} />
+          </GateTile>
         </div>
       </GateSection>
     </div>
@@ -1777,45 +1792,63 @@ function WeeklyView() {
       </GateSection>
 
       {/* MARKETING — only Ad Spend + Cost/Booked Demo have an investor-readable source */}
-      <GateSection id="weekly.marketing" single
+      <GateSection id="weekly.marketing" keys={['weekly.marketing.adspend','weekly.marketing.costdemo']}
         header={<SectionHeader deptKey="marketing" eyebrow="Marketing Scorecard" title="Spend & efficiency"
           description="What we spent to create pipeline this week, and the cost of each booked demo." />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <BarChartCard label="Total Ad Spend"     value={last('totalAdSpend')} prefix="$" trend={real.totalAdSpend} color="#DC2649" info={WK_SRC.adSpend} hint="weekly" />
-          <MetricCard   label="Cost / Booked Demo" value={last('costPerDemo')} prefix="$" trend={real.costPerDemo} color="#DC2649" invertDelta info={WK_SRC.costDemo} hint="weekly" />
+          <GateTile id="weekly.marketing.adspend" label="Total Ad Spend">
+            <BarChartCard label="Total Ad Spend"     value={last('totalAdSpend')} prefix="$" trend={real.totalAdSpend} color="#DC2649" info={WK_SRC.adSpend} hint="weekly" />
+          </GateTile>
+          <GateTile id="weekly.marketing.costdemo" label="Cost / Booked Demo">
+            <MetricCard   label="Cost / Booked Demo" value={last('costPerDemo')} prefix="$" trend={real.costPerDemo} color="#DC2649" invertDelta info={WK_SRC.costDemo} hint="weekly" />
+          </GateTile>
         </div>
       </GateSection>
 
       {/* SALES — funnel hero + supporting cards, all from atlas_daily_updates */}
-      <GateSection id="weekly.sales" single
+      <GateSection id="weekly.sales" keys={['weekly.sales.funnel','weekly.sales.showrate','weekly.sales.closerate','weekly.sales.newmrr','weekly.sales.avgdeal']}
         header={<SectionHeader deptKey="sales" eyebrow="Sales Scorecard" title="Pipeline → revenue"
           description="Demos, show + close rates, and new MRR — summed from the team's daily entries." />}>
-        <FunnelCard
-          title="Demo Funnel · This Week"
-          color="#15803D"
-          info="Source: atlas_daily_updates — Demos Booked (calls_booked), Demos Held (calls_held), Closed-Won (deals_closed), each a weekly sum (Mon–Sun, America/Toronto). Show & close rates are computed from these; unqualified demos are excluded from the close-rate denominator."
-          summary={`$${(last('newMRR') || 0).toLocaleString()} new MRR closed`}
-          stages={[
-            { label: 'Demos Booked', value: last('demosBooked') },
-            { label: 'Demos Held',   value: last('demosCompleted'), conversion: `${last('showRate')}%`, conversionLabel: 'show rate' },
-            { label: 'Closed-Won',   value: Math.round((last('demosCompleted') || 0) * (last('closeRate') || 0) / 100), conversion: `${last('closeRate')}%`, conversionLabel: 'close rate' },
-          ]}
-        />
+        <GateTile id="weekly.sales.funnel" label="Demo Funnel">
+          <FunnelCard
+            title="Demo Funnel · This Week"
+            color="#15803D"
+            info="Source: atlas_daily_updates — Demos Booked (calls_booked), Demos Held (calls_held), Closed-Won (deals_closed), each a weekly sum (Mon–Sun, America/Toronto). Show & close rates are computed from these; unqualified demos are excluded from the close-rate denominator."
+            summary={`$${(last('newMRR') || 0).toLocaleString()} new MRR closed`}
+            stages={[
+              { label: 'Demos Booked', value: last('demosBooked') },
+              { label: 'Demos Held',   value: last('demosCompleted'), conversion: `${last('showRate')}%`, conversionLabel: 'show rate' },
+              { label: 'Closed-Won',   value: Math.round((last('demosCompleted') || 0) * (last('closeRate') || 0) / 100), conversion: `${last('closeRate')}%`, conversionLabel: 'close rate' },
+            ]}
+          />
+        </GateTile>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
-          <GaugeCard    label="Show-Up Rate"   value={last('showRate')} target={80} suffix="%" trend={real.showRate} color="#15803D" info={WK_SRC.showRate} />
-          <GaugeCard    label="Close Rate"     value={last('closeRate')} target={25} suffix="%" trend={real.closeRate} color="#15803D" info={WK_SRC.closeRate} />
-          <BarChartCard label="New MRR Closed" value={last('newMRR')} prefix="$" trend={real.newMRR} color="#15803D" info={WK_SRC.newMRR} />
-          <MetricCard   label="Avg Deal Size"  value={last('avgDealSize')} prefix="$" trend={real.avgDealSize} color="#15803D" info={WK_SRC.avgDeal} />
+          <GateTile id="weekly.sales.showrate" label="Show-Up Rate">
+            <GaugeCard    label="Show-Up Rate"   value={last('showRate')} target={80} suffix="%" trend={real.showRate} color="#15803D" info={WK_SRC.showRate} />
+          </GateTile>
+          <GateTile id="weekly.sales.closerate" label="Close Rate">
+            <GaugeCard    label="Close Rate"     value={last('closeRate')} target={25} suffix="%" trend={real.closeRate} color="#15803D" info={WK_SRC.closeRate} />
+          </GateTile>
+          <GateTile id="weekly.sales.newmrr" label="New MRR Closed">
+            <BarChartCard label="New MRR Closed" value={last('newMRR')} prefix="$" trend={real.newMRR} color="#15803D" info={WK_SRC.newMRR} />
+          </GateTile>
+          <GateTile id="weekly.sales.avgdeal" label="Avg Deal Size">
+            <MetricCard   label="Avg Deal Size"  value={last('avgDealSize')} prefix="$" trend={real.avgDealSize} color="#15803D" info={WK_SRC.avgDeal} />
+          </GateTile>
         </div>
       </GateSection>
 
       {/* CUSTOMER SUCCESS — churn + NRR from ProfitWell→atlas_targets (monthly) */}
-      <GateSection id="weekly.cs" single
+      <GateSection id="weekly.cs" keys={['weekly.cs.churn','weekly.cs.nrr']}
         header={<SectionHeader deptKey="cs" eyebrow="Customer Success" title="Retention"
           description="Churn and net revenue retention — the latest full month from ProfitWell." />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <GaugeCard label="Churn Rate"        value={last('churnRate')} target={2.5} suffix="%" trend={real.churnRate} color="#1D4ED8" invertDelta info={WK_SRC.churn} hint="monthly · MTD" />
-          <GaugeCard label="Net Rev Retention" value={last('NRR')} target={110} suffix="%" trend={real.NRR} color="#1D4ED8" info={WK_SRC.nrr} hint="monthly · MTD" />
+          <GateTile id="weekly.cs.churn" label="Churn Rate">
+            <GaugeCard label="Churn Rate"        value={last('churnRate')} target={2.5} suffix="%" trend={real.churnRate} color="#1D4ED8" invertDelta info={WK_SRC.churn} hint="monthly · MTD" />
+          </GateTile>
+          <GateTile id="weekly.cs.nrr" label="Net Rev Retention">
+            <GaugeCard label="Net Rev Retention" value={last('NRR')} target={110} suffix="%" trend={real.NRR} color="#1D4ED8" info={WK_SRC.nrr} hint="monthly · MTD" />
+          </GateTile>
         </div>
       </GateSection>
 
