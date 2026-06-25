@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   Crown, Clock, Activity,
   Zap, ChevronRight, AlertCircle, RefreshCw,
-  Info, Sparkles, Eye, Gem,
+  Info, Sparkles, Eye, Gem, Lock,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import HeaderNav from './HeaderNav'
@@ -98,6 +98,20 @@ export default function LeadershipDashboardView({
                 <Gem className="w-3 h-3" /> Odyssey
               </button>
               <button
+                onClick={() => setMode('access')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: mode === 'access' ? '#5B21B6' : 'transparent',
+                  color: mode === 'access' ? 'white' : '#56506A',
+                  boxShadow: mode === 'access' ? '0 1px 2px rgba(91,33,182,0.30)' : 'none',
+                }}
+                role="tab"
+                aria-selected={mode === 'access'}
+                title="Access — curate exactly which tiles investors can see"
+              >
+                <Lock className="w-3 h-3" /> Access
+              </button>
+              <button
                 onClick={() => setMode('odyssey')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
                 style={{
@@ -158,6 +172,18 @@ export default function LeadershipDashboardView({
       {mode === 'investor' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
           <InvestorView />
+        </div>
+      )}
+
+      {/* Access — exec-only mirror of the Investor view with per-tile/section/tab
+          checkboxes. Checked = visible to investors; unchecked = hidden. */}
+      {mode === 'access' && (
+        <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
+          <div className="mt-4 mb-2 px-3 py-2 rounded-lg border text-[12px] leading-snug"
+               style={{ borderColor: 'rgba(91,33,182,0.3)', background: 'rgba(91,33,182,0.04)', color: '#5B21B6' }}>
+            <strong>Access control.</strong> This is exactly what investors see. Check a tile, section, or tab to make it visible to investors; uncheck to hide it. Everything starts hidden until you turn it on.
+          </div>
+          <InvestorView mode="access" />
         </div>
       )}
 

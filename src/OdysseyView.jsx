@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
 import { closeableHeld } from './aeFunnel.js'
+import { supabase } from './supabase.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
@@ -386,6 +387,36 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
   const [weeklyUpdateOpen, setWeeklyUpdateOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncErr, setSyncErr] = useState(null)
+
+  // "Sync this week": re-pull meetings → recompute the funnel in weekly_scorecards,
+  // then OVERWRITE the meeting-derived funnel fields in atlas_daily_updates for each
+  // day Mon→today (self-healing — fixes stale values like a held with no booked).
+  // Both functions accept a signed-in executive (see their auth branches).
+  const syncWeek = async () => {
+    if (syncing) return
+    setSyncing(true); setSyncErr(null)
+    try {
+      const { error: e1 } = await supabase.functions.invoke('ae-meetings-sync', { body: {} })
+      if (e1) throw e1
+      const [y, m, d] = getWeekKey().split('-').map(Number)
+      const baseUTC = Date.UTC(y, m - 1, d)
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(new Date())
+      for (let i = 0; i < 7; i++) {
+        const ds = new Date(baseUTC + i * 86400000).toISOString().slice(0, 10)
+        const { error } = await supabase.functions.invoke('daily-update-autofill', { body: { date: ds, recompute: true } })
+        if (error) throw error
+        if (ds === todayStr) break
+      }
+      await data.refresh?.()
+      targets.refresh?.()
+    } catch (e) {
+      setSyncErr(e?.message || String(e))
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   // Cal.com booked calls for THIS scorecard week (Monday→now, Toronto), so they
   // reconcile against the manually-logged "Demos Booked" beside them.
@@ -425,7 +456,17 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   return (
     <div className="space-y-10 fade-in">
       {canEdit && (
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-2 flex-wrap">
+          {syncErr && <span className="text-[11px] text-red-600">{syncErr}</span>}
+          <button
+            onClick={syncWeek}
+            disabled={syncing}
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50 disabled:opacity-60"
+            style={{ borderColor: 'rgba(102,57,166,0.3)', color: BRAND }}
+            title="Re-pull this week's meetings and rebuild the funnel numbers (booked / held / show / close) from the meeting tracker. Fixes any stale values."
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? 'Syncing…' : 'Sync this week'}
+          </button>
           <button
             onClick={() => setWeeklyUpdateOpen(true)}
             className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50"

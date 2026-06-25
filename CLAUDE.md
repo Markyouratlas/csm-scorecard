@@ -245,6 +245,30 @@ Only plan against the full, confirmed column list.
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
 
+### Metrics architecture — investor ↔ executive lineage
+
+The Investor view (`role_type='investor'`, hard-routed) reads **only** investor-readable
+aggregate tables — never raw tables. The investor-readable source of truth is:
+- `atlas_targets` (monthly, per `metric_key`, `actual_value`+`target_value`; edited via
+  `TargetEditModal`),
+- `atlas_daily_updates` (daily pace metrics; edited via `DailyUpdateModal`),
+- `atlas_weekly_updates` + `atlas_weekly_targets` (weekly; `WeeklyUpdateModal`).
+
+Raw tables (`meta_ads_metrics`, `profitwell_metrics`, `commission_customers`,
+`weekly_scorecards`, `ae_deals`, `cal_bookings`) are RLS-blocked for investors; their data
+reaches investors only after being aggregated into the `atlas_*` tables in the
+executive/service context (the autofill crons + ProfitWell backfill). **Effective value =
+executive edit wins** (manual entry into `atlas_*`) over the computed/synced value.
+
+The Investor Weekly **department** tiles are computed read-only from those investor-readable
+tables (`src/hooks/useInvestorWeeklyTrends.js`: weekly sums of `atlas_daily_updates` +
+latest-month `atlas_targets` actuals). Tiles with **no** data source are collapsed under a
+`ComingSoonBanner` (`src/ComingSoonBanner.jsx`) with a tooltip naming the exact missing
+integration; the Odyssey (Executive) view shows the same not-yet-available metrics via its
+native `AwaitingBadge`. Note `meta_ads_metrics` stores only rolling-window presets (no daily
+rows), so it can't produce calendar-weekly figures — weekly ad spend comes from
+`atlas_daily_updates.ad_spend`, not Meta.
+
 ## Patterns to follow
 
 - **Prefer extending the existing pattern over inventing a new one.** Several things in this codebase look slightly inconsistent because they evolved through migrations (the `role` / `role_type` dual columns, the legacy `metric_targets` vs the new `atlas_targets`). Resist the urge to "clean these up" without an explicit reason — they're load-bearing for backward compatibility.
