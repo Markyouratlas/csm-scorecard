@@ -24,8 +24,9 @@ create table if not exists public.ae_deals (
   status text not null default 'Scheduled',      -- Scheduled | Showed | No-show | Proposal sent |
                                                  -- Follow-up | Rescheduled | Closed Won | Closed Lost
   payment_method text not null default 'stripe', -- 'stripe' | 'wire_ach'
-  mrr numeric,                                   -- auto from Stripe unless wire_ach (then manual)
-  one_time numeric,                              -- auto from Stripe unless wire_ach (then manual)
+  mrr numeric,                                   -- actual MRR (auto-matched from Stripe; manually overridable)
+  one_time numeric,                              -- actual cash collected (auto-matched; manually overridable)
+  expected_mrr numeric,                          -- forecast MRR for OPEN deals → feeds investor pipeline
   matched_stripe_customer_id text,
   notes text,
   created_at timestamptz not null default now(),
@@ -35,6 +36,10 @@ create table if not exists public.ae_deals (
   -- rows) are exempt from the uniqueness check in Postgres, so manual dups are ok.
   unique (ae_id, booking_uid)
 );
+
+-- Added after initial release: forecast MRR for open deals (pipeline). Safe on
+-- a table created before this column existed (run on re-paste).
+alter table public.ae_deals add column if not exists expected_mrr numeric;
 
 create index if not exists ae_deals_ae_idx on public.ae_deals (ae_id);
 create index if not exists ae_deals_status_idx on public.ae_deals (status);

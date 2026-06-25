@@ -8,6 +8,7 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
+import { deriveFunnelWeek, funnelMatches } from './aeFunnel'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
@@ -25,6 +26,33 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   } = useScorecard(profile.id, propWeekKey, BLANK_AE_WEEK, ['deals'])
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
+  const aeDeals = useAeDeals(profile.id)
+
+  // The Meetings tracker is the single source of truth for the AE funnel. Derive
+  // demosBooked/demosCompleted/trialSignups from this week's meetings and keep
+  // weekly_scorecards in sync, so the funnel above + every downstream Odyssey /
+  // investor metric (all read weekly_scorecards) update the moment a status
+  // changes. Persistence rides the normal autosave, so it only writes the AE's
+  // OWN editable week; ae-meetings-sync is the authoritative server-side writer
+  // for other AEs and locked/past weeks. Guarded on aeDeals.loading so we never
+  // momentarily zero the funnel before the meetings arrive. Skipped on an exec
+  // drill-in: ae_deals is RLS-scoped to its owner, so another viewer reads zero
+  // rows — they should see the server-derived weekly_scorecards values instead.
+  useEffect(() => {
+    if (isExecDrillIn) return
+    if (loading || !weekData || aeDeals.loading) return
+    const derived = deriveFunnelWeek(aeDeals.deals, weekKey)
+    if (funnelMatches(weekData.daily, derived)) return
+    update(prev => ({
+      ...prev,
+      daily: prev.daily.map((day, i) => ({
+        ...day,
+        demosBooked: derived[i].demosBooked,
+        demosCompleted: derived[i].demosCompleted,
+        trialSignups: derived[i].trialSignups,
+      })),
+    }))
+  }, [aeDeals.deals, aeDeals.loading, weekKey, loading, weekData, update, isExecDrillIn])
 
   if (loading || !weekData) {
     return <RocketLoader className="min-h-screen" />
@@ -82,7 +110,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
-        {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} />}
+        {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />}
         {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} canEdit={true} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'commission' && <CommissionsTab profile={profile} />}
@@ -135,12 +163,9 @@ function AeMonthlyView({ profile, monthKey, targets }) {
   )
 }
 
-function FunnelSection({ weekData, update, workDayIdxs, weekKey, profile, canEdit }) {
-  const setCell = (dayIdx, key, value) => update(d => ({
-    ...d,
-    daily: d.daily.map((day, i) => i === dayIdx ? { ...day, [key]: Number(value) || 0 } : day),
-  }))
-
+function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDeals }) {
+  // The funnel is now derived from the Meetings tracker (see the effect in AeView),
+  // so these cells are read-only — change a meeting's outcome to change the numbers.
   const monday = useMemo(() => new Date(weekKey + 'T00:00:00'), [weekKey])
   const dateFor = (dayIdx) => {
     const d = new Date(monday); d.setDate(monday.getDate() + (dayIdx - 1)); return d
@@ -159,7 +184,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, profile, canEdi
     <div className="space-y-6">
     <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
       <div className="display-font text-2xl font-medium text-stone-900 mb-1">Daily funnel</div>
-      <p className="text-sm text-stone-600 mb-6">Track your daily demo and trial conversion. Targets: <strong>75%</strong> show-up, <strong>30%</strong> close.</p>
+      <p className="text-sm text-stone-600 mb-6">Auto-filled from your <strong>Meetings</strong> below — booked, completed &amp; closes update as you set each meeting's outcome. Targets: <strong>75%</strong> show-up, <strong>30%</strong> close.</p>
       <table className="w-full text-sm min-w-[600px]">
         <thead>
           <tr className="border-b border-stone-200">
@@ -183,18 +208,9 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, profile, canEdi
                   <div className="font-medium text-stone-800">{DAY_NAMES[dayIdx]}</div>
                   <div className="text-[10px] text-stone-500 mono-font">{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                 </td>
-                <td className="py-2 px-2 text-center">
-                  <input type="number" min="0" value={day.demosBooked || ''} onChange={(e) => setCell(dayIdx, 'demosBooked', e.target.value)}
-                    className="w-16 text-center py-1.5 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
-                </td>
-                <td className="py-2 px-2 text-center">
-                  <input type="number" min="0" value={day.demosCompleted || ''} onChange={(e) => setCell(dayIdx, 'demosCompleted', e.target.value)}
-                    className="w-16 text-center py-1.5 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
-                </td>
-                <td className="py-2 px-2 text-center">
-                  <input type="number" min="0" value={day.trialSignups || ''} onChange={(e) => setCell(dayIdx, 'trialSignups', e.target.value)}
-                    className="w-16 text-center py-1.5 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
-                </td>
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosBooked || 0}</td>
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosCompleted || 0}</td>
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.trialSignups || 0}</td>
                 <DerivedCell value={dayShowUp} target={0.75} comparator="gte" format="pct" />
                 <DerivedCell value={dayClose} target={0.30} comparator="gte" format="pct" />
               </tr>
@@ -215,7 +231,7 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, profile, canEdi
         </tbody>
       </table>
     </div>
-    <MeetingsTable profile={profile} weekKey={weekKey} canEdit={canEdit} />
+    <MeetingsTable profile={profile} weekKey={weekKey} canEdit={canEdit} aeDeals={aeDeals} />
     </div>
   )
 }
@@ -259,8 +275,10 @@ async function recordCommissionDeal(profile, deal) {
 }
 
 // ===== Per-meeting tracker (ae_deals) — sits under the Daily Funnel =====
-function MeetingsTable({ profile, weekKey, canEdit }) {
-  const { deals, importCalMeetings, save, addManual, remove, matchStripe } = useAeDeals(profile.id)
+function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
+  // Shares the single useAeDeals instance lifted to AeView (avoids a double fetch
+  // and keeps the funnel-deriving effect and this table on the same data).
+  const { deals, importCalMeetings, save, addManual, remove, matchStripe } = aeDeals
   const [importing, setImporting] = useState(false)
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
@@ -370,11 +388,16 @@ function MeetingsTable({ profile, weekKey, canEdit }) {
 }
 
 function MoneyCell({ value, editable, onSave }) {
+  // Controlled + synced to `value` so a Stripe match (which updates the deal)
+  // reflects here, while the AE can still type a manual override at any time.
+  const [v, setV] = useState(value ?? '')
+  useEffect(() => { setV(value ?? '') }, [value])
   if (!editable) {
     return <span className="num-tabular text-stone-700">{value == null || value === '' ? '—' : `$${Number(value).toLocaleString()}`}</span>
   }
   return (
-    <input type="number" min="0" step="any" defaultValue={value ?? ''} placeholder="0"
+    <input type="number" min="0" step="any" value={v} placeholder="0"
+      onChange={(e) => setV(e.target.value)}
       onBlur={(e) => onSave(e.target.value === '' ? null : Number(e.target.value))}
       className="w-24 py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm text-right" />
   )
@@ -432,8 +455,8 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
             <option value="wire_ach">Wire/ACH</option>
           </select>
         </td>
-        <td className="py-2 px-3 text-right"><MoneyCell value={deal.mrr} editable={canEdit && isWire} onSave={(v) => setField({ mrr: v })} /></td>
-        <td className="py-2 px-3 text-right"><MoneyCell value={deal.one_time} editable={canEdit && isWire} onSave={(v) => setField({ one_time: v })} /></td>
+        <td className="py-2 px-3 text-right"><MoneyCell value={deal.mrr} editable={canEdit} onSave={(v) => setField({ mrr: v })} /></td>
+        <td className="py-2 px-3 text-right"><MoneyCell value={deal.one_time} editable={canEdit} onSave={(v) => setField({ one_time: v })} /></td>
         <td className="py-2 px-3 text-right">
           {canEdit && deal.source === 'manual' && (
             <button onClick={() => onRemove(deal.id)} className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -444,6 +467,13 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
         <tr className="border-b border-stone-100 bg-stone-50/60">
           <td colSpan={7} className="py-4 px-3">
             <div className="grid sm:grid-cols-2 gap-4 pl-5">
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Expected MRR <span className="normal-case tracking-normal text-stone-400">· pipeline forecast</span></div>
+                <input disabled={!canEdit} type="number" min="0" step="any" defaultValue={deal.expected_mrr ?? ''}
+                  onBlur={(e) => setField({ expected_mrr: e.target.value === '' ? null : Number(e.target.value) })}
+                  placeholder="forecast for this open deal" className={`w-full ${ctrl}`} />
+                <div className="text-[10px] text-stone-400 mt-1">Forecast monthly recurring while this deal is open — feeds the investor pipeline figure. Set it once you can size the opportunity.</div>
+              </div>
               <div>
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Payment email (if different)</div>
                 <input disabled={!canEdit} value={payEmail} placeholder={deal.customer_email || 'email used for the payment'}
@@ -469,7 +499,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
             <div className="pl-5 mt-2 text-[11px] text-stone-500">
               {isWire
                 ? 'Wire/ACH: enter MRR & cash collected manually above.'
-                : 'Stripe payment: enter the payment email (if different), then “Match in Stripe” to auto-fill MRR & cash collected. Marking Closed Won adds it to your commission tracker.'}
+                : 'Stripe payment: enter the payment email (if different), then “Match in Stripe” to auto-fill MRR & cash collected — you can still type over either figure to override it. Marking Closed Won adds it to your commission tracker.'}
             </div>
           </td>
         </tr>
@@ -508,7 +538,9 @@ function AeDealsPipeline({ profile, canEdit }) {
   const rows = (bucket === 'active' ? open : closed)
     .slice().sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
 
-  const pipelineMrr = open.reduce((s, d) => s + (Number(d.mrr) || 0), 0)
+  // Pipeline forecasts from each open deal's expected MRR (set by the AE while it's
+  // in flight); fall back to any matched actual MRR if no forecast is entered yet.
+  const pipelineMrr = open.reduce((s, d) => s + (Number(d.expected_mrr) || Number(d.mrr) || 0), 0)
   const wonDeals = deals.filter(d => d.status === 'Closed Won')
   const wonMrr = wonDeals.reduce((s, d) => s + (Number(d.mrr) || 0), 0)
   const wonOneTime = wonDeals.reduce((s, d) => s + (Number(d.one_time) || 0), 0)

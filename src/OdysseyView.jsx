@@ -26,6 +26,7 @@ import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 import WeeklyMrrModal from './WeeklyMrrModal.jsx'
 import DailyUpdateModal from './DailyUpdateModal.jsx'
+import WeeklyUpdateModal from './WeeklyUpdateModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -85,7 +86,7 @@ export default function OdysseyView({ onSwitchToManagerTeam, profile }) {
       <ProtoTabs view={view} setView={setView} />
       <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
         {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
-        {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'log'       && <QuickLogView onSwitchToManagerTeam={onSwitchToManagerTeam} />}
         {view === 'tracking'  && <TrackingGuide />}
@@ -380,9 +381,10 @@ function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onC
   )
 }
 
-function WeeklyView({ data, targets, canEdit, openModal }) {
+function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
+  const [weeklyUpdateOpen, setWeeklyUpdateOpen] = useState(false)
 
   // Cal.com booked calls for THIS scorecard week (Monday→now, Toronto), so they
   // reconcile against the manually-logged "Demos Booked" beside them.
@@ -421,6 +423,21 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
 
   return (
     <div className="space-y-10 fade-in">
+      {canEdit && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setWeeklyUpdateOpen(true)}
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50"
+            style={{ borderColor: 'rgba(102,57,166,0.3)', color: BRAND }}
+            title="Enter the investors' Weekly Update (snapshot, narrative, rocks, asks) and copy the Slack post"
+          >
+            <Edit3 className="w-3.5 h-3.5" /> Edit weekly update
+          </button>
+        </div>
+      )}
+      {weeklyUpdateOpen && (
+        <WeeklyUpdateModal open={weeklyUpdateOpen} onClose={() => setWeeklyUpdateOpen(false)} userId={userId} />
+      )}
       <SectionHeader
         deptKey="marketing"
         eyebrow="Marketing Scorecard"

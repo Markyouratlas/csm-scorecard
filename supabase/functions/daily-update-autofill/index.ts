@@ -7,17 +7,21 @@
 //
 //   cash_stripe     ← Stripe charges (succeeded, captured, USD) for the day
 //   cash_collected  ← cash_stripe + any existing wire/ACH
-//   calls_booked    ← cal_bookings created that day (Toronto)
+//   calls_booked    ← AE scorecards: demosBooked at that day index
 //   calls_held      ← AE scorecards: demosCompleted at that day index
 //   deals_closed    ← AE scorecards: trialSignups at that day index
+//     (those 3 AE funnel fields are themselves derived from the ae_deals meeting
+//      tracker — see ae-meetings-sync, which writes them into weekly_scorecards
+//      at :45, before this 13:00 UTC run — so calls here reflect real meetings)
 //   ad_spend        ← Growth + Ad Strategist scorecards: adSpend that day
 //   total_mrr       ← latest atlas_targets 'total-mrr' actual (aggregate)
 //   total_customers ← latest atlas_targets 'total-customers' actual
 //
 // FILL-ONLY-BLANKS: it never overwrites a value already in the row, so an
-// exec's manual edits always win. Stripe cash + Cal calls are authoritative
-// (a real 0 is written); scorecard-derived fields are only written when > 0
-// (so an un-logged day stays blank for manual entry rather than a wrong 0).
+// exec's manual edits always win. Stripe cash is authoritative (a real 0 is
+// written); scorecard-derived fields (the meeting-derived calls + closes, ad
+// spend) are only written when > 0 (so an un-logged day stays blank for manual
+// entry rather than a wrong 0).
 //
 // Auth: a cron call (header X-Cron-Secret == CRON_SHARED_SECRET) OR a signed-in
 // executive (for manual trigger / backfill). Body: { date?: 'YYYY-MM-DD' }
