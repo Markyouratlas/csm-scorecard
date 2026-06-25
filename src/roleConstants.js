@@ -60,6 +60,7 @@ export const BLANK_AE_WEEK = () => ({
 const blankAeDay = () => ({
   demosBooked: 0,
   demosCompleted: 0,
+  demosUnqualified: 0,   // attended-but-not-a-fit; counts as held, excluded from close-rate denom
   trialSignups: 0,
 })
 
@@ -68,12 +69,17 @@ export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', '
 // ----- AE meeting/deal lifecycle (ae_deals table) -----
 // Per-meeting outcome statuses the AE sets. Order = rough lifecycle.
 export const AE_MEETING_STATUSES = [
-  'Scheduled', 'Showed', 'No-show', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost',
+  'Scheduled', 'Showed', 'No-show', 'Unqualified', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost',
 ]
-// Statuses that mean the prospect attended (drive show + close rates).
-export const AE_ATTENDED_STATUSES = ['Showed', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']
+// Statuses that mean the prospect attended (drive Demos Completed + show-up rate).
+// Includes 'Unqualified' — they showed up, just weren't a fit.
+export const AE_ATTENDED_STATUSES = ['Showed', 'Unqualified', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']
+// Attended AND a real opportunity — the close-rate denominator. Excludes
+// 'Unqualified' (showed but can't be closed): close rate = won / closeable held.
+export const AE_CLOSEABLE_STATUSES = ['Showed', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']
 // Terminal statuses → routed to the Closed bucket (everything else is Active Pipeline).
-export const AE_CLOSED_STATUSES = ['Closed Won', 'Closed Lost']
+// 'Unqualified' is a dead opportunity, so it's terminal too.
+export const AE_CLOSED_STATUSES = ['Closed Won', 'Closed Lost', 'Unqualified']
 
 // ----- Growth Manager -----
 export const BLANK_GROWTH_WEEK = () => ({

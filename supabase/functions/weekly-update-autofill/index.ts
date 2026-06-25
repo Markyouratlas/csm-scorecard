@@ -106,7 +106,7 @@ serve(async (req) => {
     // deal's expected_mrr (the AE's in-flight estimate; falls back to a matched
     // actual MRR if no forecast is set). Amount = sum of expected MRR; count =
     // open deals that carry a forecast. From ae_deals.
-    const CLOSED_STATUSES = new Set(["Closed Won", "Closed Lost"]);
+    const CLOSED_STATUSES = new Set(["Closed Won", "Closed Lost", "Unqualified"]);
     let pipelineAmount = 0, pipelineCount = 0;
     {
       const { data: deals } = await admin.from("ae_deals").select("status, mrr, expected_mrr");

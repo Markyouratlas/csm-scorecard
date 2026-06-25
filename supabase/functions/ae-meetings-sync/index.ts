@@ -69,22 +69,24 @@ function dayIdxOfYMD(ymd: string): number {
 }
 
 // Mirrors src/aeFunnel.js: Booked = any status except 'Rescheduled'; Completed =
-// attended; Closes = 'Closed Won'. Keep both in sync.
-const ATTENDED = new Set(["Showed", "Proposal sent", "Follow-up", "Closed Won", "Closed Lost"]);
+// attended (incl. 'Unqualified' — they showed); demosUnqualified = 'Unqualified'
+// (excluded from the close-rate denominator); Closes = 'Closed Won'. Keep in sync.
+const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up", "Closed Won", "Closed Lost"]);
 
 // Recompute one (AE, week) funnel from its meetings and merge into weekly_scorecards.
 // Only the 3 funnel fields are touched; other daily fields, deals, notes, and
 // submitted_at are preserved. Skips empty no-op writes. Returns true if it wrote.
 async function recomputeFunnel(admin: any, aeId: string, weekKey: string, rows: any[]): Promise<boolean> {
-  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, trialSignups: 0 }));
+  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 }));
   for (const d of rows) {
     if (!d.meeting_at) continue;
     const idx = dayIdxOfYMD(torontoYMD(new Date(d.meeting_at)));
     if (d.status !== "Rescheduled") daily[idx].demosBooked += 1;
     if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
+    if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
     if (d.status === "Closed Won") daily[idx].trialSignups += 1;
   }
-  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.trialSignups);
+  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups);
 
   const { data: existing } = await admin
     .from("weekly_scorecards").select("data").eq("user_id", aeId).eq("week_key", weekKey).maybeSingle();
@@ -100,6 +102,7 @@ async function recomputeFunnel(admin: any, aeId: string, weekKey: string, rows: 
       const c = baseDaily[i] || {};
       if ((Number(c.demosBooked) || 0) !== daily[i].demosBooked
         || (Number(c.demosCompleted) || 0) !== daily[i].demosCompleted
+        || (Number(c.demosUnqualified) || 0) !== daily[i].demosUnqualified
         || (Number(c.trialSignups) || 0) !== daily[i].trialSignups) { changed = true; break; }
     }
     if (!changed) return false;
@@ -109,6 +112,7 @@ async function recomputeFunnel(admin: any, aeId: string, weekKey: string, rows: 
     ...(baseDaily[i] || {}),
     demosBooked: daily[i].demosBooked,
     demosCompleted: daily[i].demosCompleted,
+    demosUnqualified: daily[i].demosUnqualified,
     trialSignups: daily[i].trialSignups,
   }));
   const newData = { ...base, daily: newDaily, deals: Array.isArray(base.deals) ? base.deals : [] };

@@ -7,7 +7,7 @@ import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
-import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
+import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { deriveFunnelWeek, funnelMatches } from './aeFunnel'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
@@ -35,11 +35,11 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   // changes. Persistence rides the normal autosave, so it only writes the AE's
   // OWN editable week; ae-meetings-sync is the authoritative server-side writer
   // for other AEs and locked/past weeks. Guarded on aeDeals.loading so we never
-  // momentarily zero the funnel before the meetings arrive. Skipped on an exec
-  // drill-in: ae_deals is RLS-scoped to its owner, so another viewer reads zero
-  // rows — they should see the server-derived weekly_scorecards values instead.
+  // momentarily zero the funnel before the meetings arrive. Runs on an exec
+  // drill-in too — managers/execs can read (and edit) all ae_deals per RLS, so
+  // an exec who changes a meeting sees the funnel update live. Persistence still
+  // rides the gated autosave; the server sync stays authoritative.
   useEffect(() => {
-    if (isExecDrillIn) return
     if (loading || !weekData || aeDeals.loading) return
     const derived = deriveFunnelWeek(aeDeals.deals, weekKey)
     if (funnelMatches(weekData.daily, derived)) return
@@ -49,10 +49,11 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         ...day,
         demosBooked: derived[i].demosBooked,
         demosCompleted: derived[i].demosCompleted,
+        demosUnqualified: derived[i].demosUnqualified,
         trialSignups: derived[i].trialSignups,
       })),
     }))
-  }, [aeDeals.deals, aeDeals.loading, weekKey, loading, weekData, update, isExecDrillIn])
+  }, [aeDeals.deals, aeDeals.loading, weekKey, loading, weekData, update])
 
   if (loading || !weekData) {
     return <RocketLoader className="min-h-screen" />
@@ -62,9 +63,11 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
 
   const totalBooked = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosBooked) || 0), 0)
   const totalCompleted = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosCompleted) || 0), 0)
+  const totalUnqualified = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosUnqualified) || 0), 0)
   const totalSignups = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].trialSignups) || 0), 0)
   const showUp = showUpRate(totalCompleted, totalBooked)
-  const close = closeRate(totalSignups, totalCompleted)
+  // Close rate excludes unqualified demos from the denominator (showed, not a fit).
+  const close = closeRate(totalSignups, totalCompleted - totalUnqualified)
 
   const sections = [
     { id: 'funnel',     label: 'Daily Funnel',   icon: Target },
@@ -90,13 +93,21 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
       />
 
       <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
-        <NorthStarTile label="Demos Completed" value={totalCompleted} sublabel="North star metric" color="#1E40AF" icon={Award} />
+        <NorthStarTile
+          label="Demos Completed"
+          value={totalCompleted}
+          sublabel="North star metric"
+          color="#1E40AF"
+          icon={Award}
+          tooltip={`Prospects who showed up this week (${totalCompleted}). Counts every meeting except Scheduled, No-show, and Rescheduled — Unqualified is included here (they still attended). Auto-counted from your Meetings below.`}
+        />
         <NorthStarTile
           label="Show-Up Rate"
           value={showUp !== null ? `${(showUp * 100).toFixed(1)}%` : '—'}
           sublabel={showUp !== null ? (showUp >= 0.75 ? '✓ At/above 75% target' : '↓ Below 75% target') : 'Awaiting data'}
           color="#1C1917"
           icon={Users}
+          tooltip={`Demos Completed ÷ Demos Booked = ${totalCompleted} ÷ ${totalBooked}. Booked = every meeting on the calendar this week except Rescheduled. Target 75%.`}
         />
         <NorthStarTile
           label="Close Rate"
@@ -104,6 +115,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
           sublabel={close !== null ? (close >= 0.30 ? '✓ At/above 30% target' : '↓ Below 30% target') : 'Awaiting data'}
           color="#0F766E"
           icon={TrendingUp}
+          tooltip={`Closes ÷ closeable demos held = ${totalSignups} ÷ ${totalCompleted - totalUnqualified}. Closeable backs out the ${totalUnqualified} Unqualified demo${totalUnqualified === 1 ? '' : 's'} from Demos Completed (${totalCompleted}), so non-fits don't drag your close rate down. Target 30%.`}
         />
       </div>
 
@@ -130,10 +142,11 @@ function AeMonthlyView({ profile, monthKey, targets }) {
     for (const d of daily) {
       acc.demosBooked += Number(d.demosBooked) || 0
       acc.demosCompleted += Number(d.demosCompleted) || 0
+      acc.demosUnqualified += Number(d.demosUnqualified) || 0
       acc.trialSignups += Number(d.trialSignups) || 0
     }
     return acc
-  }, { demosBooked: 0, demosCompleted: 0, trialSignups: 0 })
+  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 })
 
   // Aggregate deals (from latest week's view since deals carry forward)
   // Use the most recent week's deals since they represent the current pipeline state
@@ -143,8 +156,9 @@ function AeMonthlyView({ profile, monthKey, targets }) {
   const totalDealValue = wonThisMonth.reduce((s, d) => s + (Number(d.value) || 0) + ((Number(d.mrr) || 0) * 12), 0)
   const avgDealSize = wonThisMonth.length > 0 ? totalDealValue / wonThisMonth.length : null
 
+  const closeableHeld = totals.demosCompleted - totals.demosUnqualified
   const showUp = totals.demosBooked > 0 ? (totals.demosCompleted / totals.demosBooked) * 100 : null
-  const close = totals.demosCompleted > 0 ? (totals.trialSignups / totals.demosCompleted) * 100 : null
+  const close = closeableHeld > 0 ? (totals.trialSignups / closeableHeld) * 100 : null
 
   return (
     <div className="bg-white border border-stone-200 p-6">
@@ -176,9 +190,10 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
     return {
       demosBooked: acc.demosBooked + (Number(day.demosBooked) || 0),
       demosCompleted: acc.demosCompleted + (Number(day.demosCompleted) || 0),
+      demosUnqualified: acc.demosUnqualified + (Number(day.demosUnqualified) || 0),
       trialSignups: acc.trialSignups + (Number(day.trialSignups) || 0),
     }
-  }, { demosBooked: 0, demosCompleted: 0, trialSignups: 0 })
+  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 })
 
   return (
     <div className="space-y-6">
@@ -201,7 +216,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             const day = weekData.daily[dayIdx]
             const date = dateFor(dayIdx)
             const dayShowUp = showUpRate(day.demosCompleted, day.demosBooked)
-            const dayClose = closeRate(day.trialSignups, day.demosCompleted)
+            const dayClose = closeRate(day.trialSignups, (Number(day.demosCompleted) || 0) - (Number(day.demosUnqualified) || 0))
             return (
               <tr key={dayIdx} className="border-b border-stone-100">
                 <td className="py-2 px-3">
@@ -225,7 +240,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
               {fmtPct(showUpRate(totals.demosCompleted, totals.demosBooked))}
             </td>
             <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#F59E0B' }}>
-              {fmtPct(closeRate(totals.trialSignups, totals.demosCompleted))}
+              {fmtPct(closeRate(totals.trialSignups, totals.demosCompleted - totals.demosUnqualified))}
             </td>
           </tr>
         </tbody>
@@ -304,8 +319,13 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   const attended = weekMeetings.filter(d => AE_ATTENDED_STATUSES.includes(d.status)).length
   const noShow = weekMeetings.filter(d => d.status === 'No-show').length
   const won = weekMeetings.filter(d => d.status === 'Closed Won').length
+  // Close rate excludes 'Unqualified' (showed but not a fit) from the denominator.
+  const closeable = weekMeetings.filter(d => AE_CLOSEABLE_STATUSES.includes(d.status)).length
   const showRate = safeDiv(attended, attended + noShow)
-  const closeR = safeDiv(won, attended)
+  const closeR = safeDiv(won, closeable)
+
+  // Count of this week's meetings in each status bucket (for the breakdown chips).
+  const statusCounts = AE_MEETING_STATUSES.map(s => ({ status: s, n: weekMeetings.filter(d => d.status === s).length }))
 
   const doImport = async () => {
     setImporting(true); setErr(null)
@@ -350,8 +370,19 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
         <div>
           <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Close rate</span>
           <span className="num-tabular font-semibold text-stone-900 ml-2">{closeR == null ? '—' : `${Math.round(closeR * 100)}%`}</span>
-          <span className="text-[11px] text-stone-400 ml-1">({won}/{attended})</span>
+          <span className="text-[11px] text-stone-400 ml-1">({won}/{closeable})</span>
         </div>
+      </div>
+
+      {/* Status breakdown — how many of this week's meetings fell in each bucket. */}
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {statusCounts.map(({ status, n }) => (
+          <span key={status}
+            className={`inline-flex items-center gap-1.5 px-2 py-1 border text-[11px] mono-font ${n > 0 ? 'border-stone-300 text-stone-700 bg-stone-50' : 'border-stone-200 text-stone-400'}`}>
+            {status}
+            <span className={`num-tabular font-semibold ${n > 0 ? 'text-stone-900' : 'text-stone-400'}`}>{n}</span>
+          </span>
+        ))}
       </div>
 
       {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
