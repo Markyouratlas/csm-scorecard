@@ -4,6 +4,8 @@ import { useDailyUpdates } from './hooks/useDailyUpdates.js';
 import { useWeeklyUpdate } from './hooks/useWeeklyUpdate.js';
 import { useInvestorWeeklyTrends } from './hooks/useInvestorWeeklyTrends.js';
 import ComingSoonBanner from './ComingSoonBanner.jsx';
+import { useInvestorVisibility } from './hooks/useInvestorVisibility.js';
+import { VisibilityProvider, useVis, GateTile, GateSection, ComingSoonInline } from './investorAccess.jsx';
 import {
   PACE_METRICS, DERIVED_METRICS,
   fmtValue, fmtCurrency, fmtCount, fmtPacePP, paceHex, paceEmoji,
@@ -1317,6 +1319,7 @@ function ExecutiveView() {
   return (
     <div className="space-y-12">
       {/* HERO */}
+      <GateSection id="exec.hero" single header={null} comingSoonLabel="Annual goals — coming soon">
       <section
         className="glass relative overflow-hidden fade-up"
         style={{ padding: '40px' }}
@@ -1398,14 +1401,18 @@ function ExecutiveView() {
         </div>
       </section>
 
+      </GateSection>
+
       {/* STRATEGIC INITIATIVES */}
-      <section>
-        <div className="flex items-end justify-between mb-5">
-          <div>
-            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Strategic Initiatives</div>
-            <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>Where the executive team is leaning in</h2>
+      <GateSection id="exec.strategic" single
+        header={(
+          <div className="flex items-end justify-between mb-5">
+            <div>
+              <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Strategic Initiatives</div>
+              <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>Where the executive team is leaning in</h2>
+            </div>
           </div>
-        </div>
+        )}>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {STRATEGIC_INITIATIVES.map((s) => {
             const D = DEPTS[s.deptKey];
@@ -1438,20 +1445,22 @@ function ExecutiveView() {
             );
           })}
         </div>
-      </section>
+      </GateSection>
 
       {/* QUARTERLY OKRs */}
-      <section>
-        <div className="flex items-end justify-between mb-5">
-          <div>
-            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Quarterly OKRs</div>
-            <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>How the quarter is shaping up</h2>
+      <GateSection id="exec.okrs" single
+        header={(
+          <div className="flex items-end justify-between mb-5">
+            <div>
+              <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Quarterly OKRs</div>
+              <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>How the quarter is shaping up</h2>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
+              <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
+              Q4 · Week 8 of 13
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
-            <LiveLED status="red" reason="Needs an OKR source — a dedicated table or integration. None is connected yet, so these are illustrative." style={{ position: 'static' }} />
-            Q4 · Week 8 of 13
-          </div>
-        </div>
+        )}>
 
         <div className="card-flat divide-y" style={{ borderColor: 'var(--border)' }}>
           {OKRS.map((o, i) => {
@@ -1480,16 +1489,18 @@ function ExecutiveView() {
             );
           })}
         </div>
-      </section>
+      </GateSection>
 
       {/* UNIT ECONOMICS */}
-      <section>
-        <div className="flex items-end justify-between mb-5">
-          <div>
-            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Unit Economics</div>
-            <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>The numbers under the hood</h2>
+      <GateSection id="exec.uniteconomics" single
+        header={(
+          <div className="flex items-end justify-between mb-5">
+            <div>
+              <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>Unit Economics</div>
+              <h2 className="font-display text-3xl mt-1" style={{ color: 'var(--text)' }}>The numbers under the hood</h2>
+            </div>
           </div>
-        </div>
+        )}>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <MetricCard  label="ARPU"           value={Math.round(arpuVal)} prefix="$" trend={[420,425,430,438,445,452,455, Math.round(arpuVal)]} color={BRAND}
             led={{ status: 'green', reason: 'Live from Stripe — Total MRR ÷ active customers.' }} />
@@ -1504,7 +1515,7 @@ function ExecutiveView() {
           <GaugeCard   label="LTV : CAC"      value={Number(ltvCacVal.toFixed(1))} suffix=":1" target={5} trend={[3.8,3.9,4.1,4.2,4.4,4.5,4.5, Number(ltvCacVal.toFixed(1))]} color={BRAND}
             led={{ status: 'yellow', reason: 'Needs CAC. Showing a manually-entered / stored figure until cost data is wired.' }} />
         </div>
-      </section>
+      </GateSection>
     </div>
   );
 }
@@ -1756,22 +1767,24 @@ function WeeklyView() {
     <div className="space-y-14">
 
       {/* Real investor Weekly Update (pace table, snapshot, narrative) */}
-      <WeeklyUpdateSection />
+      <GateSection id="weekly.update" single header={null} comingSoonLabel="Weekly Update — coming soon">
+        <WeeklyUpdateSection />
+      </GateSection>
 
       {/* MARKETING — only Ad Spend + Cost/Booked Demo have an investor-readable source */}
-      <section className="fade-up">
-        <SectionHeader deptKey="marketing" eyebrow="Marketing Scorecard" title="Spend & efficiency"
-          description="What we spent to create pipeline this week, and the cost of each booked demo." />
+      <GateSection id="weekly.marketing" single
+        header={<SectionHeader deptKey="marketing" eyebrow="Marketing Scorecard" title="Spend & efficiency"
+          description="What we spent to create pipeline this week, and the cost of each booked demo." />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <BarChartCard label="Total Ad Spend"     value={last('totalAdSpend')} prefix="$" trend={real.totalAdSpend} color="#DC2649" info={WK_SRC.adSpend} hint="weekly" />
           <MetricCard   label="Cost / Booked Demo" value={last('costPerDemo')} prefix="$" trend={real.costPerDemo} color="#DC2649" invertDelta info={WK_SRC.costDemo} hint="weekly" />
         </div>
-      </section>
+      </GateSection>
 
       {/* SALES — funnel hero + supporting cards, all from atlas_daily_updates */}
-      <section className="fade-up">
-        <SectionHeader deptKey="sales" eyebrow="Sales Scorecard" title="Pipeline → revenue"
-          description="Demos, show + close rates, and new MRR — summed from the team's daily entries." />
+      <GateSection id="weekly.sales" single
+        header={<SectionHeader deptKey="sales" eyebrow="Sales Scorecard" title="Pipeline → revenue"
+          description="Demos, show + close rates, and new MRR — summed from the team's daily entries." />}>
         <FunnelCard
           title="Demo Funnel · This Week"
           color="#15803D"
@@ -1789,26 +1802,26 @@ function WeeklyView() {
           <BarChartCard label="New MRR Closed" value={last('newMRR')} prefix="$" trend={real.newMRR} color="#15803D" info={WK_SRC.newMRR} />
           <MetricCard   label="Avg Deal Size"  value={last('avgDealSize')} prefix="$" trend={real.avgDealSize} color="#15803D" info={WK_SRC.avgDeal} />
         </div>
-      </section>
+      </GateSection>
 
       {/* CUSTOMER SUCCESS — churn + NRR from ProfitWell→atlas_targets (monthly) */}
-      <section className="fade-up">
-        <SectionHeader deptKey="cs" eyebrow="Customer Success" title="Retention"
-          description="Churn and net revenue retention — the latest full month from ProfitWell." />
+      <GateSection id="weekly.cs" single
+        header={<SectionHeader deptKey="cs" eyebrow="Customer Success" title="Retention"
+          description="Churn and net revenue retention — the latest full month from ProfitWell." />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <GaugeCard label="Churn Rate"        value={last('churnRate')} target={2.5} suffix="%" trend={real.churnRate} color="#1D4ED8" invertDelta info={WK_SRC.churn} hint="monthly · MTD" />
           <GaugeCard label="Net Rev Retention" value={last('NRR')} target={110} suffix="%" trend={real.NRR} color="#1D4ED8" info={WK_SRC.nrr} hint="monthly · MTD" />
         </div>
-      </section>
+      </GateSection>
 
       {/* PRODUCT — PRs Deployed from atlas_targets (monthly) */}
-      <section className="fade-up">
-        <SectionHeader deptKey="product" eyebrow="Product & Engineering" title="Velocity"
-          description="Engineering throughput — the latest full month." />
+      <GateSection id="weekly.product" single
+        header={<SectionHeader deptKey="product" eyebrow="Product & Engineering" title="Velocity"
+          description="Engineering throughput — the latest full month." />}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <BarChartCard label="PRs Deployed" value={last('prsDeployed')} target={30} trend={real.prsDeployed} color="#7C3AED" info={WK_SRC.prs} hint="monthly · MTD" />
         </div>
-      </section>
+      </GateSection>
 
       {/* Everything without a data source yet — intact tiles, real blocked tooltips */}
       <ComingSoonBanner count={15} note="These tiles keep their real layout and labels; each tooltip names the exact integration still needed. They light up automatically once that source is connected and surfaced through the Executive view.">
@@ -2837,12 +2850,26 @@ function QuickLogView() {
 }
 
 /* ===================== ROOT ===================== */
-export default function InvestorView() {
+const INVESTOR_TAB_IDS = ['executive', 'weekly', 'daily', 'log', 'tracking'];
+
+// mode: 'live' (what investors see — gated) | 'access' (exec curation, checkboxes)
+export default function InvestorView({ mode = 'live' }) {
+  const vis = useInvestorVisibility();
   const [view, setView] = useState('executive');
   const [trends, setTrends] = useState(INITIAL_TRENDS);
   const [today, setToday] = useState(INITIAL_TODAY);
   const [monthly, setMonthly] = useState(INITIAL_MONTHLY);
   const [drill, setDrill] = useState(null);
+
+  // Live mode: a tab only exists if checked visible. Keep the selected tab valid.
+  const tabVisible = (id) => mode === 'access' || vis.isVisible(`tab.${id}`);
+  useEffect(() => {
+    if (mode === 'live' && !tabVisible(view)) {
+      const first = INVESTOR_TAB_IDS.find((id) => vis.isVisible(`tab.${id}`));
+      if (first && first !== view) setView(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, view, vis.visible]);
 
   const ctx = useMemo(
     () => ({ trends, today, monthly, drill, setTrends, setToday, setMonthly, setDrill }),
@@ -2850,6 +2877,7 @@ export default function InvestorView() {
   );
 
   return (
+    <VisibilityProvider mode={mode} isVisible={vis.isVisible} toggle={vis.toggle}>
     <DataContext.Provider value={ctx}>
       {/*
         Scoped wrapper — all CSS variables defined in FONT_STYLES under
@@ -2861,20 +2889,21 @@ export default function InvestorView() {
 
         {/* Inline tab nav — replaces the standalone Header.
             (No logo / sign-out — the parent Leadership view supplies those.) */}
-        <ProtoTabs view={view} setView={setView} />
+        <ProtoTabs view={view} setView={setView} mode={mode} isTabVisible={(id) => vis.isVisible(`tab.${id}`)} />
 
         <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
-          {view === 'executive' && <ExecutiveView />}
-          {view === 'weekly'    && <WeeklyView />}
-          {view === 'daily'     && <DailyView />}
-          {view === 'log'       && <QuickLogView />}
-          {view === 'tracking'  && <TrackingGuide />}
+          {view === 'executive' && tabVisible('executive') && <ExecutiveView />}
+          {view === 'weekly'    && tabVisible('weekly')    && <WeeklyView />}
+          {view === 'daily'     && tabVisible('daily')     && <DailyView />}
+          {view === 'log'       && tabVisible('log')       && <QuickLogView />}
+          {view === 'tracking'  && tabVisible('tracking')  && <TrackingGuide />}
         </main>
 
         {/* The Cyclops magnifier — opens whenever drill state is set */}
         <DrillDownPortal />
       </div>
     </DataContext.Provider>
+    </VisibilityProvider>
   );
 }
 
@@ -2882,37 +2911,48 @@ export default function InvestorView() {
 /* A trimmed-down version of the prototype's standalone Header — no logo,
    no live indicator, no scorecard title (the Leadership chrome already
    supplies all of that). Just the five-tab navigation. */
-function ProtoTabs({ view, setView }) {
-  const tabs = [
+function ProtoTabs({ view, setView, mode = 'live', isTabVisible = () => true }) {
+  const { toggle } = useVis();
+  const allTabs = [
     { id: 'executive', label: 'Executive',      sub: 'ANNUAL + QUARTERLY' },
     { id: 'weekly',    label: 'Atlas Odyssey',  sub: 'WEEKLY SCORECARD' },
     { id: 'daily',     label: 'Daily Pulse',    sub: 'TODAY' },
     { id: 'log',       label: 'Quick Log',      sub: "ENTER TODAY'S DATA" },
     { id: 'tracking',  label: 'Tracking Guide', sub: 'WHAT EACH ROLE LOGS' },
   ];
+  // Live: only checked tabs exist. Access: all tabs, each with a visibility toggle.
+  const tabs = mode === 'access' ? allTabs : allTabs.filter((t) => isTabVisible(t.id));
   return (
     <div className="max-w-[1400px] mx-auto px-2 sm:px-4 pt-6">
       <div className="flex items-end gap-8 overflow-x-auto scrollbar-hide pb-1 border-b" style={{ borderColor: 'var(--border)' }}>
         {tabs.map((t) => {
           const active = view === t.id;
+          const on = isTabVisible(t.id);
           return (
-            <button
-              key={t.id}
-              onClick={() => setView(t.id)}
-              className="relative pb-3 text-left shrink-0 transition-colors"
-              style={{ color: active ? 'var(--text)' : 'var(--text-3)' }}
-            >
-              <div className="font-body font-semibold text-[15px] leading-tight">{t.label}</div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em] mt-1" style={{ color: 'var(--text-4)' }}>
-                {t.sub}
-              </div>
-              {active && (
-                <div
-                  className="absolute -bottom-px left-0 right-0 h-[2px] rounded-t"
-                  style={{ background: BRAND, boxShadow: '0 0 12px rgba(102,57,166,0.5)' }}
-                />
+            <div key={t.id} className="shrink-0">
+              {mode === 'access' && (
+                <label className="flex items-center gap-1 cursor-pointer mb-1" title={`tab.${t.id}`} onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(`tab.${t.id}`)} style={{ accentColor: BRAND, width: 14, height: 14 }} />
+                  <span className="text-[9px] uppercase tracking-[0.12em] font-bold" style={{ color: on ? '#15803D' : '#9CA3AF' }}>{on ? 'On' : 'Off'}</span>
+                </label>
               )}
-            </button>
+              <button
+                onClick={() => setView(t.id)}
+                className="relative pb-3 text-left transition-colors"
+                style={{ color: active ? 'var(--text)' : 'var(--text-3)', opacity: mode === 'access' && !on ? 0.5 : 1 }}
+              >
+                <div className="font-body font-semibold text-[15px] leading-tight">{t.label}</div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] mt-1" style={{ color: 'var(--text-4)' }}>
+                  {t.sub}
+                </div>
+                {active && (
+                  <div
+                    className="absolute -bottom-px left-0 right-0 h-[2px] rounded-t"
+                    style={{ background: BRAND, boxShadow: '0 0 12px rgba(102,57,166,0.5)' }}
+                  />
+                )}
+              </button>
+            </div>
           );
         })}
       </div>
