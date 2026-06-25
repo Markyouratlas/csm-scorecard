@@ -217,9 +217,30 @@ Only plan against the full, confirmed column list.
   …) and reads `cal_event_type_config`; state in `cal_sync_state`.
 - **Meta** → `meta-sync` writes `meta_ads_metrics`.
 - **ProfitWell** → `profitwell-sync`.
+- **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
+  meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
+  `Scheduled`, THEN recomputes the AE Daily Funnel from those `ae_deals` statuses
+  and writes it back into `weekly_scorecards.data.daily[]` (`demosBooked` =
+  not-Rescheduled, `demosCompleted` = attended incl. `Unqualified`,
+  `demosUnqualified` = `Unqualified`, `trialSignups` = `Closed Won`), bucketing by
+  America/Toronto. `{backfill:true}` recomputes every AE-week. The client mirror is
+  `src/aeFunnel.js` (`deriveFunnelWeek`/`closeableHeld`/`weekKeyOfMeeting`) — keep
+  the two in sync. Schema: `supabase-ae-deals-migration.sql` (`ae_deals`, incl.
+  `expected_mrr` for open-deal pipeline forecast), `supabase-ae-meetings-cron.sql`.
+- **Investor Daily/Weekly Update** (crons, fill-only-blank, never clobber exec edits)
+  → `daily-update-autofill` writes `atlas_daily_updates` (incl. `cash_stripe`, and
+  AE-funnel-derived `calls_booked/calls_held/calls_unqualified/deals_closed`);
+  `weekly-update-autofill` writes `atlas_weekly_updates` (live committed MRR +
+  customers, and `pipeline_amount/count` summed from `ae_deals.expected_mrr` of open
+  deals). Schema: `supabase-daily-updates-migration.sql`,
+  `supabase-weekly-updates-migration.sql` (`atlas_weekly_updates`, incl.
+  `metric_overrides` jsonb), `supabase-weekly-update-cron.sql`. Close rate everywhere
+  backs out unqualified: `deals_closed ÷ (calls_held − calls_unqualified)` —
+  centralized in `dailyUpdateFormat.derivedFor` / `aeFunnel.closeableHeld`.
 - **App-internal** (not external sync, but same "read the migration" rule):
-  `weekly_scorecards`, `atlas_targets`, `weekly_mrr`, `ae_deals`,
-  `atlas_daily_updates`, `atlas_weekly_targets`.
+  `weekly_scorecards` (AE `data.daily[]` funnel fields are now derived from
+  `ae_deals`, not hand-typed), `atlas_targets`, `weekly_mrr`, `ae_deals`,
+  `atlas_daily_updates`, `atlas_weekly_targets`, `atlas_weekly_updates`.
 
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
