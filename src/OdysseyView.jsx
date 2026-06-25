@@ -8,6 +8,7 @@ import {
   Activity, AlertCircle, RefreshCw, ExternalLink, Edit3,
 } from 'lucide-react'
 import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
+import { closeableHeld } from './aeFunnel.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
@@ -544,7 +545,7 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
           color={DEPTS.sales.color}
           trend={t.closeRate}
           openModal={openModal}
-          tooltip={`Closes ÷ closeable demos held = ${w.trialSignupsWeek} ÷ ${w.demosCompletedWeek - w.demosUnqualifiedWeek} this week. Closeable backs out ${w.demosUnqualifiedWeek} Unqualified from Demos Completed (${w.demosCompletedWeek}), so non-fits don't drag the rate down. Target 30%.`}
+          tooltip={`Closes ÷ closeable demos held = ${w.trialSignupsWeek} ÷ ${closeableHeld(w.demosCompletedWeek, w.demosUnqualifiedWeek)} this week. Closeable backs out ${w.demosUnqualifiedWeek} Unqualified from Demos Completed (${w.demosCompletedWeek}), so non-fits don't drag the rate down. Target 30%.`}
         />
         <NumberBlock
           metricKey="net-new-sales"

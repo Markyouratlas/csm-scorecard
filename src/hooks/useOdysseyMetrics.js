@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 import { recentWeekKeys } from '../dateUtils.js'
+import { closeableHeld } from '../aeFunnel.js'
 
 // =============================================================================
 //  useOdysseyMetrics
@@ -151,7 +152,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
   })
   // Close rate denominator excludes unqualified demos (showed but not a fit).
   weekTotals.closeRate = weekKeys.map((_, i) => {
-    const closeable = weekTotals.demosCompleted[i] - (weekTotals.demosUnqualified[i] || 0)
+    const closeable = closeableHeld(weekTotals.demosCompleted[i], weekTotals.demosUnqualified[i])
     const t = weekTotals.trialSignups[i]
     return closeable > 0 ? Math.round((t / closeable) * 100) : null
   })
@@ -239,7 +240,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
   today.showRateToday = today.callsBookedToday > 0
     ? Math.round((today.callsHeldToday / today.callsBookedToday) * 100)
     : 0
-  const closeableHeldToday = today.callsHeldToday - today.unqualifiedToday
+  const closeableHeldToday = closeableHeld(today.callsHeldToday, today.unqualifiedToday)
   today.closeRateToday = closeableHeldToday > 0
     ? Math.round((today.customersClosedToday / closeableHeldToday) * 100)
     : 0

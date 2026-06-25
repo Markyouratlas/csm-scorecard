@@ -6,9 +6,9 @@ import { useAeDeals } from './hooks/useAeDeals'
 import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
-import { getWeekKey, formatWeekLabel } from './dateUtils'
+import { formatWeekLabel } from './dateUtils'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
-import { deriveFunnelWeek, funnelMatches } from './aeFunnel'
+import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
@@ -67,7 +67,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   const totalSignups = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].trialSignups) || 0), 0)
   const showUp = showUpRate(totalCompleted, totalBooked)
   // Close rate excludes unqualified demos from the denominator (showed, not a fit).
-  const close = closeRate(totalSignups, totalCompleted - totalUnqualified)
+  const close = closeRate(totalSignups, closeableHeld(totalCompleted, totalUnqualified))
 
   const sections = [
     { id: 'funnel',     label: 'Daily Funnel',   icon: Target },
@@ -115,14 +115,14 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
           sublabel={close !== null ? (close >= 0.30 ? '✓ At/above 30% target' : '↓ Below 30% target') : 'Awaiting data'}
           color="#0F766E"
           icon={TrendingUp}
-          tooltip={`Closes ÷ closeable demos held = ${totalSignups} ÷ ${totalCompleted - totalUnqualified}. Closeable backs out the ${totalUnqualified} Unqualified demo${totalUnqualified === 1 ? '' : 's'} from Demos Completed (${totalCompleted}), so non-fits don't drag your close rate down. Target 30%.`}
+          tooltip={`Closes ÷ closeable demos held = ${totalSignups} ÷ ${closeableHeld(totalCompleted, totalUnqualified)}. Closeable backs out the ${totalUnqualified} Unqualified demo${totalUnqualified === 1 ? '' : 's'} from Demos Completed (${totalCompleted}), so non-fits don't drag your close rate down. Target 30%.`}
         />
       </div>
 
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
-        {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />}
+        {section === 'funnel' && <FunnelSection weekData={weekData} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />}
         {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} canEdit={true} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'commission' && <CommissionsTab profile={profile} />}
@@ -216,7 +216,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             const day = weekData.daily[dayIdx]
             const date = dateFor(dayIdx)
             const dayShowUp = showUpRate(day.demosCompleted, day.demosBooked)
-            const dayClose = closeRate(day.trialSignups, (Number(day.demosCompleted) || 0) - (Number(day.demosUnqualified) || 0))
+            const dayClose = closeRate(day.trialSignups, closeableHeld(day.demosCompleted, day.demosUnqualified))
             return (
               <tr key={dayIdx} className="border-b border-stone-100">
                 <td className="py-2 px-3">
@@ -240,7 +240,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
               {fmtPct(showUpRate(totals.demosCompleted, totals.demosBooked))}
             </td>
             <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#F59E0B' }}>
-              {fmtPct(closeRate(totals.trialSignups, totals.demosCompleted - totals.demosUnqualified))}
+              {fmtPct(closeRate(totals.trialSignups, closeableHeld(totals.demosCompleted, totals.demosUnqualified)))}
             </td>
           </tr>
         </tbody>
@@ -311,7 +311,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   }
 
   const weekMeetings = useMemo(() => deals
-    .filter(d => d.meeting_at && getWeekKey(new Date(d.meeting_at)) === weekKey)
+    .filter(d => d.meeting_at && weekKeyOfMeeting(d.meeting_at) === weekKey)
     .sort((a, b) => new Date(a.meeting_at) - new Date(b.meeting_at)), [deals, weekKey])
   const manualNoDate = useMemo(() => deals.filter(d => !d.meeting_at), [deals])
   const rows = [...weekMeetings, ...manualNoDate]
@@ -457,7 +457,8 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
     } catch (e) { setMatchMsg(e.message || 'Match failed.') }
     finally { setMatching(false) }
   }
-  const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40' : deal.status === 'Closed Lost' ? 'opacity-60' : ''
+  const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40'
+    : (deal.status === 'Closed Lost' || deal.status === 'Unqualified') ? 'opacity-60' : ''
   const ctrl = 'py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white'
   return (
     <>
@@ -594,7 +595,7 @@ function AeDealsPipeline({ profile, canEdit }) {
 
       <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
         <div className="display-font text-2xl font-medium text-stone-900">Deals from meetings</div>
-        <p className="text-sm text-stone-600 mt-1">Open meetings carry here automatically as weeks pass; Closed Won/Lost move to the Closed bucket.</p>
+        <p className="text-sm text-stone-600 mt-1">Open meetings carry here automatically as weeks pass; Closed Won/Lost &amp; Unqualified move to the Closed bucket.</p>
         <div className="flex gap-2 border-b border-stone-200 mt-3 mb-4">
           {tabBtn('active', 'Active pipeline', open.length)}
           {tabBtn('closed', 'Closed', closed.length)}
