@@ -12,7 +12,7 @@ import {
   PACE_METRICS, DERIVED_METRICS, WEEKLY_TARGET_KEYS,
   buildSlackPost, formatReportDate, fmtCurrency, fmtCount, fmtValue,
   expectedPct, workdayIndex, vsPacePP, paceHex, paceEmoji, fmtPacePP,
-  derivedRatio, derivedEmoji, derivedHex,
+  derivedRatio, derivedFor, derivedEmoji, derivedHex,
 } from './dailyUpdateFormat.js'
 
 // =============================================================================
@@ -235,6 +235,13 @@ export default function DailyUpdateModal({ open, onClose, userId }) {
       if (today[m.key] != null) sum = (sum || 0) + Number(today[m.key])
       out[m.key] = sum
     }
+    // calls_unqualified isn't a form field — pull it from the stored rows so the
+    // close-rate preview backs unqualified calls out of the denominator.
+    let uq = null
+    for (const r of others) if (r.calls_unqualified != null) uq = (uq || 0) + Number(r.calls_unqualified)
+    const todayRow = du.getDay(date)
+    if (todayRow?.calls_unqualified != null) uq = (uq || 0) + Number(todayRow.calls_unqualified)
+    out.calls_unqualified = uq
     return out
   }
 
@@ -524,7 +531,7 @@ function PreviewPanel({ date, day, wtd, targets }) {
           <div className="display-text text-2xl text-stone-900">{fmtCount(day.total_customers) ?? 'N/A'}</div>
         </div>
         {DERIVED_METRICS.map((d) => {
-          const r = derivedRatio(wtd[d.numKey], wtd[d.denKey])
+          const r = derivedFor(d, wtd)
           const target = targets[d.key] ?? null
           const hex = r ? derivedHex(r.pct, target) : null
           return (

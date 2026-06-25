@@ -45,8 +45,8 @@ export const SNAPSHOT_METRICS = [
 export const DERIVED_METRICS = [
   { key: 'show_rate',  label: 'Show Rate',  numKey: 'calls_held',   denKey: 'calls_booked',
     definition: '(Calls Held ÷ Calls Booked) × 100.' },
-  { key: 'close_rate', label: 'Close Rate', numKey: 'deals_closed', denKey: 'calls_held',
-    definition: '(Deals Closed ÷ Calls Held) × 100.' },
+  { key: 'close_rate', label: 'Close Rate', numKey: 'deals_closed', denKey: 'calls_held', denSubtractKey: 'calls_unqualified',
+    definition: '(Deals Closed ÷ closeable Calls Held) × 100. Unqualified calls are backed out of the denominator.' },
 ]
 
 // All metric_keys that can carry a weekly target (pace + derived).
@@ -115,6 +115,14 @@ export function derivedRatio(numVal, denVal) {
   if (!den) return null
   const num = Number(numVal) || 0
   return { pct: Math.round((num / den) * 100), num, den }
+}
+
+// Derived ratio for a DERIVED_METRICS entry over a values map ({ [key]: total }).
+// Honors denSubtractKey so e.g. close rate's denominator backs out unqualified
+// calls. This is the single source of truth for every derived-metric call site.
+export function derivedFor(d, vals = {}) {
+  const den = (Number(vals?.[d.denKey]) || 0) - (d.denSubtractKey ? (Number(vals?.[d.denSubtractKey]) || 0) : 0)
+  return derivedRatio(vals?.[d.numKey], den)
 }
 
 // Higher-is-better emoji for a derived ratio vs its target.
@@ -226,7 +234,7 @@ export function buildSlackPost(day, wtd = {}, targets = {}, now = new Date()) {
   // ----- derived (WTD), skip when denominator is 0/N/A -----
   const derivedLines = []
   for (const d of DERIVED_METRICS) {
-    const ratio = derivedRatio(wtd?.[d.numKey], wtd?.[d.denKey])
+    const ratio = derivedFor(d, wtd)
     if (!ratio) continue
     const target = targets?.[d.key]
     const tail = target == null

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap, UserMinus, ChevronLeft, ChevronRight, Lock, Send } from 'lucide-react'
+import { LogOut, LayoutDashboard, Loader2, Check, Settings as SettingsIcon, Lightbulb, Plug, Crown, Zap, UserMinus, ChevronLeft, ChevronRight, Lock, Send, Info } from 'lucide-react'
 import { getRoleLabel } from './teams'
 import { formatWeekLabel, stepWeek } from './dateUtils'
 import SettingsModal from './SettingsModal'
@@ -281,12 +281,23 @@ function SubmitFooter({ onSubmit, submitting, isCurrentWeek }) {
 //  Shared widgets — used by every role's view
 // ============================================================================
 
-export function NorthStarTile({ label, value, unit, sublabel, color, icon: Icon }) {
+export function NorthStarTile({ label, value, unit, sublabel, color, icon: Icon, tooltip }) {
   return (
-    <div className="bg-white border border-stone-200 p-6 relative overflow-hidden">
+    // overflow-visible only when a tooltip is present, so the hover bubble isn't clipped.
+    <div className={`bg-white border border-stone-200 p-6 relative ${tooltip ? 'overflow-visible' : 'overflow-hidden'}`}>
       <div className="absolute top-0 left-0 right-0 h-1" style={{ background: color }} />
       <div className="flex items-start justify-between mb-4">
-        <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">{label}</div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">{label}</div>
+          {tooltip && (
+            <span className="group relative inline-flex shrink-0">
+              <Info className="w-3 h-3 text-stone-400 hover:text-stone-600 cursor-help" />
+              <span className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity duration-150 absolute left-0 top-5 z-30 w-60 p-2.5 rounded-md bg-stone-900 text-stone-100 text-[11px] leading-snug shadow-xl pointer-events-none normal-case tracking-normal text-left font-normal">
+                {tooltip}
+              </span>
+            </span>
+          )}
+        </div>
         {Icon && <Icon className="w-4 h-4 text-stone-400" />}
       </div>
       <div className="display-font text-5xl font-medium text-stone-900 num-tabular leading-none">

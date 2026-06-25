@@ -22,7 +22,8 @@ create table if not exists public.atlas_daily_updates (
   cold_outreach   numeric,
   ad_spend        numeric,
   calls_booked    numeric,
-  calls_held      numeric,
+  calls_held      numeric,                 -- all demos held (incl. unqualified)
+  calls_unqualified numeric,               -- subset of calls_held; backed out of the close-rate denom
   deals_closed    numeric,
   new_customers   numeric,
   cash_collected  numeric,                 -- TOTAL cash = Stripe + Wire/ACH (computed on save)
@@ -48,6 +49,9 @@ create table if not exists public.atlas_daily_updates (
 -- Safe on a table created before these columns existed (run on re-paste).
 alter table public.atlas_daily_updates add column if not exists cash_stripe   numeric;
 alter table public.atlas_daily_updates add column if not exists cash_wire_ach numeric;
+-- Added with the 'Unqualified' meeting status: unqualified demos held that day,
+-- so the close-rate denominator (calls_held) can back them out.
+alter table public.atlas_daily_updates add column if not exists calls_unqualified numeric;
 
 create table if not exists public.atlas_weekly_targets (
   week_key date not null,                   -- Monday of the week (YYYY-MM-DD)

@@ -12,8 +12,17 @@
 // bearer. Deploy with JWT verification OFF so the cron gateway doesn't block it:
 //   supabase functions deploy ae-meetings-sync --no-verify-jwt
 //
+// THEN recomputes the AE Daily Funnel from the meetings (the single source of
+// truth): demosBooked/demosCompleted/trialSignups are derived from each AE's
+// ae_deals and written into weekly_scorecards.data.daily, so every downstream
+// Odyssey/investor metric (all read weekly_scorecards) reflects real calendar
+// outcomes. This cron fires at :45; daily-update-autofill runs at 13:00 UTC — so
+// the 12:45 run lands the funnel before the daily investor post reads it.
+//
 // Invoke (cron): net.http_post with header X-Cron-Secret.
-// Returns: { ok, weekKey, aeCount, bookingsScanned, inserted }
+// Body: { weekKey?: 'YYYY-MM-DD', backfill?: true }. backfill recomputes the
+//   funnel for EVERY AE-week that has meetings (one-time history pass).
+// Returns: { ok, weekKey, backfill, aeCount, bookingsScanned, inserted, funnelWeeksWritten }
 // ============================================================
 
 // deno-lint-ignore-file no-explicit-any
@@ -50,6 +59,65 @@ function mondayOf(dateStr: string): string {
   dt.setUTCDate(dt.getUTCDate() - (dt.getUTCDay() === 0 ? 6 : dt.getUTCDay() - 1));
   return dt.toISOString().slice(0, 10);
 }
+// Toronto calendar date ('YYYY-MM-DD') of an instant, and its JS getDay (0=Sun..6=Sat).
+function torontoYMD(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+function dayIdxOfYMD(ymd: string): number {
+  const [y, m, dd] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, dd)).getUTCDay();
+}
+
+// Mirrors src/aeFunnel.js: Booked = any status except 'Rescheduled'; Completed =
+// attended (incl. 'Unqualified' — they showed); demosUnqualified = 'Unqualified'
+// (excluded from the close-rate denominator); Closes = 'Closed Won'. Keep in sync.
+const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up", "Closed Won", "Closed Lost"]);
+
+// Pure: compute one (AE, week) funnel from its meetings and merge into the
+// existing weekly_scorecards.data, returning the row to upsert — or null when
+// there's nothing to write (no existing row + all-zero, or already identical).
+// Only the funnel fields are touched; other daily fields, deals, notes, and
+// submitted_at are preserved. The orchestrator batches the actual I/O.
+function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingData: any, nowISO: string): any | null {
+  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 }));
+  for (const d of rows) {
+    if (!d.meeting_at) continue;
+    const idx = dayIdxOfYMD(torontoYMD(new Date(d.meeting_at)));
+    if (d.status !== "Rescheduled") daily[idx].demosBooked += 1;
+    if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
+    if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
+    if (d.status === "Closed Won") daily[idx].trialSignups += 1;
+  }
+  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups);
+  const exists = existingData != null;
+  if (!exists && allZero) return null; // nothing to record; don't create an empty row
+
+  const base = existingData && typeof existingData === "object" ? existingData : {};
+  const baseDaily = Array.isArray(base.daily) ? base.daily : [];
+
+  // Skip if the funnel is already identical (avoids churn on every sync).
+  if (exists) {
+    let changed = false;
+    for (let i = 0; i < 7; i++) {
+      const c = baseDaily[i] || {};
+      if ((Number(c.demosBooked) || 0) !== daily[i].demosBooked
+        || (Number(c.demosCompleted) || 0) !== daily[i].demosCompleted
+        || (Number(c.demosUnqualified) || 0) !== daily[i].demosUnqualified
+        || (Number(c.trialSignups) || 0) !== daily[i].trialSignups) { changed = true; break; }
+    }
+    if (!changed) return null;
+  }
+
+  const newDaily = Array.from({ length: 7 }, (_, i) => ({
+    ...(baseDaily[i] || {}),
+    demosBooked: daily[i].demosBooked,
+    demosCompleted: daily[i].demosCompleted,
+    demosUnqualified: daily[i].demosUnqualified,
+    trialSignups: daily[i].trialSignups,
+  }));
+  const newData = { ...base, daily: newDaily, deals: Array.isArray(base.deals) ? base.deals : [] };
+  return { user_id: aeId, week_key: weekKey, data: newData, updated_at: nowISO };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -65,9 +133,11 @@ serve(async (req) => {
 
     // Current week window (Mon 00:00 → next Mon 00:00, Toronto), optional body override.
     let weekKey = mondayOf(torontoToday());
+    let backfill = false;
     try {
       const body = await req.json();
       if (body?.weekKey && /^\d{4}-\d{2}-\d{2}$/.test(body.weekKey)) weekKey = mondayOf(body.weekKey);
+      if (body?.backfill === true) backfill = true;
     } catch { /* default */ }
     const startMs = torontoMidnightUnix(weekKey) * 1000;
     const sinceISO = new Date(startMs).toISOString();
@@ -120,7 +190,63 @@ serve(async (req) => {
       inserted = data?.length ?? 0;
     }
 
-    return json({ ok: true, weekKey, aeCount: aeByName.size, bookingsScanned: (bookings || []).length, inserted });
+    // ---- Recompute the AE Daily Funnel from meetings → weekly_scorecards ----
+    // Default: just this week's funnel for every known AE (so an AE whose meetings
+    // all moved away is zeroed, not left stale). Backfill: every AE-week that has
+    // meetings. Idempotent; preserves manual daily fields, deals, notes, lock.
+    let funnelWeeksWritten = 0;
+    {
+      let q = admin.from("ae_deals").select("ae_id, meeting_at, status").not("meeting_at", "is", null);
+      if (!backfill) q = q.gte("meeting_at", sinceISO).lt("meeting_at", untilISO);
+      const { data: allDeals, error: dErr } = await q.limit(50000);
+      if (dErr) return json({ error: dErr.message }, 500);
+
+      const groups = new Map<string, { aeId: string; weekKey: string; rows: any[] }>();
+      const touch = (aeId: string, wk: string) => {
+        const key = aeId + "|" + wk;
+        let g = groups.get(key);
+        if (!g) { g = { aeId, weekKey: wk, rows: [] }; groups.set(key, g); }
+        return g;
+      };
+      for (const d of allDeals || []) {
+        if (!d.ae_id) continue;
+        const wk = mondayOf(torontoYMD(new Date(d.meeting_at)));
+        if (!backfill && wk !== weekKey) continue; // safety: this week only in default mode
+        touch(d.ae_id, wk).rows.push(d);
+      }
+      // Default mode: ensure every known AE's current week is recomputed even with no meetings.
+      if (!backfill) for (const aeId of aeByName.values()) touch(aeId, weekKey);
+
+      // Batch-fetch existing scorecard rows for all groups in one query, build the
+      // merged rows in memory, then upsert them in a single round-trip (instead of
+      // a SELECT + UPSERT per AE-week).
+      const aeIds = [...new Set([...groups.values()].map((g) => g.aeId))];
+      const weekKeys = [...new Set([...groups.values()].map((g) => g.weekKey))];
+      const existingByKey = new Map<string, any>();
+      if (aeIds.length && weekKeys.length) {
+        const { data: existingRows, error: exErr } = await admin
+          .from("weekly_scorecards").select("user_id, week_key, data")
+          .in("user_id", aeIds).in("week_key", weekKeys);
+        if (exErr) return json({ error: exErr.message }, 500);
+        for (const r of existingRows || []) existingByKey.set(r.user_id + "|" + r.week_key, r.data);
+      }
+
+      const nowISO = new Date().toISOString();
+      const upserts: any[] = [];
+      for (const g of groups.values()) {
+        const existingData = existingByKey.has(g.aeId + "|" + g.weekKey) ? existingByKey.get(g.aeId + "|" + g.weekKey) : null;
+        const row = funnelUpsertRow(g.aeId, g.weekKey, g.rows, existingData, nowISO);
+        if (row) upserts.push(row);
+      }
+      if (upserts.length) {
+        const { error: upErr } = await admin
+          .from("weekly_scorecards").upsert(upserts, { onConflict: "user_id,week_key" });
+        if (upErr) return json({ error: upErr.message }, 500);
+      }
+      funnelWeeksWritten = upserts.length;
+    }
+
+    return json({ ok: true, weekKey, backfill, aeCount: aeByName.size, bookingsScanned: (bookings || []).length, inserted, funnelWeeksWritten });
   } catch (e: any) {
     return json({ error: e?.message || String(e) }, 500);
   }

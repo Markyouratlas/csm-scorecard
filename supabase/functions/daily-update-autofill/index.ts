@@ -7,17 +7,23 @@
 //
 //   cash_stripe     ← Stripe charges (succeeded, captured, USD) for the day
 //   cash_collected  ← cash_stripe + any existing wire/ACH
-//   calls_booked    ← cal_bookings created that day (Toronto)
+//   calls_booked    ← AE scorecards: demosBooked at that day index
 //   calls_held      ← AE scorecards: demosCompleted at that day index
+//   calls_unqualified ← AE scorecards: demosUnqualified (subset of held; backed
+//                       out of the close-rate denominator so non-fits don't lower it)
 //   deals_closed    ← AE scorecards: trialSignups at that day index
+//     (those 3 AE funnel fields are themselves derived from the ae_deals meeting
+//      tracker — see ae-meetings-sync, which writes them into weekly_scorecards
+//      at :45, before this 13:00 UTC run — so calls here reflect real meetings)
 //   ad_spend        ← Growth + Ad Strategist scorecards: adSpend that day
 //   total_mrr       ← latest atlas_targets 'total-mrr' actual (aggregate)
 //   total_customers ← latest atlas_targets 'total-customers' actual
 //
 // FILL-ONLY-BLANKS: it never overwrites a value already in the row, so an
-// exec's manual edits always win. Stripe cash + Cal calls are authoritative
-// (a real 0 is written); scorecard-derived fields are only written when > 0
-// (so an un-logged day stays blank for manual entry rather than a wrong 0).
+// exec's manual edits always win. Stripe cash is authoritative (a real 0 is
+// written); scorecard-derived fields (the meeting-derived calls + closes, ad
+// spend) are only written when > 0 (so an un-logged day stays blank for manual
+// entry rather than a wrong 0).
 //
 // Auth: a cron call (header X-Cron-Secret == CRON_SHARED_SECRET) OR a signed-in
 // executive (for manual trigger / backfill). Body: { date?: 'YYYY-MM-DD' }
@@ -239,7 +245,7 @@ serve(async (req: Request) => {
     // All from the AE/Growth/Ad daily scorecard entries at the date's day index.
     // Calls Booked (demos booked) + Calls Held (demos completed) come from the same
     // source, so the show-up rate always reconciles (held ≤ booked).
-    let callsBooked = 0, callsHeld = 0, dealsClosed = 0, adSpend = 0;
+    let callsBooked = 0, callsHeld = 0, callsUnqualified = 0, dealsClosed = 0, adSpend = 0;
     {
       const { data: profs } = await admin.from("profiles").select("id, role_type").is("archived_at", null);
       const roleById: Record<string, string> = {};
@@ -250,7 +256,8 @@ serve(async (req: Request) => {
         const day = (c.data?.daily || [])[dayIdx] || {};
         if (role === "account_executive") {
           callsBooked += num(day.demosBooked);
-          callsHeld += num(day.demosCompleted);
+          callsHeld += num(day.demosCompleted);     // all held, incl. unqualified
+          callsUnqualified += num(day.demosUnqualified); // backed out of the close-rate denom
           dealsClosed += num(day.trialSignups);
         }
         if (role === "growth_manager" || role === "ad_strategist") {
@@ -302,6 +309,7 @@ serve(async (req: Request) => {
     if (blank("calls_booked") && callsBooked > 0) patch.calls_booked = callsBooked;
     // scorecard-derived (only when > 0, so un-logged days stay blank)
     if (blank("calls_held") && callsHeld > 0) patch.calls_held = callsHeld;
+    if (blank("calls_unqualified") && callsUnqualified > 0) patch.calls_unqualified = callsUnqualified;
     if (blank("deals_closed") && dealsClosed > 0) patch.deals_closed = dealsClosed;
     if (blank("new_customers") && newCustomers > 0) patch.new_customers = newCustomers;
     if (blank("ad_spend") && adSpend > 0) patch.ad_spend = adSpend;

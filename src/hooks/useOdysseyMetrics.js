@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 import { recentWeekKeys } from '../dateUtils.js'
+import { closeableHeld } from '../aeFunnel.js'
 
 // =============================================================================
 //  useOdysseyMetrics
@@ -110,6 +111,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
     // Sales / AE
     demosBooked: weekKeys.map(wk => sumDaily(cardsByWeekRole(wk, 'account_executive'), 'demosBooked')),
     demosCompleted: weekKeys.map(wk => sumDaily(cardsByWeekRole(wk, 'account_executive'), 'demosCompleted')),
+    demosUnqualified: weekKeys.map(wk => sumDaily(cardsByWeekRole(wk, 'account_executive'), 'demosUnqualified')),
     trialSignups: weekKeys.map(wk => sumDaily(cardsByWeekRole(wk, 'account_executive'), 'trialSignups')),
 
     // Marketing / Growth
@@ -148,10 +150,11 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
     const c = weekTotals.demosCompleted[i]
     return b > 0 ? Math.round((c / b) * 100) : null
   })
+  // Close rate denominator excludes unqualified demos (showed but not a fit).
   weekTotals.closeRate = weekKeys.map((_, i) => {
-    const c = weekTotals.demosCompleted[i]
+    const closeable = closeableHeld(weekTotals.demosCompleted[i], weekTotals.demosUnqualified[i])
     const t = weekTotals.trialSignups[i]
-    return c > 0 ? Math.round((t / c) * 100) : null
+    return closeable > 0 ? Math.round((t / closeable) * 100) : null
   })
 
   // Derived: cost per lead, cost per demo
@@ -179,6 +182,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
     // Sales · AE
     callsBookedToday: sumDailyAtDay(aeToday, dayIdx, 'demosBooked'),
     callsHeldToday: sumDailyAtDay(aeToday, dayIdx, 'demosCompleted'),
+    unqualifiedToday: sumDailyAtDay(aeToday, dayIdx, 'demosUnqualified'),
     noShowsToday: Math.max(0,
       sumDailyAtDay(aeToday, dayIdx, 'demosBooked') - sumDailyAtDay(aeToday, dayIdx, 'demosCompleted')
     ),
@@ -236,8 +240,9 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
   today.showRateToday = today.callsBookedToday > 0
     ? Math.round((today.callsHeldToday / today.callsBookedToday) * 100)
     : 0
-  today.closeRateToday = today.callsHeldToday > 0
-    ? Math.round((today.customersClosedToday / today.callsHeldToday) * 100)
+  const closeableHeldToday = closeableHeld(today.callsHeldToday, today.unqualifiedToday)
+  today.closeRateToday = closeableHeldToday > 0
+    ? Math.round((today.customersClosedToday / closeableHeldToday) * 100)
     : 0
 
   // CPC today: derived from ad strategist impressions/clicks if available
@@ -288,6 +293,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
   const thisWeek = {
     demosBookedWeek: trends.demosBooked[trends.demosBooked.length - 1] || 0,
     demosCompletedWeek: trends.demosCompleted[trends.demosCompleted.length - 1] || 0,
+    demosUnqualifiedWeek: weekTotals.demosUnqualified[weekTotals.demosUnqualified.length - 1] || 0,
     showUpRatePct: trends.showRate[trends.showRate.length - 1],
     closeRatePct: trends.closeRate[trends.closeRate.length - 1],
     trialSignupsWeek: trends.trialsStarted[trends.trialsStarted.length - 1] || 0,

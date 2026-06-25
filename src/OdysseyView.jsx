@@ -8,6 +8,7 @@ import {
   Activity, AlertCircle, RefreshCw, ExternalLink, Edit3,
 } from 'lucide-react'
 import { useOdysseyMetrics } from './hooks/useOdysseyMetrics.js'
+import { closeableHeld } from './aeFunnel.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
@@ -26,6 +27,7 @@ import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 import WeeklyMrrModal from './WeeklyMrrModal.jsx'
 import DailyUpdateModal from './DailyUpdateModal.jsx'
+import WeeklyUpdateModal from './WeeklyUpdateModal.jsx'
 
 // =============================================================================
 //  OdysseyView — the prototype layout with REAL data
@@ -85,7 +87,7 @@ export default function OdysseyView({ onSwitchToManagerTeam, profile }) {
       <ProtoTabs view={view} setView={setView} />
       <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
         {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
-        {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'log'       && <QuickLogView onSwitchToManagerTeam={onSwitchToManagerTeam} />}
         {view === 'tracking'  && <TrackingGuide />}
@@ -380,9 +382,10 @@ function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onC
   )
 }
 
-function WeeklyView({ data, targets, canEdit, openModal }) {
+function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
+  const [weeklyUpdateOpen, setWeeklyUpdateOpen] = useState(false)
 
   // Cal.com booked calls for THIS scorecard week (Monday→now, Toronto), so they
   // reconcile against the manually-logged "Demos Booked" beside them.
@@ -421,6 +424,21 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
 
   return (
     <div className="space-y-10 fade-in">
+      {canEdit && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setWeeklyUpdateOpen(true)}
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50"
+            style={{ borderColor: 'rgba(102,57,166,0.3)', color: BRAND }}
+            title="Enter the investors' Weekly Update (snapshot, narrative, rocks, asks) and copy the Slack post"
+          >
+            <Edit3 className="w-3.5 h-3.5" /> Edit weekly update
+          </button>
+        </div>
+      )}
+      {weeklyUpdateOpen && (
+        <WeeklyUpdateModal open={weeklyUpdateOpen} onClose={() => setWeeklyUpdateOpen(false)} userId={userId} />
+      )}
       <SectionHeader
         deptKey="marketing"
         eyebrow="Marketing Scorecard"
@@ -516,6 +534,7 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           color={DEPTS.sales.color}
           trend={t.showRate}
           openModal={openModal}
+          tooltip={`Demos Completed ÷ Demos Booked = ${w.demosCompletedWeek} ÷ ${w.demosBookedWeek} this week. Booked = every meeting on the calendar except Rescheduled; Completed = anyone who showed (incl. Unqualified). Target 75%.`}
         />
         <GaugeCard
           metricKey="close-rate"
@@ -526,6 +545,7 @@ function WeeklyView({ data, targets, canEdit, openModal }) {
           color={DEPTS.sales.color}
           trend={t.closeRate}
           openModal={openModal}
+          tooltip={`Closes ÷ closeable demos held = ${w.trialSignupsWeek} ÷ ${closeableHeld(w.demosCompletedWeek, w.demosUnqualifiedWeek)} this week. Closeable backs out ${w.demosUnqualifiedWeek} Unqualified from Demos Completed (${w.demosCompletedWeek}), so non-fits don't drag the rate down. Target 30%.`}
         />
         <NumberBlock
           metricKey="net-new-sales"
@@ -1585,7 +1605,25 @@ function NumberBlock({ label, value, prefix = '', suffix = '', color = BRAND, tr
   )
 }
 
-function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting, metricKey, openModal }) {
+// Gauge label with an optional hover tooltip explaining the calculation. Uses a
+// scoped `group/tip` so it triggers on the info icon only, not the whole card.
+function GaugeLabel({ label, tooltip, mb = 'mb-1' }) {
+  return (
+    <div className={`mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 ${mb} self-start flex items-center gap-1.5`}>
+      <span>{label}</span>
+      {tooltip && (
+        <span className="group/tip relative inline-flex shrink-0">
+          <Info className="w-3 h-3 text-stone-300 hover:text-stone-500 cursor-help transition-colors" />
+          <span role="tooltip" className="pointer-events-none absolute top-full left-0 mt-2 w-[240px] rounded-lg bg-stone-900 text-white text-[11px] leading-snug p-2.5 shadow-lg opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-opacity duration-150 z-30 normal-case tracking-normal font-normal">
+            {tooltip}
+          </span>
+        </span>
+      )}
+    </div>
+  )
+}
+
+function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting, metricKey, openModal, tooltip }) {
   const clickable = metricKey && openModal
   const handleClick = () => clickable && openModal(metricKey, value)
   const Wrapper = clickable ? 'button' : 'div'
@@ -1598,9 +1636,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
     return (
       <Wrapper {...wrapperProps}>
         {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
-        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3 self-start">
-          {label}
-        </div>
+        <GaugeLabel label={label} tooltip={tooltip} mb="mb-3" />
         <div className="flex-1 flex items-center self-start">
           <AwaitingBadge provider={awaiting} />
         </div>
@@ -1611,9 +1647,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
     return (
       <Wrapper {...wrapperProps}>
         {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
-        <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-3 self-start">
-          {label}
-        </div>
+        <GaugeLabel label={label} tooltip={tooltip} mb="mb-3" />
         <div className="flex-1 flex items-center justify-center">
           <span className="text-stone-300 text-sm">No data yet</span>
         </div>
@@ -1642,9 +1676,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
   return (
     <Wrapper {...wrapperProps}>
       {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
-      <div className="mono-text text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500 mb-1 self-start">
-        {label}
-      </div>
+      <GaugeLabel label={label} tooltip={tooltip} mb="mb-1" />
       <svg width={size} height={size * 0.72} viewBox={`0 0 ${size} ${size * 0.72}`} className="overflow-visible">
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${cx + r * Math.cos(toRad(0))} ${cy + r * Math.sin(toRad(0))}`}
           fill="none" stroke="rgba(26,15,46,0.06)" strokeWidth={sw} strokeLinecap="round" />

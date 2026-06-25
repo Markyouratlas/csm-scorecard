@@ -1,12 +1,16 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useMemo } from 'react';
 import { useExecutiveStats } from './hooks/useExecutiveStats.js';
 import { useDailyUpdates } from './hooks/useDailyUpdates.js';
+import { useWeeklyUpdate } from './hooks/useWeeklyUpdate.js';
 import {
   PACE_METRICS, DERIVED_METRICS,
   fmtValue, fmtCurrency, fmtCount, fmtPacePP, paceHex, paceEmoji,
-  vsPacePP, expectedPct, workdayIndex, derivedRatio, derivedEmoji, derivedHex,
+  vsPacePP, expectedPct, workdayIndex, derivedRatio, derivedFor, derivedEmoji, derivedHex,
   formatReportDate, buildSlackPost,
 } from './dailyUpdateFormat.js';
+import {
+  vsTargetPct, vsTargetHex, vsTargetEmoji, fmtVsTarget, fmtWoW, weekFridayLabel, bullets, buildWeeklySlackPost,
+} from './weeklyUpdateFormat.js';
 import LiveLED from './LiveLED.jsx';
 import { createPortal } from 'react-dom';
 import {
@@ -1500,11 +1504,234 @@ function ExecutiveView() {
   );
 }
 
+/* ===================== WEEKLY UPDATE (real data, investor "Weekly Update") =====================
+   New top section of the Weekly tab. Mirrors the Daily Update: this-week-vs-weekly-target table
+   (8 metrics summed from the daily rows), snapshot w/ WoW, derived ratios, narrative, Core Rocks,
+   Asks. Read-only; the department scorecards below remain the prototype design. */
+function WeeklyUpdateSection() {
+  const wu = useWeeklyUpdate();
+  const [weekKey, setWeekKey] = useState(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => { if (!weekKey && wu.latestWeek) setWeekKey(wu.latestWeek); }, [wu.latestWeek, weekKey]);
+  const activeWeek = weekKey || wu.latestWeek;
+
+  if (wu.loading) {
+    return <div className="text-sm font-mono py-10 text-center" style={{ color: 'var(--text-4)' }}>Loading weekly update…</div>;
+  }
+  if (!activeWeek) {
+    return (
+      <div className="card-flat p-10 text-center fade-up">
+        <div className="font-display text-2xl mb-1" style={{ color: 'var(--text)' }}>No weekly update posted yet</div>
+        <div className="text-sm font-body" style={{ color: 'var(--text-3)' }}>Once the team posts a week it appears here. The department scorecards below show the live weekly detail.</div>
+      </div>
+    );
+  }
+
+  const week = wu.getWeek(activeWeek) || { week_key: activeWeek };
+  const thisWk = wu.thisWeekTotals(activeWeek);
+  const targets = wu.getWeeklyTargets(activeWeek);
+  const deltas = wu.wowDeltas(activeWeek);
+
+  const idx = wu.availableWeeks.indexOf(activeWeek);
+  const olderWeek = wu.availableWeeks[idx + 1] || null;
+  const newerWeek = wu.availableWeeks[idx - 1] || null;
+
+  const copySlack = async () => {
+    const post = buildWeeklySlackPost(week, thisWk, targets, deltas);
+    try { await navigator.clipboard.writeText(post); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { window.prompt('Copy the weekly update:', post); }
+  };
+  const navBtn = 'inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors disabled:opacity-30';
+
+  return (
+    <div className="space-y-8">
+      <section className="glass fade-up relative overflow-hidden" style={{ padding: '32px 36px' }}>
+        <div className="absolute inset-0 bg-noise opacity-30 pointer-events-none" />
+        <LiveLED status="green" reason={`The Friday weekly update for ${weekFridayLabel(activeWeek)}. Investor view reads aggregates only — never per-customer data.`} />
+        <div className="relative flex items-start justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-2 flex items-center gap-2" style={{ color: BRAND }}>
+              <Activity className="w-3 h-3" /> Weekly Update
+            </div>
+            <h1 className="font-display text-4xl lg:text-5xl leading-[0.95] tracking-tight" style={{ color: 'var(--text)' }}>
+              {weekFridayLabel(activeWeek)}
+            </h1>
+            {week.focus && (
+              <div className="mt-3 text-[15px] font-body" style={{ color: 'var(--text-2)' }}>
+                <span className="font-semibold" style={{ color: BRAND }}>#1 Focus:</span> {week.focus}
+              </div>
+            )}
+            <div className="mt-2 text-[12px] font-mono" style={{ color: 'var(--text-3)' }}>This week vs. weekly target</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className={navBtn} style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}
+              disabled={!olderWeek} onClick={() => olderWeek && setWeekKey(olderWeek)} aria-label="Previous week"><ChevronLeft className="w-4 h-4" /></button>
+            <select value={activeWeek} onChange={(e) => setWeekKey(e.target.value)} aria-label="Jump to a week"
+              className="h-8 px-2 rounded-lg border text-[12px] font-body font-semibold bg-transparent cursor-pointer"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)', maxWidth: '210px' }}>
+              {wu.availableWeeks.map((wk) => <option key={wk} value={wk}>{weekFridayLabel(wk)}</option>)}
+            </select>
+            <button className={navBtn} style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}
+              disabled={!newerWeek} onClick={() => newerWeek && setWeekKey(newerWeek)} aria-label="Next week"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={copySlack}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[12px] font-body font-semibold transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}>
+              {copied ? <ClipboardCheck className="w-3.5 h-3.5" style={{ color: '#15803D' }} /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy as Slack update'}
+            </button>
+          </div>
+        </div>
+      </section>
+      <InvestorWeeklyBody week={week} thisWk={thisWk} targets={targets} deltas={deltas} />
+    </div>
+  );
+}
+
+function RockList({ label, items }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold mb-1" style={{ color: 'var(--text-4)' }}>{label}</div>
+      {items.length
+        ? <ul className="space-y-1">{items.map((it, i) => <li key={i} className="text-[14px] font-body flex gap-2" style={{ color: 'var(--text)' }}><span style={{ color: BRAND }}>•</span>{it}</li>)}</ul>
+        : <div className="text-[13px] font-body" style={{ color: 'var(--text-4)' }}>none</div>}
+    </div>
+  );
+}
+
+// Shared read-only render of the Weekly Update — reused by the investor view and
+// the exec WeeklyUpdateModal preview, so the two never drift.
+export function InvestorWeeklyBody({ week, thisWk, targets, deltas }) {
+  return (
+    <>
+      {/* THIS WEEK vs TARGET */}
+      <section className="fade-up">
+        <SectionHeader deptKey="exec" eyebrow="This week vs. target" title="Weekly scorecard" description="Each metric's weekly total against the target you set — the week is complete, so it's at target or it isn't." />
+        <div className="card-flat overflow-x-auto">
+          <table className="w-full text-left" style={{ minWidth: '520px' }}>
+            <thead>
+              <tr className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-4)' }}>
+                <th className="px-5 py-3">Metric</th>
+                <th className="px-3 py-3 text-right">This Wk</th>
+                <th className="px-3 py-3 text-right">Target</th>
+                <th className="px-5 py-3 text-right">vs Target</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PACE_METRICS.map((m) => {
+                const tw = thisWk[m.key];
+                const target = targets[m.key] ?? null;
+                const pct = vsTargetPct(tw, target);
+                const hex = vsTargetHex(pct);
+                return (
+                  <tr key={m.key} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-sm font-body" style={{ color: 'var(--text)' }}>{m.label}</span>
+                        <InfoTooltip content={m.definition} />
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--text)' }}>
+                      {tw == null ? <span style={{ color: 'var(--text-4)' }}>N/A</span> : fmtValue(m.unit, tw)}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-[13px]" style={{ color: 'var(--text-3)' }}>
+                      {target == null ? 'N/A' : fmtValue(m.unit, target)}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-[13px] whitespace-nowrap" style={{ color: hex || 'var(--text-4)' }}>
+                      {pct == null ? '—' : <>{fmtVsTarget(pct)} <span>{vsTargetEmoji(pct)}</span></>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* SNAPSHOT + DERIVED */}
+      <section className="fade-up grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Snapshot</div>
+          <div className="grid grid-cols-2 gap-3">
+            <SnapTile label="Total MRR" value={fmtCurrency(week.total_mrr) ?? 'N/A'}
+              sub={fmtWoW(deltas.mrr, 'usd') ? `${fmtWoW(deltas.mrr, 'usd')} WoW` : null} />
+            <SnapTile label="Total Customers" value={fmtCount(week.total_customers) ?? 'N/A'}
+              sub={[fmtWoW(deltas.customers, 'count') ? `${fmtWoW(deltas.customers, 'count')} WoW` : '', week.churned_this_week != null ? `${fmtCount(week.churned_this_week)} churned` : ''].filter(Boolean).join(' · ') || null} />
+            <SnapTile label="Pipeline" value={week.pipeline_amount != null ? fmtCurrency(week.pipeline_amount) : 'N/A'}
+              sub={week.pipeline_count != null ? `${fmtCount(week.pipeline_count)} opps` : null} />
+            <SnapTile label="Cash on hand" value={week.cash_on_hand != null ? fmtCurrency(week.cash_on_hand) : 'N/A'}
+              sub={week.runway_months != null ? `~${Math.round(Number(week.runway_months) * 10) / 10} mo runway` : null} />
+          </div>
+        </div>
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Derived · this week</div>
+          <div className="grid grid-cols-2 gap-3">
+            {DERIVED_METRICS.map((d) => {
+              const ratio = derivedFor(d, thisWk);
+              const target = targets[d.key] ?? null;
+              if (!ratio) return <SnapTile key={d.key} label={d.label} value="N/A" muted />;
+              const hex = derivedHex(ratio.pct, target);
+              return (
+                <SnapTile key={d.key} label={d.label} value={`${ratio.pct}%`} valueColor={hex}
+                  sub={`${ratio.num}/${ratio.den}${target != null ? ` · target ${Math.round(target)}% ${derivedEmoji(ratio.pct, target)}` : ''}`} />
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* NARRATIVE */}
+      {(week.focus_metric || week.plan_to_improve || week.key_learning || week.blocker) && (
+        <section className="fade-up card-flat p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <NarrativeLine label="Focus metric" value={week.focus_metric} />
+            <NarrativeLine label="Plan to improve" value={week.plan_to_improve} accent />
+          </div>
+          {(week.key_learning || week.blocker) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NarrativeLine label="Key learning" value={week.key_learning} />
+              <NarrativeLine label="Blocker" value={week.blocker || 'none'} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* CORE ROCKS + ASKS */}
+      {(bullets(week.rocks_product).length || bullets(week.rocks_team).length || bullets(week.rocks_general).length || bullets(week.asks).length) ? (
+        <section className="fade-up grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="card-flat p-6">
+            <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Core Rocks</div>
+            <RockList label="Product" items={bullets(week.rocks_product)} />
+            <RockList label="Team" items={bullets(week.rocks_team)} />
+            <RockList label="General" items={bullets(week.rocks_general)} />
+          </div>
+          {bullets(week.asks).length > 0 && (
+            <div className="card-flat p-6">
+              <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Asks</div>
+              <ul className="space-y-1.5">{bullets(week.asks).map((a, i) => <li key={i} className="text-[14px] font-body flex gap-2" style={{ color: 'var(--text)' }}><span style={{ color: BRAND }}>•</span>{a}</li>)}</ul>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {/* LINKS */}
+      {(week.plan_url || week.scorecard_url) && (
+        <div className="flex items-center gap-5">
+          {week.plan_url && <a href={week.plan_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-body font-semibold hover:underline" style={{ color: BRAND }}>Plan <ArrowUpRight className="w-3 h-3" /></a>}
+          {week.scorecard_url && <a href={week.scorecard_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] font-body font-semibold hover:underline" style={{ color: BRAND }}>Scorecard <ArrowUpRight className="w-3 h-3" /></a>}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ===================== WEEKLY VIEW (Atlas Odyssey) ===================== */
 function WeeklyView() {
   const { trends } = useContext(DataContext);
   return (
     <div className="space-y-14">
+
+      {/* NEW: real investor Weekly Update, above the prototype scorecards */}
+      <WeeklyUpdateSection />
 
       {/* MARKETING */}
       <section className="fade-up">
@@ -1775,7 +2002,7 @@ export function InvestorDailyBody({ activeDate, day, wtd, wkTargets }) {
           <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Derived · WTD</div>
           <div className="grid grid-cols-2 gap-3">
             {DERIVED_METRICS.map((d) => {
-              const ratio = derivedRatio(wtd[d.numKey], wtd[d.denKey]);
+              const ratio = derivedFor(d, wtd);
               const target = wkTargets[d.key] ?? null;
               if (!ratio) return <SnapTile key={d.key} label={d.label} value="N/A" muted />;
               const hex = derivedHex(ratio.pct, target);
