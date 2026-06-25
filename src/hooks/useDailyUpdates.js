@@ -102,7 +102,9 @@ export function useDailyUpdates() {
     const monday = mondayOf(date)
     const inWindow = days.filter((r) => r.update_date >= monday && r.update_date <= date)
     const out = {}
-    for (const key of PACE_KEYS) {
+    // PACE metrics + calls_unqualified (not a pace metric, but needed to back
+    // unqualified calls out of the close-rate denominator).
+    for (const key of [...PACE_KEYS, 'calls_unqualified']) {
       let sum = null
       for (const r of inWindow) {
         if (r[key] != null) sum = (sum || 0) + Number(r[key])

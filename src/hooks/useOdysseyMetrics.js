@@ -292,6 +292,7 @@ function aggregate({ profiles, scorecards, cancellations, weekKeys }) {
   const thisWeek = {
     demosBookedWeek: trends.demosBooked[trends.demosBooked.length - 1] || 0,
     demosCompletedWeek: trends.demosCompleted[trends.demosCompleted.length - 1] || 0,
+    demosUnqualifiedWeek: weekTotals.demosUnqualified[weekTotals.demosUnqualified.length - 1] || 0,
     showUpRatePct: trends.showRate[trends.showRate.length - 1],
     closeRatePct: trends.closeRate[trends.closeRate.length - 1],
     trialSignupsWeek: trends.trialsStarted[trends.trialsStarted.length - 1] || 0,

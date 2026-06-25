@@ -54,7 +54,8 @@ export function useWeeklyUpdate() {
   const thisWeekCalculated = (weekKey) => {
     const rows = du.days.filter((r) => mondayOf(r.update_date) === weekKey)
     const out = {}
-    for (const k of PACE_KEYS) {
+    // PACE metrics + calls_unqualified (backs unqualified out of the close-rate denom).
+    for (const k of [...PACE_KEYS, 'calls_unqualified']) {
       let sum = null
       for (const r of rows) if (r[k] != null) sum = (sum || 0) + Number(r[k])
       out[k] = sum
@@ -69,6 +70,7 @@ export function useWeeklyUpdate() {
     const ov = getMetricOverrides(weekKey)
     const out = {}
     for (const k of PACE_KEYS) out[k] = k in ov && ov[k] != null ? Number(ov[k]) : calc[k]
+    out.calls_unqualified = calc.calls_unqualified // not overridable; feeds close-rate denom
     return out
   }
 

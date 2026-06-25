@@ -12,10 +12,10 @@
 
 import {
   PACE_METRICS, DERIVED_METRICS, PACE_HEX,
-  fmtCurrency, fmtCount, fmtValue, derivedRatio, derivedEmoji,
+  fmtCurrency, fmtCount, fmtValue, derivedRatio, derivedFor, derivedEmoji,
 } from './dailyUpdateFormat.js'
 
-export { PACE_METRICS, DERIVED_METRICS, fmtCurrency, fmtCount, fmtValue, derivedRatio, derivedEmoji }
+export { PACE_METRICS, DERIVED_METRICS, fmtCurrency, fmtCount, fmtValue, derivedRatio, derivedFor, derivedEmoji }
 
 const LEVEL_EMOJI = { green: '\u{1F7E2}', yellow: '\u{1F7E1}', red: '\u{1F534}' }
 
@@ -123,7 +123,7 @@ export function buildWeeklySlackPost(week, thisWk = {}, targets = {}, deltas = {
   // ----- derived (this week) -----
   const derivedLines = []
   for (const d of DERIVED_METRICS) {
-    const ratio = derivedRatio(thisWk?.[d.numKey], thisWk?.[d.denKey])
+    const ratio = derivedFor(d, thisWk)
     if (!ratio) continue
     const target = targets?.[d.key]
     const tail = target == null ? '' : ` — target ${Math.round(target)}% ${derivedEmoji(ratio.pct, target)}`

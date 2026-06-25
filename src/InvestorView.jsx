@@ -5,7 +5,7 @@ import { useWeeklyUpdate } from './hooks/useWeeklyUpdate.js';
 import {
   PACE_METRICS, DERIVED_METRICS,
   fmtValue, fmtCurrency, fmtCount, fmtPacePP, paceHex, paceEmoji,
-  vsPacePP, expectedPct, workdayIndex, derivedRatio, derivedEmoji, derivedHex,
+  vsPacePP, expectedPct, workdayIndex, derivedRatio, derivedFor, derivedEmoji, derivedHex,
   formatReportDate, buildSlackPost,
 } from './dailyUpdateFormat.js';
 import {
@@ -1666,7 +1666,7 @@ export function InvestorWeeklyBody({ week, thisWk, targets, deltas }) {
           <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Derived · this week</div>
           <div className="grid grid-cols-2 gap-3">
             {DERIVED_METRICS.map((d) => {
-              const ratio = derivedRatio(thisWk[d.numKey], thisWk[d.denKey]);
+              const ratio = derivedFor(d, thisWk);
               const target = targets[d.key] ?? null;
               if (!ratio) return <SnapTile key={d.key} label={d.label} value="N/A" muted />;
               const hex = derivedHex(ratio.pct, target);
@@ -2002,7 +2002,7 @@ export function InvestorDailyBody({ activeDate, day, wtd, wkTargets }) {
           <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Derived · WTD</div>
           <div className="grid grid-cols-2 gap-3">
             {DERIVED_METRICS.map((d) => {
-              const ratio = derivedRatio(wtd[d.numKey], wtd[d.denKey]);
+              const ratio = derivedFor(d, wtd);
               const target = wkTargets[d.key] ?? null;
               if (!ratio) return <SnapTile key={d.key} label={d.label} value="N/A" muted />;
               const hex = derivedHex(ratio.pct, target);
