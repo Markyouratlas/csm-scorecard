@@ -201,10 +201,12 @@ serve(async (req: Request) => {
     // ---- Target date (default: yesterday Toronto) + preview flag ----
     let date = torontoDateMinus(1);
     let preview = false;
+    let recompute = false; // overwrite the meeting-derived funnel fields (self-healing Sync)
     try {
       const body = await req.json();
       if (body?.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) date = body.date;
       if (body?.preview === true) preview = true;
+      if (body?.recompute === true) recompute = true;
     } catch { /* default */ }
 
     const dayIdx = dayIdxOf(date);
@@ -214,10 +216,10 @@ serve(async (req: Request) => {
     const { data: existing } = await admin
       .from("atlas_daily_updates").select("*").eq("update_date", date).maybeSingle();
 
-    // ---- 1) Stripe cash for the day ----
+    // ---- 1) Stripe cash for the day ---- (skipped in recompute: funnel-only, cheap)
     let cashStripe: number | null = null;
     const sk = Deno.env.get("STRIPE_SECRET_KEY");
-    if (sk) {
+    if (sk && !recompute) {
       const start = torontoMidnightUnix(date);
       const charges = await stripePaginate("charges", sk, `created[gte]=${start}&created[lt]=${start + 86400}`);
       let gross = 0;
@@ -232,7 +234,7 @@ serve(async (req: Request) => {
 
     // ---- 1b) MRR added: gross new MRR from subscriptions created that day ----
     let mrrAdded: number | null = null;
-    if (sk) {
+    if (sk && !recompute) {
       const start = torontoMidnightUnix(date);
       const subs = await stripePaginate("subscriptions", sk,
         `created[gte]=${start}&created[lt]=${start + 86400}&status=all&expand[]=data.items.data.price`);
@@ -276,10 +278,14 @@ serve(async (req: Request) => {
     };
     // Snapshot: live committed MRR + customers from the synced Stripe data
     // (matches the Odyssey hero). Fall back to the latest stored atlas_targets
-    // actual only if the Stripe data isn't synced yet.
-    const live = await liveMrrAndCustomers(admin);
-    const totalMrr = live.mrr > 0 ? live.mrr : await latestActual("total-mrr");
-    const totalCustomers = live.customers > 0 ? live.customers : await latestActual("total-customers");
+    // actual only if the Stripe data isn't synced yet. Skipped in recompute mode.
+    let totalMrr: number | null = null;
+    let totalCustomers: number | null = null;
+    if (!recompute) {
+      const live = await liveMrrAndCustomers(admin);
+      totalMrr = live.mrr > 0 ? live.mrr : await latestActual("total-mrr");
+      totalCustomers = live.customers > 0 ? live.customers : await latestActual("total-customers");
+    }
     const newCustomers = dealsClosed; // spec: same trigger as Deals Closed
 
     // ---- Preview mode: return the computed source values WITHOUT writing ----
@@ -299,6 +305,31 @@ serve(async (req: Request) => {
         total_mrr: totalMrr,
         total_customers: totalCustomers,
       } });
+    }
+
+    // ---- RECOMPUTE (self-healing Sync): OVERWRITE the meeting-derived funnel
+    // fields from the scorecards, so stale/inconsistent values (e.g. a held with
+    // no booked) self-correct. Leaves cash / ad spend / snapshot / narrative
+    // untouched. >0 → value, else null (clears a stale value when meetings now
+    // show none). ----
+    if (recompute) {
+      const f = (v: number) => (v > 0 ? v : null);
+      const allZero = !(callsBooked || callsHeld || callsUnqualified || dealsClosed || newCustomers);
+      if (allZero && !existing) {
+        return json({ ok: true, date, wrote: [], message: "No funnel data for this day." });
+      }
+      const patch: Record<string, any> = {
+        calls_booked: f(callsBooked),
+        calls_held: f(callsHeld),
+        calls_unqualified: f(callsUnqualified),
+        deals_closed: f(dealsClosed),
+        new_customers: f(newCustomers),
+      };
+      const { error: upErr } = await admin
+        .from("atlas_daily_updates")
+        .upsert({ update_date: date, ...patch, updated_at: new Date().toISOString() }, { onConflict: "update_date" });
+      if (upErr) throw upErr;
+      return json({ ok: true, date, recompute: true, wrote: Object.keys(patch), values: patch });
     }
 
     // ---- Build patch: only set columns that are currently blank ----

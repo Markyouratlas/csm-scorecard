@@ -129,7 +129,19 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     const isServiceRole = authHeader === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
     const isCron = isServiceRole || (!!cronSecret && (req.headers.get("X-Cron-Secret") || "") === cronSecret);
-    if (!isCron) return json({ error: "Unauthorized" }, 401);
+    // Cron/service-role, OR a signed-in executive (for the manual "Sync this week" button).
+    if (!isCron) {
+      const userClient = createClient(
+        Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } },
+      );
+      const { data: { user } } = await userClient.auth.getUser();
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const { data: prof } = await userClient.from("profiles").select("role, role_type").eq("id", user.id).single();
+      if (!(prof?.role === "executive" || prof?.role_type === "executive")) {
+        return json({ error: "Forbidden — executive access required" }, 403);
+      }
+    }
 
     // Current week window (Mon 00:00 → next Mon 00:00, Toronto), optional body override.
     let weekKey = mondayOf(torontoToday());

@@ -1125,12 +1125,15 @@ function BarChartCard({ label, value, target, prefix='', suffix='', trend, color
 }
 
 /* FUNNEL CARD — sales funnel with stage values and conversion rates. */
-function FunnelCard({ title, stages, color = '#15803D', summary }) {
-  const max = stages[0].value;
+function FunnelCard({ title, stages, color = '#15803D', summary, info }) {
+  const max = stages[0].value || 1; // guard against /0 when the week has no demos
   return (
     <div className="card p-6 fade-up">
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color }}>{title}</div>
+        <div className="flex items-center gap-1.5">
+          <div className="text-[10.5px] uppercase tracking-[0.18em] font-body font-semibold" style={{ color }}>{title}</div>
+          {info && <InfoTooltip content={info} label={title} />}
+        </div>
         {summary && <div className="font-mono text-[11.5px]" style={{ color: 'var(--text-3)' }}>{summary}</div>}
       </div>
       <div className="space-y-2.5">
@@ -1772,6 +1775,7 @@ function WeeklyView() {
         <FunnelCard
           title="Demo Funnel · This Week"
           color="#15803D"
+          info="Source: atlas_daily_updates — Demos Booked (calls_booked), Demos Held (calls_held), Closed-Won (deals_closed), each a weekly sum (Mon–Sun, America/Toronto). Show & close rates are computed from these; unqualified demos are excluded from the close-rate denominator."
           summary={`$${(last('newMRR') || 0).toLocaleString()} new MRR closed`}
           stages={[
             { label: 'Demos Booked', value: last('demosBooked') },
