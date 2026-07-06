@@ -69,7 +69,7 @@ export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', '
 // ----- AE meeting/deal lifecycle (ae_deals table) -----
 // Per-meeting outcome statuses the AE sets. Order = rough lifecycle.
 export const AE_MEETING_STATUSES = [
-  'Scheduled', 'Showed', 'No-show', 'Unqualified', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost',
+  'Scheduled', 'Showed', 'No-show', 'Unqualified', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost', 'Deleted',
 ]
 // Statuses that mean the prospect attended (drive Demos Completed + show-up rate).
 // Includes 'Unqualified' — they showed up, just weren't a fit.
@@ -77,9 +77,10 @@ export const AE_ATTENDED_STATUSES = ['Showed', 'Unqualified', 'Proposal sent', '
 // Attended AND a real opportunity — the close-rate denominator. Excludes
 // 'Unqualified' (showed but can't be closed): close rate = won / closeable held.
 export const AE_CLOSEABLE_STATUSES = ['Showed', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']
-// Terminal statuses → routed to the Closed bucket (everything else is Active Pipeline).
-// 'Unqualified' is a dead opportunity, so it's terminal too.
-export const AE_CLOSED_STATUSES = ['Closed Won', 'Closed Lost', 'Unqualified']
+// Terminal statuses → routed out of the Active Pipeline (everything else is open).
+// 'Unqualified' is a dead opportunity; 'Deleted' is a soft-deleted meeting that's
+// backed out of all metrics but kept as a record.
+export const AE_CLOSED_STATUSES = ['Closed Won', 'Closed Lost', 'Unqualified', 'Deleted']
 
 // ----- Growth Manager -----
 export const BLANK_GROWTH_WEEK = () => ({

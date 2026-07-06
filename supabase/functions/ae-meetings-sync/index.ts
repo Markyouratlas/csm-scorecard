@@ -83,7 +83,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
   for (const d of rows) {
     if (!d.meeting_at) continue;
     const idx = dayIdxOfYMD(torontoYMD(new Date(d.meeting_at)));
-    if (d.status !== "Rescheduled") daily[idx].demosBooked += 1;
+    if (d.status !== "Rescheduled" && d.status !== "Deleted") daily[idx].demosBooked += 1;
     if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
     if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
     if (d.status === "Closed Won") daily[idx].trialSignups += 1;

@@ -297,6 +297,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   const [importing, setImporting] = useState(false)
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
+  const [showPast, setShowPast] = useState(false)
 
   // Save wrapper: on Closed Won, also record the sale on the commission tracker.
   const saveDeal = async (id, patch) => {
@@ -315,6 +316,10 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
     .sort((a, b) => new Date(a.meeting_at) - new Date(b.meeting_at)), [deals, weekKey])
   const manualNoDate = useMemo(() => deals.filter(d => !d.meeting_at), [deals])
   const rows = [...weekMeetings, ...manualNoDate]
+  // Still-actionable meetings stay on top; anything the AE has already actioned
+  // (status changed off 'Scheduled', incl. Deleted) tucks under "Past Meetings".
+  const activeRows = rows.filter(d => d.status === 'Scheduled')
+  const pastRows = rows.filter(d => d.status !== 'Scheduled')
 
   const attended = weekMeetings.filter(d => AE_ATTENDED_STATUSES.includes(d.status)).length
   const noShow = weekMeetings.filter(d => d.status === 'No-show').length
@@ -325,7 +330,10 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   const closeR = safeDiv(won, closeable)
 
   // Count of this week's meetings in each status bucket (for the breakdown chips).
-  const statusCounts = AE_MEETING_STATUSES.map(s => ({ status: s, n: weekMeetings.filter(d => d.status === s).length }))
+  // 'Deleted' only appears once there's at least one, so it doesn't clutter the row.
+  const statusCounts = AE_MEETING_STATUSES
+    .filter(s => s !== 'Deleted' || weekMeetings.some(d => d.status === 'Deleted'))
+    .map(s => ({ status: s, n: weekMeetings.filter(d => d.status === s).length }))
 
   const doImport = async () => {
     setImporting(true); setErr(null)
@@ -406,7 +414,26 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(d => (
+            {activeRows.map(d => (
+              <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+            ))}
+            {activeRows.length === 0 && pastRows.length > 0 && (
+              <tr><td colSpan={7} className="py-3 px-3 text-sm text-stone-400 italic">All meetings actioned — see Past Meetings below.</td></tr>
+            )}
+            {pastRows.length > 0 && (
+              <tr className="border-t border-stone-200">
+                <td colSpan={7} className="py-0">
+                  <button onClick={() => setShowPast(v => !v)}
+                    className="w-full flex items-center gap-2 py-2.5 px-3 text-left text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
+                    {showPast ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    Past Meetings <span className="text-stone-400">({pastRows.length})</span>
+                  </button>
+                </td>
+              </tr>
+            )}
+            {showPast && pastRows.map(d => (
               <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                 expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
                 onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
@@ -458,7 +485,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
     finally { setMatching(false) }
   }
   const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40'
-    : (deal.status === 'Closed Lost' || deal.status === 'Unqualified') ? 'opacity-60' : ''
+    : (deal.status === 'Closed Lost' || deal.status === 'Unqualified' || deal.status === 'Deleted') ? 'opacity-60' : ''
   const ctrl = 'py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white'
   return (
     <>
@@ -549,11 +576,12 @@ function PipeTile({ label, value, emerald }) {
   )
 }
 
-// Active Pipeline + Closed bucket, both driven by ae_deals (open = not Won/Lost).
-// Open meetings "roll" here automatically as the week advances — it's just a filter.
+// Deals-from-meetings pipeline, driven by ae_deals. A meeting only appears here
+// once the AE has ACTIONED it (status moved off 'Scheduled'); 'Deleted' meetings
+// are hidden entirely. Sortable by status via per-status tabs.
 function AeDealsPipeline({ profile, canEdit }) {
   const { deals, save, remove, matchStripe } = useAeDeals(profile.id)
-  const [bucket, setBucket] = useState('active')
+  const [statusTab, setStatusTab] = useState('open')
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
 
@@ -565,21 +593,27 @@ function AeDealsPipeline({ profile, canEdit }) {
     }
   }
 
-  const open = deals.filter(d => !AE_CLOSED_STATUSES.includes(d.status))
-  const closed = deals.filter(d => AE_CLOSED_STATUSES.includes(d.status))
-  const rows = (bucket === 'active' ? open : closed)
+  // Only actioned deals surface (status changed off 'Scheduled'); Deleted hidden.
+  const actioned = deals.filter(d => d.status !== 'Scheduled' && d.status !== 'Deleted')
+  // "All open" = actioned and not terminal (Closed Won/Lost, Unqualified).
+  const openDeals = actioned.filter(d => !AE_CLOSED_STATUSES.includes(d.status))
+  // Per-status tabs, in lifecycle order, only for statuses that have deals.
+  const presentStatuses = AE_MEETING_STATUSES.filter(
+    s => s !== 'Scheduled' && s !== 'Deleted' && actioned.some(d => d.status === s)
+  )
+  const rows = (statusTab === 'open' ? openDeals : actioned.filter(d => d.status === statusTab))
     .slice().sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
 
   // Pipeline forecasts from each open deal's expected MRR (set by the AE while it's
   // in flight); fall back to any matched actual MRR if no forecast is entered yet.
-  const pipelineMrr = open.reduce((s, d) => s + (Number(d.expected_mrr) || Number(d.mrr) || 0), 0)
+  const pipelineMrr = openDeals.reduce((s, d) => s + (Number(d.expected_mrr) || Number(d.mrr) || 0), 0)
   const wonDeals = deals.filter(d => d.status === 'Closed Won')
   const wonMrr = wonDeals.reduce((s, d) => s + (Number(d.mrr) || 0), 0)
   const wonOneTime = wonDeals.reduce((s, d) => s + (Number(d.one_time) || 0), 0)
 
   const tabBtn = (id, label, n) => (
-    <button onClick={() => setBucket(id)}
-      className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${bucket === id ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-700'}`}>
+    <button key={id} onClick={() => setStatusTab(id)}
+      className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${statusTab === id ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-700'}`}>
       {label} <span className="text-stone-400">({n})</span>
     </button>
   )
@@ -587,7 +621,7 @@ function AeDealsPipeline({ profile, canEdit }) {
   return (
     <div className="space-y-6">
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <PipeTile label="Active deals" value={open.length} />
+        <PipeTile label="Active deals" value={openDeals.length} />
         <PipeTile label="Pipeline MRR" value={`$${Math.round(pipelineMrr).toLocaleString()}`} />
         <PipeTile label="Won MRR" value={`$${Math.round(wonMrr).toLocaleString()}`} emerald />
         <PipeTile label="Won one-time" value={`$${Math.round(wonOneTime).toLocaleString()}`} emerald />
@@ -595,14 +629,14 @@ function AeDealsPipeline({ profile, canEdit }) {
 
       <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
         <div className="display-font text-2xl font-medium text-stone-900">Deals from meetings</div>
-        <p className="text-sm text-stone-600 mt-1">Open meetings carry here automatically as weeks pass; Closed Won/Lost &amp; Unqualified move to the Closed bucket.</p>
-        <div className="flex gap-2 border-b border-stone-200 mt-3 mb-4">
-          {tabBtn('active', 'Active pipeline', open.length)}
-          {tabBtn('closed', 'Closed', closed.length)}
+        <p className="text-sm text-stone-600 mt-1">A meeting appears here once you set its status in the Daily Funnel. Use the tabs to sort your pipeline and follow up.</p>
+        <div className="flex gap-2 border-b border-stone-200 mt-3 mb-4 overflow-x-auto">
+          {tabBtn('open', 'All open', openDeals.length)}
+          {presentStatuses.map(s => tabBtn(s, s, actioned.filter(d => d.status === s).length))}
         </div>
         {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
         {rows.length === 0 ? (
-          <div className="text-sm text-stone-500 py-6 text-center">No {bucket === 'active' ? 'open' : 'closed'} deals.</div>
+          <div className="text-sm text-stone-500 py-6 text-center">No {statusTab === 'open' ? 'open' : `“${statusTab}”`} deals.</div>
         ) : (
           <table className="w-full text-sm min-w-[860px]">
             <thead>
