@@ -6,7 +6,9 @@ const CAL_API_VERSION = '2026-05-01'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  // Include the headers supabase-js attaches (x-client-info, apikey) so a browser
+  // invoke (the exec "Sync this week" button) isn't blocked by the CORS preflight.
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
 // Map a Cal.com booking to a cal_bookings row. Single source of truth for the

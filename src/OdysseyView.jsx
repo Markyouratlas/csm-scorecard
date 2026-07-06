@@ -390,14 +390,22 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   const [syncing, setSyncing] = useState(false)
   const [syncErr, setSyncErr] = useState(null)
 
-  // "Sync this week": re-pull meetings → recompute the funnel in weekly_scorecards,
-  // then OVERWRITE the meeting-derived funnel fields in atlas_daily_updates for each
-  // day Mon→today (self-healing — fixes stale values like a held with no booked).
-  // Both functions accept a signed-in executive (see their auth branches).
+  // "Sync this week": pull fresh bookings from Cal.com → import them into ae_deals →
+  // recompute the funnel in weekly_scorecards → OVERWRITE the meeting-derived funnel
+  // fields in atlas_daily_updates for each day Mon→today (self-healing).
+  //   1. cal-sync (recent-extended): refreshes cal_bookings from the Cal.com API so
+  //      just-booked meetings exist locally before we try to attribute them.
+  //   2. ae-meetings-sync: cal_bookings → ae_deals → weekly_scorecards funnel.
+  //   3. daily-update-autofill (recompute): funnel → atlas_daily_updates.
   const syncWeek = async () => {
     if (syncing) return
     setSyncing(true); setSyncErr(null)
     try {
+      // Cal.com pull first. Non-fatal if it fails (e.g. API hiccup) — we still
+      // reprocess whatever is already in cal_bookings rather than aborting.
+      const { error: eCal } = await supabase.functions.invoke('cal-sync', { body: { mode: 'recent-extended' } })
+      if (eCal) console.warn('cal-sync failed (continuing with existing bookings):', eCal.message || eCal)
+
       const { error: e1 } = await supabase.functions.invoke('ae-meetings-sync', { body: {} })
       if (e1) throw e1
       const [y, m, d] = getWeekKey().split('-').map(Number)
@@ -463,7 +471,7 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
             disabled={syncing}
             className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors hover:bg-stone-50 disabled:opacity-60"
             style={{ borderColor: 'rgba(102,57,166,0.3)', color: BRAND }}
-            title="Re-pull this week's meetings and rebuild the funnel numbers (booked / held / show / close) from the meeting tracker. Fixes any stale values."
+            title="Pull the latest meetings from Cal.com and rebuild this week's funnel numbers (booked / held / show / close). Picks up just-booked meetings and fixes any stale values."
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? 'Syncing…' : 'Sync this week'}
           </button>
