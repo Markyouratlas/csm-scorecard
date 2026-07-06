@@ -109,6 +109,17 @@ export const accessTier = (profile) => {
   return 'member'
 }
 
+// Team keys a lead sees in the manager view. Execs are handled separately (all
+// teams); returns [] for non-leads. When managed_teams is set it OVERRIDES the
+// lead's own team (so a Marketing person can be granted Sales-only, exactly as
+// requested); otherwise a lead defaults to their own team (unchanged behavior).
+export const leadTeamKeys = (profile) => {
+  if (!profile?.is_team_lead) return []
+  const managed = (profile.managed_teams || []).filter(Boolean)
+  if (managed.length) return [...new Set(managed)]
+  return profile.team ? [profile.team] : []
+}
+
 // Is this profile an external investor (gold-view-only, read-only)?
 export const isInvestor = (profile) => profile?.role_type === 'investor'
 // Has an investor signed up but not yet been granted access?
