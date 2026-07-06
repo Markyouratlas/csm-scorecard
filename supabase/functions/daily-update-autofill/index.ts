@@ -285,6 +285,29 @@ serve(async (req: Request) => {
       const live = await liveMrrAndCustomers(admin);
       totalMrr = live.mrr > 0 ? live.mrr : await latestActual("total-mrr");
       totalCustomers = live.customers > 0 ? live.customers : await latestActual("total-customers");
+
+      // Materialize live committed MRR + customers (+ ARPU) into atlas_targets'
+      // CURRENT-MONTH actuals (source 'stripe'). The Investor hero reads
+      // atlas_targets (it can't query Stripe), so without this it shows the stale
+      // backfilled actual instead of the live figure the Odyssey hero shows.
+      // Never overwrites a manual exec override (source='manual').
+      if (live.mrr > 0) {
+        const monthKey = date.slice(0, 7) + "-01";
+        const writeActual = async (metricKey: string, value: number) => {
+          const { data: ex } = await admin.from("atlas_targets")
+            .select("actual_source").eq("metric_key", metricKey).eq("month_key", monthKey).maybeSingle();
+          if (ex?.actual_source === "manual") return; // exec override wins
+          await admin.from("atlas_targets").upsert(
+            { metric_key: metricKey, month_key: monthKey, actual_value: value, actual_source: "stripe", updated_at: new Date().toISOString() },
+            { onConflict: "metric_key,month_key" },
+          );
+        };
+        await writeActual("total-mrr", live.mrr);
+        if (live.customers > 0) {
+          await writeActual("total-customers", live.customers);
+          await writeActual("arpu", Math.round(live.mrr / live.customers));
+        }
+      }
     }
     const newCustomers = dealsClosed; // spec: same trigger as Deals Closed
 
