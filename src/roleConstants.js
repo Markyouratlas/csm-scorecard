@@ -68,8 +68,11 @@ export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', '
 
 // ----- AE meeting/deal lifecycle (ae_deals table) -----
 // Per-meeting outcome statuses the AE sets. Order = rough lifecycle.
+// Display order (drives the dropdown, the funnel status-chips, and the pipeline
+// tabs): positive lifecycle first, then the non-fit outcomes (No-show, then
+// Unqualified) toward the right, with Deleted last.
 export const AE_MEETING_STATUSES = [
-  'Scheduled', 'Showed', 'No-show', 'Unqualified', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost', 'Deleted',
+  'Scheduled', 'Showed', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost', 'No-show', 'Unqualified', 'Deleted',
 ]
 // Statuses that mean the prospect attended (drive Demos Completed + show-up rate).
 // Includes 'Unqualified' — they showed up, just weren't a fit.
