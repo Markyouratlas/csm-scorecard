@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -536,6 +536,8 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
   const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40'
     : (deal.status === 'Closed Lost' || deal.status === 'Unqualified' || deal.status === 'Deleted') ? 'opacity-60' : ''
   const ctrl = 'py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white'
+  // Prospect's email for click-to-email (booking email wins; payment email is a fallback).
+  const contactEmail = (deal.customer_email || deal.payment_email || '').trim() || null
   return (
     <>
       <tr className={`border-b border-stone-100 ${rowCls}`}>
@@ -549,7 +551,23 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
           </button>
         </td>
         <td className="py-2 px-3">
-          <div className="text-stone-800">{deal.customer_name || <span className="text-stone-400">(no name)</span>}</div>
+          <div className="flex items-center gap-2">
+            <div className="text-stone-800">{deal.customer_name || <span className="text-stone-400">(no name)</span>}</div>
+            <div className="flex items-center gap-1 shrink-0">
+              {contactEmail && (
+                <a href={`mailto:${contactEmail}`} onClick={(e) => e.stopPropagation()} title={`Email ${contactEmail}`}
+                  className="p-1 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                  <Mail className="w-3.5 h-3.5" />
+                </a>
+              )}
+              {deal.customer_phone && (
+                <a href={`tel:${deal.customer_phone}`} onClick={(e) => e.stopPropagation()} title={`Call ${deal.customer_phone}`}
+                  className="p-1 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
+                  <Phone className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
+          </div>
           {deal.event_type && <div className="text-[10px] text-stone-400">{deal.event_type}</div>}
         </td>
         <td className="py-2 px-3">
@@ -588,6 +606,12 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                   onChange={(e) => setPayEmail(e.target.value)}
                   onBlur={(e) => setField({ payment_email: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
                 <div className="text-[10px] text-stone-400 mt-1">Used to match the Stripe customer when they pay from a different address than they booked with.</div>
+              </div>
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Phone <span className="normal-case tracking-normal text-stone-400">· click-to-call</span></div>
+                <input disabled={!canEdit} type="tel" defaultValue={deal.customer_phone || ''} placeholder="add a number to call"
+                  onBlur={(e) => setField({ customer_phone: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+                <div className="text-[10px] text-stone-400 mt-1">Auto-filled from the calendar booking when available; add one here otherwise. Powers the call icon on the row.</div>
               </div>
               <div>
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Notes</div>

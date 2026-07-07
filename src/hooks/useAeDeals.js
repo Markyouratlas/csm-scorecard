@@ -70,7 +70,7 @@ export function useAeDeals(aeId) {
     const untilISO = torontoNextMonday(weekKey).toISOString()
     const { data: bookings, error: bErr } = await supabase
       .from('cal_bookings')
-      .select('uid, attendee_name, attendee_email, start_time, event_type_slug, status, host_name')
+      .select('uid, attendee_name, attendee_email, attendee_phone, start_time, event_type_slug, status, host_name')
       .ilike('host_name', hostName)              // host = this AE by display name
       .gte('start_time', sinceISO)
       .lt('start_time', untilISO)
@@ -87,6 +87,7 @@ export function useAeDeals(aeId) {
         booking_uid: b.uid,
         customer_name: b.attendee_name || null,
         customer_email: b.attendee_email || null,
+        customer_phone: b.attendee_phone || null,
         meeting_at: b.start_time || null,
         event_type: b.event_type_slug || null,
         status: 'Scheduled',
