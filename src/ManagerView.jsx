@@ -1307,6 +1307,13 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
     await supabase.from('profiles').update({ channel_partner_enabled: enabled }).eq('id', id)
     reload()
   }
+  // Assign the rep's Twilio number (caller ID for outbound; inbound routes to them).
+  const setTwilioNumber = async (id, number) => {
+    const value = (number || '').trim() || null
+    const { error } = await supabase.from('profiles').update({ twilio_number: value }).eq('id', id)
+    if (error) { alert('Could not save the number: ' + error.message); return }
+    reload()
+  }
   // Promote/demote an external investor (role_type='investor' → gold-view-only).
   // Reverting drops them back to their team's first role.
   const setInvestor = async (id, makeInvestor, team) => {
@@ -1345,6 +1352,7 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
       onStartEdit={() => setEditing(c.id)}
       onCancelEdit={() => setEditing(null)}
       onSetRole={(role) => setRole(c.id, role)}
+      onSetTwilioNumber={(number) => setTwilioNumber(c.id, number)}
       onSetTeamLead={(isLead) => setTeamLead(c.id, isLead)}
       onSetTeamRole={(team, role_type) => setTeamRole(c.id, team, role_type)}
       onSetInvestor={(makeInvestor) => setInvestor(c.id, makeInvestor, c.team)}
@@ -1497,7 +1505,7 @@ function ScorecardPreviews() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamLead, onSetTeamRole, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner }) {
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1593,6 +1601,15 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
                 className={`w-full flex items-center justify-center gap-1.5 py-1.5 border transition-colors text-xs ${profile.channel_partner_enabled ? 'border-violet-300 bg-violet-50 hover:bg-violet-100 text-violet-800' : 'border-stone-300 hover:bg-stone-100'}`}>
                 <Handshake className="w-3 h-3" /> {profile.channel_partner_enabled ? 'Disable Channel Partner' : 'Enable Channel Partner'}
               </button>
+            )}
+            {isExec && (
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Dialer number</div>
+                <input type="tel" defaultValue={profile.twilio_number || ''} placeholder="+1XXXXXXXXXX"
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (profile.twilio_number || '')) onSetTwilioNumber(v) }}
+                  className="w-full py-1.5 px-2 border border-stone-300 focus:border-stone-900 transition-colors text-xs num-tabular" />
+                <div className="text-[10px] text-stone-400 mt-1">Their Twilio number — caller ID for outbound + rings them for inbound.</div>
+              </div>
             )}
             {isExec && !isSelf && profile.role !== 'executive' && (
               <button onClick={() => onSetInvestor(tier !== 'investor')}
