@@ -65,6 +65,7 @@ serve(async (req) => {
 
   const to = (params.get("To") || "").trim();
   const from = params.get("From") || ""; // "client:<profile.id>" for outbound-from-browser
+  const ref = (params.get("ref") || "").trim(); // client correlation id → call_logs.client_ref
   if (!to) {
     return xml(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>No destination number was provided.</Say></Response>`);
   }
@@ -80,9 +81,17 @@ serve(async (req) => {
     } catch { /* column may not exist yet (pre-M1) — fall back to shared number */ }
   }
 
+  // Status callback on the dialed leg → dialer-status updates the call log with
+  // authoritative status + duration. Pass the client ref so it finds the row.
+  const statusBase = Deno.env.get("DIALER_STATUS_URL") || "";
+  const cbAttrs = statusBase && ref
+    ? ` statusCallback="${escapeXml(`${statusBase}?ref=${encodeURIComponent(ref)}`)}"` +
+      ` statusCallbackEvent="answered completed" statusCallbackMethod="POST"`
+    : "";
+
   const twiml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response><Dial callerId="${escapeXml(callerId)}" answerOnBridge="true">` +
-    `<Number>${escapeXml(to)}</Number></Dial></Response>`;
+    `<Number${cbAttrs}>${escapeXml(to)}</Number></Dial></Response>`;
   return xml(twiml);
 });

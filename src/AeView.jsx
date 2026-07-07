@@ -8,6 +8,7 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
+import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
 import { useDialer } from './DialerContext'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
@@ -511,6 +512,39 @@ function MoneyCell({ value, editable, onSave }) {
   )
 }
 
+// Past calls for a deal, shown in its expanded detail. Refetches when a call is
+// logged (shared ['call-logs'] query key invalidated by the dialer after save).
+function CallHistory({ dealId }) {
+  const { data: logs } = useQuery({
+    queryKey: ['call-logs', dealId],
+    enabled: !!dealId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('call_logs')
+        .select('id, started_at, duration_seconds, disposition, notes')
+        .eq('ae_deal_id', dealId).order('started_at', { ascending: false }).limit(10)
+      if (error) { console.warn('call_logs read:', error.message); return [] }
+      return data || []
+    },
+  })
+  if (!logs || logs.length === 0) return null
+  return (
+    <div className="pl-5 mt-3">
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Call history</div>
+      <div className="space-y-1">
+        {logs.map(l => (
+          <div key={l.id} className="flex items-center gap-2 text-[11px] text-stone-600">
+            <span className="num-tabular text-stone-500 shrink-0">{new Date(l.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+            {l.disposition && <span className="px-1.5 py-0.5 border border-stone-200 rounded shrink-0">{l.disposition}</span>}
+            {l.duration_seconds ? <span className="text-stone-400 num-tabular shrink-0">{Math.floor(l.duration_seconds / 60)}:{String(l.duration_seconds % 60).padStart(2, '0')}</span> : null}
+            {l.notes && <span className="text-stone-400 truncate">— {l.notes}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch }) {
   const { openDialer } = useDialer()
   const isWire = deal.payment_method === 'wire_ach'
@@ -563,7 +597,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                 </a>
               )}
               {deal.customer_phone && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); openDialer(deal.customer_phone, { name: deal.customer_name }) }}
+                <button type="button" onClick={(e) => { e.stopPropagation(); openDialer(deal.customer_phone, { name: deal.customer_name, dealId: deal.id }) }}
                   title={`Call ${deal.customer_phone}`}
                   className="p-1 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
                   <Phone className="w-3.5 h-3.5" />
@@ -618,7 +652,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
               </div>
               <div>
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Notes</div>
-                <input disabled={!canEdit} defaultValue={deal.notes || ''} onBlur={(e) => setField({ notes: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+                <input key={deal.notes || 'empty'} disabled={!canEdit} defaultValue={deal.notes || ''} onBlur={(e) => setField({ notes: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
               </div>
             </div>
             {!isWire && canEdit && (
@@ -636,6 +670,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                 ? 'Wire/ACH: enter MRR & cash collected manually above.'
                 : 'Stripe payment: enter the payment email (if different), then “Match in Stripe” to auto-fill MRR & cash collected — you can still type over either figure to override it. Marking Closed Won adds it to your commission tracker.'}
             </div>
+            <CallHistory dealId={deal.id} />
           </td>
         </tr>
       )}
