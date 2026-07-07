@@ -166,7 +166,7 @@ serve(async (req) => {
     // This week's meetings (by scheduled start), non-cancelled.
     const { data: bookings, error: bErr } = await admin
       .from("cal_bookings")
-      .select("uid, host_name, attendee_name, attendee_email, start_time, event_type_slug, status")
+      .select("uid, host_name, attendee_name, attendee_email, attendee_phone, start_time, event_type_slug, status")
       .gte("start_time", sinceISO)
       .lt("start_time", untilISO)
       .neq("status", "cancelled")
@@ -184,6 +184,7 @@ serve(async (req) => {
         booking_uid: b.uid,
         customer_name: b.attendee_name || null,
         customer_email: b.attendee_email || null,
+        customer_phone: b.attendee_phone || null,
         meeting_at: b.start_time || null,
         event_type: b.event_type_slug || null,
         status: "Scheduled",

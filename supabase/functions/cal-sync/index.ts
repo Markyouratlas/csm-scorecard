@@ -11,8 +11,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Pull a prospect phone number out of a Cal.com booking, if the event type
+// collected one. Cal.com puts it in different places depending on config, so try
+// the common paths in order. Tune to the confirmed path once we inspect real
+// payloads (see the Phase 0 SQL). Returns null when none looks like a phone.
+function extractPhone(b: any): string | null {
+  // Anchored: the WHOLE value must look like a phone, so a Zoom URL in `location`
+  // (which contains a long digit run) is never mistaken for a number. Confirmed
+  // path from real payloads: attendees[0].phoneNumber; the rest are defensive.
+  const looksPhone = (v: any) => (typeof v === "string" && /^\+?[0-9][0-9 ()\-]{6,}$/.test(v.trim())) ? v.trim() : null;
+  const r = b?.responses || {};
+  const respVal = (k: string) => (r[k] && typeof r[k] === "object" ? r[k].value : r[k]);
+  return (
+    looksPhone(b?.attendees?.[0]?.phoneNumber) ||
+    looksPhone(respVal("attendeePhoneNumber")) ||
+    looksPhone(respVal("smsReminderNumber")) ||
+    looksPhone(respVal("phone")) ||
+    looksPhone(b?.location) ||
+    null
+  );
+}
+
 // Map a Cal.com booking to a cal_bookings row. Single source of truth for the
-// 23-column shape so every code path stays consistent.
+// column shape so every code path stays consistent.
 function mapBooking(b: any, syncedAt: string) {
   return {
     uid: b.uid,
@@ -30,6 +51,7 @@ function mapBooking(b: any, syncedAt: string) {
     host_email: b.hosts?.[0]?.email ?? null,
     attendee_name: b.attendees?.[0]?.name ?? null,
     attendee_email: b.attendees?.[0]?.email ?? null,
+    attendee_phone: extractPhone(b),
     attendees: b.attendees ?? null,
     guests: b.guests ?? null,
     cancellation_reason: b.cancellationReason ?? null,
