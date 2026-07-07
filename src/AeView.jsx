@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
@@ -298,6 +298,19 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
   const [showPast, setShowPast] = useState(false)
+  const [statusFilter, setStatusFilter] = useState(null) // click a chip to show only that status
+
+  // Filtering shrinks the list and the page height, which makes the browser snap
+  // the scroll position up (looks like a reload-to-top). Capture the scroll on a
+  // chip click and restore it after the re-render so the user stays put.
+  const scrollRestore = useRef(null)
+  const applyFilter = (next) => { scrollRestore.current = window.scrollY; setStatusFilter(next) }
+  useLayoutEffect(() => {
+    if (scrollRestore.current != null) {
+      window.scrollTo(0, scrollRestore.current)
+      scrollRestore.current = null
+    }
+  }, [statusFilter])
 
   // Save wrapper: on Closed Won, also record the sale on the commission tracker.
   const saveDeal = async (id, patch) => {
@@ -382,15 +395,33 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
         </div>
       </div>
 
-      {/* Status breakdown — how many of this week's meetings fell in each bucket. */}
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        {statusCounts.map(({ status, n }) => (
-          <span key={status}
-            className={`inline-flex items-center gap-1.5 px-2 py-1 border text-[11px] mono-font ${n > 0 ? 'border-stone-300 text-stone-700 bg-stone-50' : 'border-stone-200 text-stone-400'}`}>
-            {status}
-            <span className={`num-tabular font-semibold ${n > 0 ? 'text-stone-900' : 'text-stone-400'}`}>{n}</span>
-          </span>
-        ))}
+      {/* Status breakdown — click a chip to filter the list to that status. */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-4">
+        {statusCounts.map(({ status, n }) => {
+          // 'Scheduled' returns to the default view (Scheduled on top + Past
+          // Meetings), since that view already IS the scheduled list. Other
+          // statuses filter to a flat list of just that status.
+          const isDefault = status === 'Scheduled'
+          const active = isDefault ? statusFilter === null : statusFilter === status
+          return (
+            <button key={status} type="button"
+              onClick={() => applyFilter(isDefault ? null : (active ? null : status))}
+              title={isDefault ? 'Scheduled + Past Meetings' : (n > 0 ? `Show only “${status}”` : `No “${status}” meetings this week`)}
+              className={`inline-flex items-center gap-1.5 px-2 py-1 border text-[11px] mono-font transition-colors ${
+                active ? 'border-stone-900 bg-stone-900 text-white'
+                : n > 0 ? 'border-stone-300 text-stone-700 bg-stone-50 hover:border-stone-500'
+                : 'border-stone-200 text-stone-400 hover:border-stone-300'}`}>
+              {status}
+              <span className={`num-tabular font-semibold ${active ? 'text-white' : n > 0 ? 'text-stone-900' : 'text-stone-400'}`}>{n}</span>
+            </button>
+          )
+        })}
+        {statusFilter && (
+          <button type="button" onClick={() => applyFilter(null)}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-stone-500 hover:text-stone-800">
+            Clear filter ✕
+          </button>
+        )}
       </div>
 
       {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
@@ -414,30 +445,48 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
             </tr>
           </thead>
           <tbody>
-            {activeRows.map(d => (
-              <MeetingRow key={d.id} deal={d} canEdit={canEdit}
-                expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
-            ))}
-            {activeRows.length === 0 && pastRows.length > 0 && (
-              <tr><td colSpan={7} className="py-3 px-3 text-sm text-stone-400 italic">All meetings actioned — see Past Meetings below.</td></tr>
+            {statusFilter ? (
+              /* Filtered view: flat list of only the chosen status (ignores the
+                 active/past split). */
+              (() => {
+                const filtered = rows.filter(d => d.status === statusFilter)
+                if (filtered.length === 0) {
+                  return <tr><td colSpan={7} className="py-4 px-3 text-sm text-stone-400 italic">No “{statusFilter}” meetings this week.</td></tr>
+                }
+                return filtered.map(d => (
+                  <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                    expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                ))
+              })()
+            ) : (
+              <>
+                {activeRows.map(d => (
+                  <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                    expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                ))}
+                {activeRows.length === 0 && pastRows.length > 0 && (
+                  <tr><td colSpan={7} className="py-3 px-3 text-sm text-stone-400 italic">All meetings actioned — see Past Meetings below.</td></tr>
+                )}
+                {pastRows.length > 0 && (
+                  <tr className="border-t border-stone-200">
+                    <td colSpan={7} className="py-0">
+                      <button onClick={() => setShowPast(v => !v)}
+                        className="w-full flex items-center gap-2 py-2.5 px-3 text-left text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
+                        {showPast ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        Past Meetings <span className="text-stone-400">({pastRows.length})</span>
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {showPast && pastRows.map(d => (
+                  <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                    expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                ))}
+              </>
             )}
-            {pastRows.length > 0 && (
-              <tr className="border-t border-stone-200">
-                <td colSpan={7} className="py-0">
-                  <button onClick={() => setShowPast(v => !v)}
-                    className="w-full flex items-center gap-2 py-2.5 px-3 text-left text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
-                    {showPast ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                    Past Meetings <span className="text-stone-400">({pastRows.length})</span>
-                  </button>
-                </td>
-              </tr>
-            )}
-            {showPast && pastRows.map(d => (
-              <MeetingRow key={d.id} deal={d} canEdit={canEdit}
-                expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
-            ))}
           </tbody>
         </table>
       )}
