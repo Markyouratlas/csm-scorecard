@@ -21,6 +21,7 @@ import InvestorPendingView from './InvestorPendingView'
 import ResetPasswordView from './ResetPasswordView'
 import AtlasLogo from './AtlasLogo'
 import CommissionsView from './CommissionsView'
+import { DialerProvider } from './DialerContext'
 import { accessTier, isLeadershipTeam, isLeadershipRole } from './teams'
 
 export default function App() {
@@ -920,7 +921,7 @@ function Shell({ children }) {
         .bg-tinted     { background: var(--bg-tinted); }
         .bg-tinted-2   { background: var(--bg-tinted-2); }
       `}</style>
-      {children}
+      <DialerProvider>{children}</DialerProvider>
     </div>
   )
 }

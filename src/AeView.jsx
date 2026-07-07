@@ -9,6 +9,7 @@ import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
+import { useDialer } from './DialerContext'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
@@ -511,6 +512,7 @@ function MoneyCell({ value, editable, onSave }) {
 }
 
 function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch }) {
+  const { openDialer } = useDialer()
   const isWire = deal.payment_method === 'wire_ach'
   const when = deal.meeting_at ? new Date(deal.meeting_at) : null
   const setField = (patch) => onSave(deal.id, patch).catch(e => console.error('ae_deals save:', e))
@@ -561,10 +563,11 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                 </a>
               )}
               {deal.customer_phone && (
-                <a href={`tel:${deal.customer_phone}`} onClick={(e) => e.stopPropagation()} title={`Call ${deal.customer_phone}`}
+                <button type="button" onClick={(e) => { e.stopPropagation(); openDialer(deal.customer_phone, { name: deal.customer_name }) }}
+                  title={`Call ${deal.customer_phone}`}
                   className="p-1 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
                   <Phone className="w-3.5 h-3.5" />
-                </a>
+                </button>
               )}
             </div>
           </div>
