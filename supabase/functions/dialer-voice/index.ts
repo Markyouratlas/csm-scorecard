@@ -66,20 +66,51 @@ serve(async (req) => {
   const to = (params.get("To") || "").trim();
   const from = params.get("From") || ""; // "client:<profile.id>" for outbound-from-browser
   const ref = (params.get("ref") || "").trim(); // client correlation id → call_logs.client_ref
+  const identity = from.startsWith("client:") ? from.slice("client:".length) : null;
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const voiceUrl = Deno.env.get("DIALER_VOICE_URL") || configuredUrl;
+
+  // ---- Post-dial ACTION callback (from the inbound <Dial action>): only play the
+  // "unavailable" message when the client didn't actually connect. On a normal
+  // completed/answered call, end silently (otherwise the caller hears the message
+  // after every hang-up). Must run BEFORE the inbound branch (same To/From shape). ----
+  const dialStatus = params.get("DialCallStatus");
+  if (dialStatus) {
+    if (dialStatus === "completed" || dialStatus === "answered") {
+      return xml(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+    }
+    return xml(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>We're sorry, no one is available to take your call right now. Please try again later.</Say><Hangup/></Response>`);
+  }
+
+  // ---- INBOUND: an external caller dialed a rep's Twilio number (To). Ring that
+  // rep's browser Device via <Client>; the <Dial action> callback above handles
+  // the no-answer message so it never plays after a completed call. ----
+  if (!identity) {
+    let repId = null;
+    try {
+      const { data } = await admin.from("profiles").select("id").eq("twilio_number", to).maybeSingle();
+      repId = data?.id || null;
+    } catch { /* column may not exist yet */ }
+    if (!repId) {
+      return xml(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, this number is not available right now. Please try again later.</Say><Hangup/></Response>`);
+    }
+    const twiml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Response><Dial timeout="20" answerOnBridge="true" action="${escapeXml(voiceUrl)}" method="POST">` +
+      `<Client>${escapeXml(repId)}</Client></Dial></Response>`;
+    return xml(twiml);
+  }
+
   if (!to) {
     return xml(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>No destination number was provided.</Say></Response>`);
   }
 
-  // Caller ID = the rep's own number when we can resolve it, else the shared number.
+  // ---- OUTBOUND: caller ID = the rep's own number when resolvable, else shared. ----
   let callerId = sharedNumber;
-  const identity = from.startsWith("client:") ? from.slice("client:".length) : null;
-  if (identity) {
-    try {
-      const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-      const { data } = await admin.from("profiles").select("twilio_number").eq("id", identity).maybeSingle();
-      if (data?.twilio_number) callerId = data.twilio_number;
-    } catch { /* column may not exist yet (pre-M1) — fall back to shared number */ }
-  }
+  try {
+    const { data } = await admin.from("profiles").select("twilio_number").eq("id", identity).maybeSingle();
+    if (data?.twilio_number) callerId = data.twilio_number;
+  } catch { /* fall back to shared number */ }
 
   // Status callback on the dialed leg → dialer-status updates the call log with
   // authoritative status + duration. Pass the client ref so it finds the row.

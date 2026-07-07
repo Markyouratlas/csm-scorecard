@@ -28,6 +28,7 @@ export function DialerProvider({ children }) {
   const qc = useQueryClient()
   const deviceRef = useRef(null)
   const callRef = useRef(null)
+  const incomingRef = useRef(null)  // the ringing inbound Call, before accept
   const repIdRef = useRef(null)
   const logIdRef = useRef(null)     // call_logs row id for the current call
   const dealIdRef = useRef(null)
@@ -80,9 +81,24 @@ export function DialerProvider({ children }) {
   }, [])
 
   const resetCall = useCallback(() => {
-    callRef.current = null; logIdRef.current = null; dealIdRef.current = null
+    callRef.current = null; incomingRef.current = null; logIdRef.current = null; dealIdRef.current = null
     setStatus('idle'); setTarget(null); setMuted(false); setSeconds(0); setError(null)
   }, [])
+
+  // Shared end-of-call: record duration + move to the after-call wrap-up card.
+  const finalize = useCallback(() => {
+    logUpdate({ status: 'completed', duration_seconds: secondsRef.current, ended_at: new Date().toISOString() })
+    callRef.current = null; incomingRef.current = null
+    setStatus((s) => (s === 'error' ? 'error' : 'wrapup'))
+  }, [logUpdate])
+
+  const attachCallHandlers = useCallback((call) => {
+    call.on('accept', () => { setStatus('open'); logUpdate({ status: 'in-progress' }) })
+    call.on('disconnect', finalize)
+    call.on('cancel', finalize)
+    call.on('reject', () => resetCall())
+    call.on('error', (err) => { console.error('Call error', err); setError(err?.message || 'Call error'); finalize() })
+  }, [finalize, logUpdate, resetCall])
 
   const openDialer = useCallback(async (number, meta = {}) => {
     const to = String(number || '').trim()
@@ -104,25 +120,57 @@ export function DialerProvider({ children }) {
       const device = await getDevice()
       const call = await device.connect({ params: { To: to, ref } })
       callRef.current = call
-      call.on('accept', () => { setStatus('open'); logUpdate({ status: 'in-progress' }) })
-      call.on('disconnect', () => { finalize(); })
-      call.on('cancel', () => { finalize(); })
-      call.on('reject', () => { finalize(); })
-      call.on('error', (err) => { console.error('Call error', err); setError(err?.message || 'Call error'); finalize() })
+      attachCallHandlers(call)
     } catch (err) {
       console.error('openDialer failed', err)
       setError(err?.message || 'Could not start the call.')
       logUpdate({ status: 'failed', ended_at: new Date().toISOString() })
       setStatus('error')
     }
-    // finalize: record duration + move to the after-call wrap-up card.
-    function finalize() {
-      const secs = secondsRef.current
-      logUpdate({ status: 'completed', duration_seconds: secs, ended_at: new Date().toISOString() })
-      callRef.current = null
-      setStatus((s) => (s === 'error' ? 'error' : 'wrapup'))
-    }
-  }, [getDevice, repId, logInsert, logUpdate])
+  }, [getDevice, repId, logInsert, logUpdate, attachCallHandlers])
+
+  // Register the Device on mount so inbound calls to the rep's number ring here.
+  // Non-dialer roles get a 403 from dialer-token → inbound (and outbound) disabled.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const device = await getDevice()
+        if (cancelled) return
+        device.on('registrationFailed', (e) => console.warn('[dialer] registration failed', e))
+        device.on('incoming', (call) => {
+          if (callRef.current || incomingRef.current) { call.reject(); return } // already busy
+          incomingRef.current = call
+          setTarget({ number: call.parameters?.From || 'Unknown', name: null }); setSeconds(0); setStatus('incoming')
+          call.on('cancel', () => resetCall())          // caller hung up before answer
+          call.on('disconnect', finalize)
+          call.on('error', finalize)
+        })
+        try { await device.register() } catch (e) { console.warn('device.register failed', e) }
+      } catch { /* not a dialer user — no inbound */ }
+    })()
+    return () => { cancelled = true }
+  }, [getDevice, finalize, resetCall])
+
+  const acceptIncoming = useCallback(async () => {
+    const call = incomingRef.current
+    if (!call) return
+    callRef.current = call; dealIdRef.current = null; logIdRef.current = null
+    setSeconds(0); setStatus('open')
+    const rid = await repId()
+    if (rid) logInsert({
+      rep_id: rid, ae_deal_id: null, customer_name: null,
+      customer_phone: call.parameters?.From || null, direction: 'inbound', status: 'in-progress',
+      client_ref: (crypto?.randomUUID?.() || String(Date.now())), started_at: new Date().toISOString(),
+    })
+    call.accept()
+  }, [repId, logInsert])
+
+  const declineIncoming = useCallback(() => {
+    const call = incomingRef.current
+    if (call) call.reject()
+    resetCall()
+  }, [resetCall])
 
   const hangUp = useCallback(() => { if (callRef.current) callRef.current.disconnect() }, [])
   const toggleMute = useCallback(() => { setMuted((m) => { const n = !m; callRef.current?.mute(n); return n }) }, [])
@@ -154,7 +202,7 @@ export function DialerProvider({ children }) {
     resetCall()
   }, [logUpdate, qc, resetCall])
 
-  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, hasDeal: !!dealIdRef.current }
+  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, acceptIncoming, declineIncoming, hasDeal: !!dealIdRef.current }
   return (
     <DialerCtx.Provider value={value}>
       {children}
@@ -176,10 +224,32 @@ function DialerWidget() {
       boxShadow: '0 20px 50px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
       fontFamily: 'Manrope, system-ui, sans-serif',
     }}>
-      {d.status === 'wrapup' ? <WrapUp d={d} /> : <LiveCall d={d} />}
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      {d.status === 'wrapup' ? <WrapUp d={d} /> : d.status === 'incoming' ? <IncomingCall d={d} /> : <LiveCall d={d} />}
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
     </div>,
     document.body,
+  )
+}
+
+function IncomingCall({ d }) {
+  const { target, acceptIncoming, declineIncoming } = d
+  return (
+    <div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#30D158', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 4, background: '#30D158', animation: 'pulse 1.2s ease-in-out infinite' }} /> Incoming call
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 600, marginTop: 8 }}>{target?.number || 'Unknown'}</div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button onClick={declineIncoming} title="Decline"
+          style={{ flex: 1, height: 48, borderRadius: 24, background: '#FF453A', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+          <PhoneOff className="w-5 h-5" /> Decline
+        </button>
+        <button onClick={acceptIncoming} title="Accept"
+          style={{ flex: 1, height: 48, borderRadius: 24, background: '#30D158', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+          <Phone className="w-5 h-5" /> Accept
+        </button>
+      </div>
+    </div>
   )
 }
 
