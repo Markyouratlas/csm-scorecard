@@ -70,13 +70,19 @@ export function useScorecard(userId, propWeekKey, blankFactory, carryForward = [
       const loaded = data?.data || {}
       let merged = deepMerge(blank, loaded)
 
-      // Carry-forward: only for a brand-new current week (no row yet), never
-      // an exec drill-in, and only for fields the caller opted into. Seeds
-      // each field from the most recent prior week that has a non-empty
-      // array for it. A deliberately-cleared week (row exists) is never
-      // re-seeded, because this branch requires `data` to be null.
-      if (!data && !isExecDrillIn && weekKey === currentWeekKey
-          && Array.isArray(carryForward) && carryForward.length > 0) {
+      // Carry-forward: for the current week (never an exec drill-in), seed each
+      // opted-in field that is currently EMPTY from the most recent prior week
+      // that has a non-empty array for it. Seeding on "empty" (not only "no row
+      // yet") matters because a server sync — ae-meetings-sync — now pre-creates
+      // the AE's weekly row with deals:[] before they open the app; the old
+      // `!data` guard would have skipped carry-forward in that case, so the
+      // ongoing pipeline (and Growth experiments / Implementation projects)
+      // wouldn't persist. Once seeded, autosave writes it into this week, so it
+      // won't re-seed on the next load, and it rolls forward each new week.
+      const needsCarry = !isExecDrillIn && weekKey === currentWeekKey
+        && Array.isArray(carryForward) && carryForward.length > 0
+        && carryForward.some(field => !Array.isArray(merged[field]) || merged[field].length === 0)
+      if (needsCarry) {
         const { data: priorRows, error: priorErr } = await supabase
           .from('weekly_scorecards')
           .select('week_key, data')
@@ -90,6 +96,8 @@ export function useScorecard(userId, propWeekKey, blankFactory, carryForward = [
         } else if (priorRows && priorRows.length > 0) {
           const seeded = { ...merged }
           for (const field of carryForward) {
+            // Only seed fields that are empty this week (don't clobber edits).
+            if (Array.isArray(seeded[field]) && seeded[field].length > 0) continue
             for (const row of priorRows) {
               const val = row.data?.[field]
               if (Array.isArray(val) && val.length > 0) {

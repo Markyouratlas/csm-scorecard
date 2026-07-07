@@ -14,7 +14,7 @@ import {
 } from './constants'
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
 import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
-import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
+import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, leadTeamKeys, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
 
 import ScorecardViewer from './ScorecardViewer'
 import RocketLoader from './RocketLoader'
@@ -44,18 +44,19 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
   const headerRef = useGlassInteraction()
   const [showSettings, setShowSettings] = useState(false)
 
-  // For team leads, lock the visible team to their own
+  // Team leads see their own team + any granted managed_teams (cross-team access).
+  const leadTeams = useMemo(() => leadTeamKeys(profile), [profile])
   const visibleTeams = useMemo(() => {
     if (isExec) return TEAMS
-    return TEAMS.filter(t => t.key === profile.team)
-  }, [isExec, profile.team])
+    return TEAMS.filter(t => leadTeams.includes(t.key))
+  }, [isExec, leadTeams])
 
   // Default tab: a focused team (when launched from a Quick Log department card),
-  // else 'overview' for execs and the lead's own team key for team leads.
+  // else 'overview' for execs and the lead's first managed team.
   // initialTeam is only honored if the viewer is allowed to see that team.
   const [tab, setTab] = useState(() => {
-    if (initialTeam && (isExec || initialTeam === profile.team)) return initialTeam
-    return isExec ? 'overview' : profile.team
+    if (initialTeam && (isExec || leadTeams.includes(initialTeam))) return initialTeam
+    return isExec ? 'overview' : (leadTeams[0] || profile.team)
   })
   // When set, we're viewing one specific member's scorecard (not the dashboard).
   // Persisted to sessionStorage so executives drilling into a specific member's
@@ -106,19 +107,19 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
     } catch {}
   }, [allProfiles])
 
-  // Filter profiles for team leads — they only see their team
+  // Filter profiles for team leads — they see their own team + managed_teams.
   // Also filter out archived users unless showArchived is enabled
   const visibleProfiles = useMemo(() => {
-    let result = isExec ? allProfiles : allProfiles.filter(p => p.team === profile.team)
+    let result = isExec ? allProfiles : allProfiles.filter(p => leadTeams.includes(p.team))
     if (!showArchived) {
       result = result.filter(p => !p.archived_at)
     }
     return result
-  }, [isExec, allProfiles, profile.team, showArchived])
+  }, [isExec, allProfiles, leadTeams, showArchived])
 
   const archivedCount = useMemo(
-    () => (isExec ? allProfiles : allProfiles.filter(p => p.team === profile.team)).filter(p => p.archived_at).length,
-    [isExec, allProfiles, profile.team]
+    () => (isExec ? allProfiles : allProfiles.filter(p => leadTeams.includes(p.team))).filter(p => p.archived_at).length,
+    [isExec, allProfiles, leadTeams]
   )
 
   if (loading) return <RocketLoader className="min-h-screen" label="Loading the dashboard…" />
@@ -146,7 +147,7 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
             <AtlasLogo height={32} />
             <div className="border-l border-stone-300 pl-4">
               <div className="display-font text-lg font-medium text-stone-900 leading-tight">
-                {isExec ? 'Executive Dashboard' : `${getTeamLabel(profile.team)} Dashboard`}
+                {isExec ? 'Executive Dashboard' : `${getTeamLabel(leadTeams[0] || profile.team)} Dashboard`}
               </div>
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500">Week of {formatWeekLabel(weekKey)}</div>
             </div>

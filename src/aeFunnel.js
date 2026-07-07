@@ -9,7 +9,8 @@ import { AE_ATTENDED_STATUSES } from './roleConstants'
 //  downstream Odyssey/investor numbers update the moment a status changes.
 //
 //  Mapping (see CLAUDE.md / plan):
-//    demosBooked      = meetings that day in any status EXCEPT 'Rescheduled'
+//    demosBooked      = meetings that day in any status EXCEPT 'Rescheduled' /
+//                       'Deleted' ('Deleted' is a soft-delete, backed out of all metrics)
 //    demosCompleted   = meetings the prospect attended (AE_ATTENDED_STATUSES,
 //                       which includes 'Unqualified' — they showed up)
 //    demosUnqualified = meetings marked 'Unqualified' (subset of completed) — used
@@ -58,7 +59,7 @@ export function deriveFunnelWeek(deals, weekKey) {
     const ymd = torontoYMD(new Date(d.meeting_at))
     if (mondayOfYMD(ymd) !== weekKey) continue
     const idx = dayIdxOfYMD(ymd)
-    if (d.status !== 'Rescheduled') out[idx].demosBooked += 1
+    if (d.status !== 'Rescheduled' && d.status !== 'Deleted') out[idx].demosBooked += 1
     if (AE_ATTENDED_STATUSES.includes(d.status)) out[idx].demosCompleted += 1
     if (d.status === 'Unqualified') out[idx].demosUnqualified += 1
     if (d.status === 'Closed Won') out[idx].trialSignups += 1
