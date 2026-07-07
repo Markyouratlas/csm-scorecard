@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -546,7 +546,7 @@ function CallHistory({ dealId }) {
 }
 
 function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch }) {
-  const { openDialer } = useDialer()
+  const { openDialer, openMessages } = useDialer()
   const isWire = deal.payment_method === 'wire_ach'
   const when = deal.meeting_at ? new Date(deal.meeting_at) : null
   const setField = (patch) => onSave(deal.id, patch).catch(e => console.error('ae_deals save:', e))
@@ -601,6 +601,13 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                   title={`Call ${deal.customer_phone}`}
                   className="p-1 text-stone-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors">
                   <Phone className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {deal.customer_phone && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); openMessages(deal.customer_phone, { name: deal.customer_name, dealId: deal.id }) }}
+                  title={`Text ${deal.customer_phone}`}
+                  className="p-1 text-stone-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors">
+                  <MessageSquare className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>

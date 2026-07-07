@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { Device } from '@twilio/voice-sdk'
-import { Phone, PhoneOff, Mic, MicOff, X, Loader2, Check } from 'lucide-react'
+import { Phone, PhoneOff, Mic, MicOff, X, Loader2, Check, MessageSquare, Send } from 'lucide-react'
 import { supabase } from './supabase'
 
 // =============================================================================
@@ -202,12 +202,94 @@ export function DialerProvider({ children }) {
     resetCall()
   }, [logUpdate, qc, resetCall])
 
-  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, acceptIncoming, declineIncoming, hasDeal: !!dealIdRef.current }
+  // SMS thread panel (independent of the call state).
+  const [smsTarget, setSmsTarget] = useState(null) // { number, name, dealId }
+  const openMessages = useCallback((number, meta = {}) => {
+    const n = String(number || '').trim()
+    if (n) setSmsTarget({ number: n, name: meta.name || null, dealId: meta.dealId || null })
+  }, [])
+  const closeMessages = useCallback(() => setSmsTarget(null), [])
+
+  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, acceptIncoming, declineIncoming, openMessages, hasDeal: !!dealIdRef.current }
   return (
     <DialerCtx.Provider value={value}>
       {children}
       <DialerWidget />
+      {smsTarget && <SmsThread target={smsTarget} onClose={closeMessages} />}
     </DialerCtx.Provider>
+  )
+}
+
+function SmsThread({ target, onClose }) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [err, setErr] = useState(null)
+  const scrollRef = useRef(null)
+  // Match by last-10 digits so the thread finds rows regardless of stored format
+  // (inbound is E.164 +1..., outbound/deal numbers may be bare 10-digit).
+  const tail = String(target.number || '').replace(/\D/g, '').slice(-10)
+  const key = ['sms', tail]
+
+  const { data: msgs } = useQuery({
+    queryKey: key,
+    enabled: !!tail,
+    refetchInterval: 8000, // poll for inbound replies
+    queryFn: async () => {
+      const { data, error } = await supabase.from('sms_messages')
+        .select('id, direction, body, status, created_at')
+        .ilike('contact_phone', `%${tail}`).order('created_at', { ascending: true }).limit(200)
+      if (error) { console.warn('sms read:', error.message); return [] }
+      return data || []
+    },
+  })
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [msgs])
+
+  const send = async () => {
+    const body = draft.trim()
+    if (!body || sending) return
+    setSending(true); setErr(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('dialer-send', { body: { to: target.number, body, dealId: target.dealId } })
+      if (error || data?.error) throw new Error(error?.message || data?.error)
+      setDraft(''); qc.invalidateQueries({ queryKey: key })
+    } catch (e) { setErr(e.message || 'Could not send.') } finally { setSending(false) }
+  }
+
+  return createPortal(
+    <div style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 2001, width: 340, height: 460, display: 'flex', flexDirection: 'column',
+      borderRadius: 18, overflow: 'hidden', background: 'white', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', fontFamily: 'Manrope, system-ui, sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid #F0EEF5', background: '#6639A6', color: 'white' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{target.name || target.number}</div>
+          {target.name && <div style={{ fontSize: 11, opacity: 0.8 }}>{target.number}</div>}
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 2 }}><X className="w-4 h-4" /></button>
+      </div>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 6, background: '#FAF9FC' }}>
+        {(!msgs || msgs.length === 0) && <div style={{ color: '#9CA3AF', fontSize: 13, textAlign: 'center', marginTop: 20 }}>No messages yet. Say hello 👋</div>}
+        {(msgs || []).map((m) => {
+          const out = m.direction === 'outbound'
+          return (
+            <div key={m.id} style={{ alignSelf: out ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
+              <div style={{ background: out ? '#6639A6' : '#EDEAF3', color: out ? 'white' : '#1A0F2E', padding: '8px 12px', borderRadius: 14,
+                borderBottomRightRadius: out ? 4 : 14, borderBottomLeftRadius: out ? 14 : 4, fontSize: 13.5, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.body}</div>
+              {out && <div style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'right', marginTop: 2 }}>{m.status}</div>}
+            </div>
+          )
+        })}
+      </div>
+      {err && <div style={{ color: '#DC2626', fontSize: 12, padding: '4px 12px' }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid #F0EEF5' }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Text message"
+          style={{ flex: 1, borderRadius: 20, border: '1px solid #E2E0EA', padding: '9px 14px', fontSize: 13.5, outline: 'none', fontFamily: 'inherit' }} />
+        <button onClick={send} disabled={sending || !draft.trim()} title="Send"
+          style={{ width: 40, height: 40, borderRadius: '50%', background: '#6639A6', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: sending || !draft.trim() ? 0.5 : 1 }}>
+          <Send className="w-4 h-4" />
+        </button>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

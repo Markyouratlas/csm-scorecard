@@ -4,7 +4,7 @@ import {
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
   Crown, UserCheck, Briefcase, Ticket, Headphones, Target, BarChart3, Megaphone, Star,
   Archive, ArchiveRestore, Eye, Lightbulb, UserMinus, DollarSign, Check,
-  ChevronLeft, ChevronRight, ChevronDown, Phone, Handshake
+  ChevronLeft, ChevronRight, ChevronDown, Phone, Handshake, MessageSquare, Copy
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { useQuery } from '@tanstack/react-query'
@@ -1505,6 +1505,67 @@ function ScorecardPreviews() {
   )
 }
 
+// Exec-facing checklist for provisioning a rep's dialer number in Twilio + the app.
+// The two webhook URLs are identical on every number — the edge functions resolve the
+// rep from the To number. See supabase/functions/dialer-voice + dialer-sms-inbound.
+const DIALER_VOICE_URL = 'https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/dialer-voice'
+const DIALER_SMS_INBOUND_URL = 'https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/dialer-sms-inbound'
+
+function CopyUrl({ url }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+  }
+  return (
+    <div className="flex items-center gap-1 mt-0.5">
+      <code className="flex-1 min-w-0 truncate bg-stone-100 border border-stone-200 rounded px-1.5 py-1 text-[10px] text-stone-700" title={url}>{url}</code>
+      <button type="button" onClick={copy} title="Copy URL"
+        className="shrink-0 p-1 border border-stone-200 rounded hover:bg-stone-100 text-stone-500">
+        {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+      </button>
+    </div>
+  )
+}
+
+function TwilioSetupGuide() {
+  return (
+    <details className="mt-2 group">
+      <summary className="flex items-center gap-1 cursor-pointer list-none text-[10px] uppercase tracking-widest text-violet-700 hover:text-violet-900 select-none">
+        <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+        Setup steps for a new number
+      </summary>
+      <div className="mt-2 pl-1 space-y-2 text-[11px] text-stone-600 leading-snug">
+        <div>Do all four for each new number. Both webhook URLs are the <em>same</em> on every number.</div>
+
+        <div>
+          <div className="flex items-center gap-1 font-semibold text-stone-800"><Phone className="w-3 h-3" /> 1. Voice (per number)</div>
+          <div className="text-stone-500">Twilio → Phone Numbers → the number → <strong>Voice Configuration</strong> → “A call comes in” → Webhook, <strong>HTTP POST</strong>:</div>
+          <CopyUrl url={DIALER_VOICE_URL} />
+        </div>
+
+        <div>
+          <div className="flex items-center gap-1 font-semibold text-stone-800"><MessageSquare className="w-3 h-3" /> 2. SMS inbound (per number)</div>
+          <div className="text-stone-500">Same number → <strong>Messaging Configuration</strong> → “A message comes in” → Webhook, <strong>HTTP POST</strong>:</div>
+          <CopyUrl url={DIALER_SMS_INBOUND_URL} />
+          <div className="text-stone-400 mt-0.5">Our Messaging Service stays on “Defer to sender’s webhook,” so inbound is set per number — not on the service.</div>
+        </div>
+
+        <div>
+          <div className="font-semibold text-stone-800">3. Sender pool</div>
+          <div className="text-stone-500">Add the number to the Messaging Service (A2P registration + throughput only — it does not route inbound).</div>
+        </div>
+
+        <div>
+          <div className="font-semibold text-stone-800">4. Assign in the app</div>
+          <div className="text-stone-500">Paste the number in the <strong>Dialer number</strong> field above, in E.164 (<span className="num-tabular">+1…</span>).</div>
+        </div>
+
+        <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-1">⚠️ No trailing space or period on either URL — it breaks Twilio’s signature and calls/texts fail.</div>
+      </div>
+    </details>
+  )
+}
+
 function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
@@ -1608,7 +1669,8 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
                 <input type="tel" defaultValue={profile.twilio_number || ''} placeholder="+1XXXXXXXXXX"
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (profile.twilio_number || '')) onSetTwilioNumber(v) }}
                   className="w-full py-1.5 px-2 border border-stone-300 focus:border-stone-900 transition-colors text-xs num-tabular" />
-                <div className="text-[10px] text-stone-400 mt-1">Their Twilio number — caller ID for outbound + rings them for inbound.</div>
+                <div className="text-[10px] text-stone-400 mt-1">Their Twilio number — caller ID for outbound + rings them for inbound. Enter in E.164 (e.g. <span className="num-tabular">+13325550142</span>).</div>
+                <TwilioSetupGuide />
               </div>
             )}
             {isExec && !isSelf && profile.role !== 'executive' && (
