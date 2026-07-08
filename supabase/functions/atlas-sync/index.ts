@@ -110,10 +110,26 @@ serve(async (req) => {
       return cands.find((d) => !CLOSED.has(d.status)) || cands[0];
     };
 
+    // Campaign meta: id -> { name, number } so we can stamp campaign_name +
+    // line_number (the Atlas Blue sending number) onto each session.
+    const campaignMeta = new Map<string, { name: string | null; number: string | null }>();
+    try {
+      const camps = asArray(await atlasGet(`/campaign`, apiKey));
+      let phones: any[] = [];
+      try { phones = asArray(await atlasGet(`/campaign-chat/phone-numbers`, apiKey)); } catch { /* optional */ }
+      for (const c of camps) {
+        const id = c.RowKey || c.id;
+        if (!id) continue;
+        const pn = phones.find((p) => p.RowKey === c.ChatPhoneNumberId) || phones.find((p) => p.CampaignId === id);
+        campaignMeta.set(id, { name: c.name || c.BusinessName || null, number: pn?.PhoneNumber || null });
+      }
+    } catch (e) { console.warn("campaign meta fetch failed", String(e)); }
+
     const sinceMs = sinceDays ? Date.now() - Number(sinceDays) * 86400000 : null;
     let sessionCount = 0, linkedCount = 0, messageCount = 0;
 
     for (const campaignId of campaignIds) {
+      const meta = campaignMeta.get(campaignId) || { name: null, number: null };
       const sessions = asArray(await atlasGet(`/campaign-chat/${campaignId}`, apiKey));
 
       for (const s of sessions) {
@@ -138,6 +154,8 @@ serve(async (req) => {
           title: s.Tittle || s.Title || null,
           status: s.Status || null,
           previous_session_id: s.PreviousSessionId || null,
+          campaign_name: meta.name,
+          line_number: meta.number,
           ae_deal_id: dealId,
           rep_id: repId,
           created_at: ts,

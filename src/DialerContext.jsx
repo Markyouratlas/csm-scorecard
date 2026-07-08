@@ -4,6 +4,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { Device } from '@twilio/voice-sdk'
 import { Phone, PhoneOff, Mic, MicOff, X, Loader2, Check, MessageSquare, Send } from 'lucide-react'
 import { supabase } from './supabase'
+import AtlasMessenger from './AtlasMessenger'
 
 // =============================================================================
 //  DialerContext — app-wide Twilio softphone + call logging.
@@ -19,7 +20,7 @@ import { supabase } from './supabase'
 // =============================================================================
 
 const DialerCtx = createContext(null)
-export const useDialer = () => useContext(DialerCtx) || { available: false, openDialer: () => {}, openMessages: () => {} }
+export const useDialer = () => useContext(DialerCtx) || { available: false, openDialer: () => {}, openMessages: () => {}, openAtlas: () => {} }
 
 const DISPOSITIONS = ['Connected', 'Voicemail', 'No answer', 'Busy', 'Wrong number', 'Callback', 'Not interested']
 const fmtDur = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -205,7 +206,7 @@ export function DialerProvider({ children }) {
     resetCall()
   }, [logUpdate, qc, resetCall])
 
-  // SMS thread panel (independent of the call state).
+  // SMS thread panel (Twilio) — independent of the call state.
   const [smsTarget, setSmsTarget] = useState(null) // { number, name, dealId }
   const openMessages = useCallback((number, meta = {}) => {
     const n = String(number || '').trim()
@@ -213,16 +214,27 @@ export function DialerProvider({ children }) {
   }, [])
   const closeMessages = useCallback(() => setSmsTarget(null), [])
 
-  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, acceptIncoming, declineIncoming, openMessages, hasDeal: !!dealIdRef.current }
+  // Atlas Blue (iMessage) panel — a distinct, iPhone-styled surface.
+  const [atlasTarget, setAtlasTarget] = useState(null) // { number, name, dealId }
+  const openAtlas = useCallback((number, meta = {}) => {
+    const n = String(number || '').trim()
+    if (n) setAtlasTarget({ number: n, name: meta.name || null, dealId: meta.dealId || null })
+  }, [])
+  const closeAtlas = useCallback(() => setAtlasTarget(null), [])
+
+  const value = { available: true, status, target, muted, seconds, error, openDialer, hangUp, toggleMute, dismiss, logOutcome, acceptIncoming, declineIncoming, openMessages, openAtlas, hasDeal: !!dealIdRef.current }
   return (
     <DialerCtx.Provider value={value}>
       {children}
       <DialerWidget />
       {smsTarget && <SmsThread target={smsTarget} onClose={closeMessages} />}
+      {atlasTarget && <AtlasMessenger target={atlasTarget} onClose={closeAtlas} />}
     </DialerCtx.Provider>
   )
 }
 
+// SMS dialer thread — Twilio only (SMS + RCS). Atlas Blue iMessage lives in its
+// own surface (AtlasMessenger); the two are intentionally separate.
 function SmsThread({ target, onClose }) {
   const qc = useQueryClient()
   const [draft, setDraft] = useState('')
@@ -230,8 +242,7 @@ function SmsThread({ target, onClose }) {
   const [err, setErr] = useState(null)
   const [tryRcs, setTryRcs] = useState(false) // opt-in RCS; falls back to SMS until the brand agent is live
   const scrollRef = useRef(null)
-  // Match by last-10 digits so the thread finds rows regardless of stored format
-  // (inbound is E.164 +1..., outbound/deal numbers may be bare 10-digit).
+  // Match by last-10 digits so the thread finds rows regardless of stored format.
   const tail = String(target.number || '').replace(/\D/g, '').slice(-10)
   const key = ['sms', tail]
 
@@ -240,24 +251,11 @@ function SmsThread({ target, onClose }) {
     enabled: !!tail,
     refetchInterval: 8000, // poll for inbound replies
     queryFn: async () => {
-      // Merge Twilio SMS/RCS (sms_messages) + Atlas Blue iMessage (atlas_messages),
-      // both keyed by last-10 phone, into one chronological thread. RLS scopes each.
-      const [sms, atlas] = await Promise.all([
-        supabase.from('sms_messages')
-          .select('id, direction, body, status, channel, created_at')
-          .ilike('contact_phone', `%${tail}`).order('created_at', { ascending: true }).limit(200),
-        supabase.from('atlas_messages')
-          .select('id, role, content, status, created_at')
-          .ilike('contact_phone', `%${tail}`).order('created_at', { ascending: true }).limit(200),
-      ])
-      if (sms.error) console.warn('sms read:', sms.error.message)
-      if (atlas.error) console.warn('atlas read:', atlas.error.message)
-      const norm = [
-        ...(sms.data || []).map((m) => ({ id: `s_${m.id}`, out: m.direction === 'outbound', body: m.body, status: m.status, channel: m.channel || 'sms', created_at: m.created_at })),
-        ...(atlas.data || []).map((m) => ({ id: `a_${m.id}`, out: m.role !== 'user', body: m.content, status: m.status, channel: 'imessage', created_at: m.created_at })),
-      ]
-      norm.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
-      return norm
+      const { data, error } = await supabase.from('sms_messages')
+        .select('id, direction, body, status, channel, created_at')
+        .ilike('contact_phone', `%${tail}`).order('created_at', { ascending: true }).limit(200)
+      if (error) { console.warn('sms read:', error.message); return [] }
+      return data || []
     },
   })
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [msgs])
@@ -269,8 +267,7 @@ function SmsThread({ target, onClose }) {
     try {
       const { data, error } = await supabase.functions.invoke('dialer-send', { body: { to: target.number, body, dealId: target.dealId, channel: tryRcs ? 'rcs' : 'sms' } })
       if (error || data?.error) throw new Error(error?.message || data?.error)
-      // If RCS wasn't live, the server fell back to SMS and says so — reflect that.
-      if (tryRcs && data?.channel === 'sms') setTryRcs(false)
+      if (tryRcs && data?.channel === 'sms') setTryRcs(false) // fell back to SMS
       setDraft(''); qc.invalidateQueries({ queryKey: key })
     } catch (e) { setErr(e.message || 'Could not send.') } finally { setSending(false) }
   }
@@ -281,28 +278,26 @@ function SmsThread({ target, onClose }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid #F0EEF5', background: '#6639A6', color: 'white' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{target.name || target.number}</div>
-          {target.name && <div style={{ fontSize: 11, opacity: 0.8 }}>{target.number}</div>}
+          <div style={{ fontSize: 11, opacity: 0.8 }}>{target.name ? target.number : 'SMS'}</div>
         </div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: 2 }}><X className="w-4 h-4" /></button>
       </div>
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 6, background: '#FAF9FC' }}>
         {(!msgs || msgs.length === 0) && <div style={{ color: '#9CA3AF', fontSize: 13, textAlign: 'center', marginTop: 20 }}>No messages yet. Say hello 👋</div>}
         {(msgs || []).map((m) => {
-          const out = m.out
+          const out = m.direction === 'outbound'
           const isRcs = m.channel === 'rcs'
-          const isImsg = m.channel === 'imessage'
           const isRead = m.status === 'read'
-          // iMessage bubbles use Apple blue for outbound to read as iMessage.
-          const outBg = isImsg ? '#0B93F6' : '#6639A6'
           return (
             <div key={m.id} style={{ alignSelf: out ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
-              <div style={{ background: out ? outBg : '#EDEAF3', color: out ? 'white' : '#1A0F2E', padding: '8px 12px', borderRadius: 14,
+              <div style={{ background: out ? '#6639A6' : '#EDEAF3', color: out ? 'white' : '#1A0F2E', padding: '8px 12px', borderRadius: 14,
                 borderBottomRightRadius: out ? 4 : 14, borderBottomLeftRadius: out ? 14 : 4, fontSize: 13.5, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.body}</div>
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: out ? 'flex-end' : 'flex-start', marginTop: 2 }}>
-                {isRcs && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', color: '#1D9BF0', border: '1px solid #1D9BF0', borderRadius: 4, padding: '0 3px' }}>RCS</span>}
-                {isImsg && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', color: '#0B93F6', border: '1px solid #0B93F6', borderRadius: 4, padding: '0 3px' }}>iMessage</span>}
-                {out && <span style={{ fontSize: 10, color: isRead ? '#1D9BF0' : '#9CA3AF', fontWeight: isRead ? 600 : 400 }}>{isRead ? '✓✓ Read' : m.status}</span>}
-              </div>
+              {out && (
+                <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 }}>
+                  {isRcs && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', color: '#1D9BF0', border: '1px solid #1D9BF0', borderRadius: 4, padding: '0 3px' }}>RCS</span>}
+                  <span style={{ fontSize: 10, color: isRead ? '#1D9BF0' : '#9CA3AF', fontWeight: isRead ? 600 : 400 }}>{isRead ? '✓✓ Read' : m.status}</span>
+                </div>
+              )}
             </div>
           )
         })}
