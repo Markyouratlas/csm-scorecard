@@ -366,10 +366,13 @@ conversations inside the AE deal view and lets an AE take the conversation over 
 as a human. (Atlas is the company's own product; its API is at `api.youratlas.com/v1/api`,
 auth header `api-key: <ATLAS_API_KEY>`, server-side only — never call it from the browser.)
 
-Shipped in phases: **P1** history + prospect search, **P4** human handoff + iPhone-styled
-messenger, **P2** realtime webhook. **P3** (a Cal.com `BOOKING_CREATED` webhook for instant
-deal-linking) is the only piece not yet built — the decision was to **reuse `ae_deals`**
-(link by phone) rather than add a separate bookings table.
+Shipped in phases (all complete): **P1** history + prospect search, **P4** human handoff +
+iPhone-styled messenger, **P2** realtime webhook, **P3** Cal.com `BOOKING_CREATED` webhook
+(`cal-booking-inbound`) that instantly upserts the `ae_deal` and links the prospect's Atlas
+conversation to the deal + AE — **reusing `ae_deals`** (link by phone), no separate bookings
+table. For **phoneless bookings**, it falls back to a **GoHighLevel email→phone bridge** (GHL
+v2 LeadConnector contacts search by email → phone) since Atlas contacts are phone-keyed with
+no email; the resolved phone fills the deal and links the phone-keyed Atlas session.
 
 **Two distinct messaging surfaces — do NOT merge them** (a merged thread caused an "AI is
 handling this" bug on SMS-only contacts):
@@ -398,6 +401,9 @@ role. Linking is by phone (last-10) or email to existing `ae_deals` — there is
   secret since Atlas doesn't sign webhooks). On any message event it does a targeted REST
   re-pull of that contact's current session + messages (events lack a sessionId), keeping the
   thread fresh without a manual re-sync. Subscribe with `POST /events-gateway/trigger/subscribe`.
+- `cal-booking-inbound` — Cal.com `BOOKING_CREATED` webhook (`--no-verify-jwt`, verifies
+  `X-Cal-Signature-256` / `CAL_WEBHOOK_SECRET`). Upserts the `ae_deal` (host→AE) and links the
+  prospect's Atlas conversation instantly; phoneless bookings use the GHL email→phone bridge.
 
 **⚠️ Atlas API contracts differ from Atlas's own published docs** (verified live — see the
 [[atlas-blue-integration]] memory for the running list): handoff body is `{"enabled":bool}`
@@ -407,7 +413,9 @@ PascalCase Azure-Table shaped (`RowKey`, `PartitionKey`, `ContactIdentification`
 [sic], `Role`/`Content`/`Channel`); phone-numbers are `{RowKey, PhoneNumber, CampaignId}`.
 The Atlas Blue campaign id + sending number live in the memory file.
 
-**Secrets:** `ATLAS_API_KEY`, `ATLAS_CAMPAIGN_IDS`, `CRON_SECRET`, `ATLAS_WEBHOOK_TOKEN`.
+**Secrets:** `ATLAS_API_KEY`, `ATLAS_CAMPAIGN_IDS`, `CRON_SECRET`, `ATLAS_WEBHOOK_TOKEN`,
+`CAL_WEBHOOK_SECRET`, and (for the phoneless-booking bridge) `GHL_API_KEY` (v2 Private
+Integration token) + `GHL_LOCATION_ID`.
 
 ## Patterns to follow
 
