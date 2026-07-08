@@ -228,6 +228,7 @@ function SmsThread({ target, onClose }) {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [err, setErr] = useState(null)
+  const [tryRcs, setTryRcs] = useState(false) // opt-in RCS; falls back to SMS until the brand agent is live
   const scrollRef = useRef(null)
   // Match by last-10 digits so the thread finds rows regardless of stored format
   // (inbound is E.164 +1..., outbound/deal numbers may be bare 10-digit).
@@ -240,7 +241,7 @@ function SmsThread({ target, onClose }) {
     refetchInterval: 8000, // poll for inbound replies
     queryFn: async () => {
       const { data, error } = await supabase.from('sms_messages')
-        .select('id, direction, body, status, created_at')
+        .select('id, direction, body, status, channel, created_at')
         .ilike('contact_phone', `%${tail}`).order('created_at', { ascending: true }).limit(200)
       if (error) { console.warn('sms read:', error.message); return [] }
       return data || []
@@ -253,8 +254,10 @@ function SmsThread({ target, onClose }) {
     if (!body || sending) return
     setSending(true); setErr(null)
     try {
-      const { data, error } = await supabase.functions.invoke('dialer-send', { body: { to: target.number, body, dealId: target.dealId } })
+      const { data, error } = await supabase.functions.invoke('dialer-send', { body: { to: target.number, body, dealId: target.dealId, channel: tryRcs ? 'rcs' : 'sms' } })
       if (error || data?.error) throw new Error(error?.message || data?.error)
+      // If RCS wasn't live, the server fell back to SMS and says so — reflect that.
+      if (tryRcs && data?.channel === 'sms') setTryRcs(false)
       setDraft(''); qc.invalidateQueries({ queryKey: key })
     } catch (e) { setErr(e.message || 'Could not send.') } finally { setSending(false) }
   }
@@ -273,18 +276,31 @@ function SmsThread({ target, onClose }) {
         {(!msgs || msgs.length === 0) && <div style={{ color: '#9CA3AF', fontSize: 13, textAlign: 'center', marginTop: 20 }}>No messages yet. Say hello 👋</div>}
         {(msgs || []).map((m) => {
           const out = m.direction === 'outbound'
+          const isRcs = m.channel === 'rcs'
+          const isRead = m.status === 'read'
           return (
             <div key={m.id} style={{ alignSelf: out ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
               <div style={{ background: out ? '#6639A6' : '#EDEAF3', color: out ? 'white' : '#1A0F2E', padding: '8px 12px', borderRadius: 14,
                 borderBottomRightRadius: out ? 4 : 14, borderBottomLeftRadius: out ? 14 : 4, fontSize: 13.5, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.body}</div>
-              {out && <div style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'right', marginTop: 2 }}>{m.status}</div>}
+              {out && (
+                <div style={{ display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'flex-end', marginTop: 2 }}>
+                  {isRcs && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', color: '#1D9BF0', border: '1px solid #1D9BF0', borderRadius: 4, padding: '0 3px' }}>RCS</span>}
+                  <span style={{ fontSize: 10, color: isRead ? '#1D9BF0' : '#9CA3AF', fontWeight: isRead ? 600 : 400 }}>{isRead ? '✓✓ Read' : m.status}</span>
+                </div>
+              )}
             </div>
           )
         })}
       </div>
       {err && <div style={{ color: '#DC2626', fontSize: 12, padding: '4px 12px' }}>{err}</div>}
-      <div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid #F0EEF5' }}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Text message"
+      <div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid #F0EEF5', alignItems: 'center' }}>
+        <button type="button" onClick={() => setTryRcs(v => !v)}
+          title={tryRcs ? 'Sending as RCS (falls back to SMS if unavailable)' : 'Send as RCS rich message'}
+          style={{ flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', padding: '4px 6px', borderRadius: 8, cursor: 'pointer',
+            border: `1px solid ${tryRcs ? '#1D9BF0' : '#E2E0EA'}`, background: tryRcs ? '#E8F5FE' : 'white', color: tryRcs ? '#1D9BF0' : '#9CA3AF' }}>
+          RCS
+        </button>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={tryRcs ? 'RCS message' : 'Text message'}
           style={{ flex: 1, borderRadius: 20, border: '1px solid #E2E0EA', padding: '9px 14px', fontSize: 13.5, outline: 'none', fontFamily: 'inherit' }} />
         <button onClick={send} disabled={sending || !draft.trim()} title="Send"
           style={{ width: 40, height: 40, borderRadius: '50%', background: '#6639A6', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: sending || !draft.trim() ? 0.5 : 1 }}>
