@@ -245,6 +245,12 @@ Only plan against the full, confirmed column list.
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
 
+- **Twilio dialer** (in-app calling + SMS/RCS for AEs, CSMs, FDEs). Multi-tenant
+  softphone on Supabase edge functions + `@twilio/voice-sdk` in the browser. See the
+  dedicated "In-app dialer" section below for the full picture. Tables: `call_logs`,
+  `sms_messages`, plus dialer columns on `ae_deals` (`customer_phone`, `follow_up_at`,
+  `cs_onboarded_at/by`) and `profiles.twilio_number`. Schema: `supabase-dialer-*.sql`.
+
 ### Metrics architecture — investor ↔ executive lineage
 
 The Investor view (`role_type='investor'`, hard-routed) reads **only** investor-readable
@@ -268,6 +274,89 @@ integration; the Odyssey (Executive) view shows the same not-yet-available metri
 native `AwaitingBadge`. Note `meta_ads_metrics` stores only rolling-window presets (no daily
 rows), so it can't produce calendar-weekly figures — weekly ad spend comes from
 `atlas_daily_updates.ad_spend`, not Meta.
+
+## In-app dialer (Twilio) — calling, SMS, RCS, recording
+
+A multi-tenant softphone built INTO this app (ported from a standalone prototype). Reps
+call/text prospects in-app instead of a `tel:` hand-off. Backend is **Supabase edge
+functions** (not a separate server); the browser uses `@twilio/voice-sdk`. Shipped in
+milestones M1–M7 (all merged; see the plan file). Allowed roles: `account_executive`,
+`csm`, `executive`, `forward_deployed_engineer(_lead)`.
+
+**Per-rep model.** Each rep has their own Twilio number in `profiles.twilio_number`
+(E.164). The Voice AccessToken identity = `profile.id`; that number is the outbound
+caller ID and the inbound ring target. Exec assigns numbers in the ManagerView roster
+("Dialer number" field), which also carries a `TwilioSetupGuide` with the exact per-number
+webhook steps.
+
+**Edge functions** (`supabase/functions/dialer-*`):
+- `dialer-token` — mints the Twilio Voice AccessToken (HS256 JWT via `jose`, not the Node
+  `twilio` SDK — it can't run in Deno). JWT verify **ON** (signed-in rep). Nested claim
+  shape `grants.voice.outgoing.application_sid` + `cty:"twilio-fpa;v=1"` header.
+- `dialer-voice` — the TwiML App Voice URL. Outbound `<Dial callerId=rep#><Number>`;
+  inbound `<Dial><Client>repId</Client></Dial>` (routed by `To` = rep's number). Adds
+  `record="record-from-answer-dual"` when `DIALER_RECORDING_URL` is set.
+- `dialer-status` — call status/duration callback → `call_logs` (by `client_ref` or CallSid).
+- `dialer-recording` — recordingStatusCallback → stores `call_logs.recording_url`
+  (outbound matched by client `ref`, inbound by CallSid).
+- `dialer-recording-media` — **auth proxy** for playback. JWT verify **ON**; reads the
+  `call_logs` row with the CALLER's client so RLS decides access, then streams the Twilio
+  media (returns `application/octet-stream` so `functions.invoke` yields a real Blob —
+  `audio/*` gets parsed as text and corrupts). Nothing public.
+- `dialer-send` — sends SMS from the rep's own number; optional `channel:'rcs'` sends from
+  the brand RCS agent when `TWILIO_RCS_FROM` is set, else **falls back to per-rep SMS** and
+  returns the real channel. JWT verify **ON**.
+- `dialer-sms-inbound` — per-number "A message comes in" webhook; matches rep by `To` and
+  the deal by last-10-digit phone; `from_number`=sender, `line_number`=our Atlas line.
+- `dialer-sms-status` — message delivery/read callback (RCS `read` receipts flow through
+  here unchanged).
+
+**Public webhooks** (`dialer-voice`, `dialer-status`, `dialer-recording`,
+`dialer-sms-inbound`, `dialer-sms-status`) are deployed `--no-verify-jwt` and authenticated
+by validating `X-Twilio-Signature` (HMAC-SHA1 over the EXACT configured URL + sorted params).
+**The `--no-verify-jwt` flag is NOT sticky — pass it on EVERY redeploy** or the function
+returns 401 before our code runs and Twilio plays "an application error has occurred."
+Each webhook's signature URL comes from its own env var (`DIALER_VOICE_URL`,
+`DIALER_STATUS_URL`, `DIALER_RECORDING_URL`, `DIALER_SMS_INBOUND_URL`, `DIALER_SMS_STATUS_URL`)
+so a trailing char / wrong path breaks the signature → 403.
+
+**SMS routing is per-NUMBER, not per-service.** The Messaging Service stays on "Defer to
+sender's webhook" (GHL numbers share it — flipping it to a service-level webhook hijacks
+GHL). So `dialer-sms-inbound` + `dialer-voice` are set on EACH number's config; the sender
+pool only provides A2P 10DLC registration + throughput. Same two URLs on every number — the
+functions resolve the rep from `To`. Phone numbers are normalized to E.164 everywhere
+(inbound is always E.164, deal/typed numbers may be bare 10-digit) and threads/deal-links
+match by last-10 digits.
+
+**Client** (`src/DialerContext.jsx`): `DialerProvider` mounted ONCE in `App.jsx`'s `Shell`
+(survives view switches). Owns the Device lifecycle (register on mount for inbound), token
+refresh, client-owned `call_logs` logging (insert on start, finalize on end; webhooks
+enrich), the floating glass call widget (LiveCall / IncomingCall / WrapUp), and the
+`SmsThread` panel (polls for inbound, RCS opt-in toggle + pill + read receipts).
+`useDialer()` exposes `openDialer(number,{name,dealId})`, `openMessages(...)`,
+`logOutcome({disposition,notes,followUpDate})` (writes the disposition to `call_logs`,
+appends a dated note to `ae_deals.notes`, and optionally sets deal status `Follow-up` +
+`follow_up_at`). Triggered from `AeView` prospect rows (phone/💬 icons) and the CS/FDE
+hand-off panel.
+
+**Sales → CS/FDE hand-off (M5).** When an AE sets a deal `status='Closed Won'`, it surfaces
+as a callable contact for CSMs + FDEs (shared queue) via `useCsHandoffs` + `CsHandoffPanel`
+(rendered in CsmView + FdeView pipeline sections): click-to-call/text, "Mark onboarded" to
+clear, collapsed "Onboarded" section. RLS lets CS/FDE READ Closed Won `ae_deals`; the
+`mark_cs_onboarded()` SECURITY DEFINER rpc is the ONLY write they get (toggles just the
+onboarded flag — never sales fields).
+
+**Tables + schema:** `call_logs` (`supabase-dialer-call-logs-migration.sql`), `sms_messages`
+(`supabase-dialer-sms-migration.sql` + `-linenumber-` + `-rcs-` for the `channel` column),
+`profiles.twilio_number` (`supabase-dialer-rep-number-migration.sql`), `ae_deals` dialer
+columns (`supabase-ae-contact-phone-migration.sql`, `supabase-dialer-m5-cs-handoff-migration.sql`).
+RLS on `call_logs`/`sms_messages` mirrors `ae_deals`: rep sees own, managers/execs all; the
+edge functions write via the service role (no client insert policy).
+
+**Secrets:** `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_AUTH_TOKEN`,
+`TWILIO_PHONE_NUMBER` (shared fallback), the five `DIALER_*_URL` signature URLs, and
+`TWILIO_RCS_FROM` (unset = RCS off; set it after the Atlas RCS agent is verified to activate
+RCS — no code change/deploy needed).
 
 ## Patterns to follow
 
