@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, Play, Loader2 } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, Play, Loader2, Search, X } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -301,6 +301,23 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   const [err, setErr] = useState(null)
   const [showPast, setShowPast] = useState(false)
   const [statusFilter, setStatusFilter] = useState(null) // click a chip to show only that status
+  const [search, setSearch] = useState('')
+
+  // Cross-week prospect search — name / phone / email over ALL deals, not just this
+  // week (the meetings table is week-scoped, so this is the only way to jump to an
+  // older deal, e.g. to read its Atlas Blue pre-meeting thread).
+  const searchQ = search.trim().toLowerCase()
+  const searchDigits = search.replace(/\D/g, '')
+  const searchResults = useMemo(() => {
+    if (!searchQ) return []
+    return deals.filter(d => {
+      const name = (d.customer_name || '').toLowerCase()
+      const email = (d.customer_email || '').toLowerCase()
+      const phone = (d.customer_phone || '').replace(/\D/g, '')
+      return name.includes(searchQ) || email.includes(searchQ) || (searchDigits.length >= 3 && phone.includes(searchDigits))
+    }).sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0)).slice(0, 100)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deals, searchQ, searchDigits])
 
   // Filtering shrinks the list and the page height, which makes the browser snap
   // the scroll position up (looks like a reload-to-top). Capture the scroll on a
@@ -397,7 +414,22 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
         </div>
       </div>
 
-      {/* Status breakdown — click a chip to filter the list to that status. */}
+      {/* Prospect search — spans all weeks. */}
+      <div className="relative mb-3">
+        <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search all prospects by name, phone, or email…"
+          className="w-full pl-9 pr-9 py-2 border border-stone-300 focus:border-stone-900 transition-colors text-sm" />
+        {search && (
+          <button type="button" onClick={() => setSearch('')} title="Clear search"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-800">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Status breakdown — click a chip to filter the list to that status. Hidden
+          during a search (search is global, the chips are this-week only). */}
+      {!searchQ && (
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
         {statusCounts.map(({ status, n }) => {
           // 'Scheduled' returns to the default view (Scheduled on top + Past
@@ -425,10 +457,17 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
           </button>
         )}
       </div>
+      )}
 
       {err && <div className="text-[12px] text-amber-700 mb-2">{err}</div>}
 
-      {rows.length === 0 ? (
+      {searchQ && (
+        <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">
+          {searchResults.length} match{searchResults.length === 1 ? '' : 'es'} across all weeks
+        </div>
+      )}
+
+      {(rows.length === 0 && !searchQ) ? (
         <div className="border-2 border-dashed border-stone-300 p-8 text-center">
           <div className="display-font text-lg font-medium text-stone-700 mb-1">No meetings yet</div>
           <p className="text-sm text-stone-500">{canEdit ? 'Click “Sync meetings” to pull this week’s calendar, or add one manually.' : 'No meetings recorded for this week.'}</p>
@@ -447,7 +486,18 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
             </tr>
           </thead>
           <tbody>
-            {statusFilter ? (
+            {searchQ ? (
+              /* Search view: flat list of matches across ALL weeks. */
+              searchResults.length === 0 ? (
+                <tr><td colSpan={7} className="py-4 px-3 text-sm text-stone-400 italic">No prospects match “{search.trim()}”.</td></tr>
+              ) : (
+                searchResults.map(d => (
+                  <MeetingRow key={d.id} deal={d} canEdit={canEdit}
+                    expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                ))
+              )
+            ) : statusFilter ? (
               /* Filtered view: flat list of only the chosen status (ignores the
                  active/past split). */
               (() => {
