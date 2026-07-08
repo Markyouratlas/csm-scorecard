@@ -21,6 +21,7 @@ import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 import CommissionsTab from './CommissionsTab'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
+import CsHandoffPanel from './CsHandoffPanel.jsx'
 import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
 
@@ -815,6 +816,8 @@ function PipelineSection({ weekData, setPipeline, update }) {
           ))}
         </div>
       </div>
+
+      <CsHandoffPanel />
 
       <ChannelPartnersPanel
         customers={channelPartners}

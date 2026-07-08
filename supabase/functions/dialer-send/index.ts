@@ -20,7 +20,7 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
-const DIALER_ROLES = new Set(["account_executive", "csm", "executive"]);
+const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead"]);
 
 // Normalize to E.164 so contact_phone matches inbound (Twilio always delivers E.164).
 function e164(raw: string): string {
