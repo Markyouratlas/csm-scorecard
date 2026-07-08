@@ -358,6 +358,57 @@ edge functions write via the service role (no client insert policy).
 `TWILIO_RCS_FROM` (unset = RCS off; set it after the Atlas RCS agent is verified to activate
 RCS — no code change/deploy needed).
 
+## Atlas Blue (iMessage) integration
+
+Atlas Blue is Atlas's own iMessage AI agent ("Emma") that runs on Atlas phone numbers —
+**separate from the Twilio dialer**. This integration surfaces those AI-run pre-meeting
+conversations inside the AE deal view and lets an AE take the conversation over and reply
+as a human. (Atlas is the company's own product; its API is at `api.youratlas.com/v1/api`,
+auth header `api-key: <ATLAS_API_KEY>`, server-side only — never call it from the browser.)
+
+Shipped in phases: **P1** history + prospect search, **P4** human handoff + iPhone-styled
+messenger, **P2** realtime webhook. **P3** (a Cal.com `BOOKING_CREATED` webhook for instant
+deal-linking) is the only piece not yet built — the decision was to **reuse `ae_deals`**
+(link by phone) rather than add a separate bookings table.
+
+**Two distinct messaging surfaces — do NOT merge them** (a merged thread caused an "AI is
+handling this" bug on SMS-only contacts):
+- **SMS dialer thread** — `SmsThread` in `DialerContext.jsx`, violet, Twilio only (SMS/RCS),
+  opened by the 💬 icon (`openMessages`).
+- **Atlas Blue messenger** — `src/AtlasMessenger.jsx`, iPhone-styled (adapted from the
+  `glassphone` prototype but on a LIGHT canvas: blue = you, gray = them), opened by the blue
+  iMessage icon/badge (`useDialer().openAtlas`). Take over / Resume AI, human reply, start a
+  new iMessage, and a header showing the campaign name + sending number.
+
+**Tables** (`supabase-atlas-blue-*.sql`): `atlas_sessions` (one row per Atlas chat session;
+`contact_phone`/`contact_email`, `status`, `human_handoff`, `campaign_name`, `line_number`,
+`rep_id`, `ae_deal_id`) and `atlas_messages` (per message; `role`, `content`, `channel`,
+denormalized `rep_id`+`contact_phone` for flat RLS). RLS: an AE sees only sessions whose
+`rep_id` = them; managers/execs see all. No client writes — edge functions use the service
+role. Linking is by phone (last-10) or email to existing `ae_deals` — there is **no**
+`atlas_bookings` table.
+
+**Edge functions** (`supabase/functions/atlas-*`):
+- `atlas-sync` — seed/backfill (exec OR `x-cron-secret`); pulls sessions + messages for the
+  Blue campaign, links to `ae_deals`, stamps campaign name/number. `--no-verify-jwt`.
+- `atlas-handoff` / `atlas-send` / `atlas-start` — JWT-on, rep-authed: toggle handoff, send a
+  human reply, or start a brand-new iMessage. Atlas Blue outbound goes ONLY through these
+  (`send-human-response`), never `dialer-send` (that's Twilio).
+- `atlas-events-inbound` — the realtime webhook (`--no-verify-jwt`, gated by a `?token=`
+  secret since Atlas doesn't sign webhooks). On any message event it does a targeted REST
+  re-pull of that contact's current session + messages (events lack a sessionId), keeping the
+  thread fresh without a manual re-sync. Subscribe with `POST /events-gateway/trigger/subscribe`.
+
+**⚠️ Atlas API contracts differ from Atlas's own published docs** (verified live — see the
+[[atlas-blue-integration]] memory for the running list): handoff body is `{"enabled":bool}`
+(not `{}`); `send-human-response` must target the CURRENT session (a stale session returns a
+misleading "Human handoff is not enabled for this campaign" 400); REST GET responses are
+PascalCase Azure-Table shaped (`RowKey`, `PartitionKey`, `ContactIdentification`, `Tittle`
+[sic], `Role`/`Content`/`Channel`); phone-numbers are `{RowKey, PhoneNumber, CampaignId}`.
+The Atlas Blue campaign id + sending number live in the memory file.
+
+**Secrets:** `ATLAS_API_KEY`, `ATLAS_CAMPAIGN_IDS`, `CRON_SECRET`, `ATLAS_WEBHOOK_TOKEN`.
+
 ## Patterns to follow
 
 - **Prefer extending the existing pattern over inventing a new one.** Several things in this codebase look slightly inconsistent because they evolved through migrations (the `role` / `role_type` dual columns, the legacy `metric_targets` vs the new `atlas_targets`). Resist the urge to "clean these up" without an explicit reason — they're load-bearing for backward compatibility.
