@@ -19,7 +19,7 @@ import { supabase } from './supabase'
 // =============================================================================
 
 const DialerCtx = createContext(null)
-export const useDialer = () => useContext(DialerCtx) || { available: false, openDialer: () => {} }
+export const useDialer = () => useContext(DialerCtx) || { available: false, openDialer: () => {}, openMessages: () => {} }
 
 const DISPOSITIONS = ['Connected', 'Voicemail', 'No answer', 'Busy', 'Wrong number', 'Callback', 'Not interested']
 const fmtDur = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`

@@ -22,6 +22,7 @@ import { MtdCard, MtdLegend } from './MtdWidgets'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
+import CsHandoffPanel from './CsHandoffPanel.jsx'
 
 export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('activity')
@@ -691,6 +692,8 @@ function PipelineSection({ weekData, setPipeline, update }) {
           ))}
         </div>
       </div>
+
+      <CsHandoffPanel />
 
       <ChannelPartnersPanel
         customers={channelPartners}
