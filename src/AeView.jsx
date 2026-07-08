@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, Play, Loader2, Search, X } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -319,6 +319,17 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deals, searchQ, searchDigits])
 
+  // Which prospects have an Atlas Blue iMessage conversation (last-10 phone set) —
+  // drives the iMessage badge on the row. RLS scopes to the viewer's sessions.
+  const { data: atlasTails } = useQuery({
+    queryKey: ['atlas-contact-tails'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('atlas_sessions').select('contact_phone')
+      if (error) { console.warn('atlas tails:', error.message); return new Set() }
+      return new Set((data || []).map(r => (r.contact_phone || '').replace(/\D/g, '').slice(-10)).filter(Boolean))
+    },
+  })
+
   // Filtering shrinks the list and the page height, which makes the browser snap
   // the scroll position up (looks like a reload-to-top). Capture the scroll on a
   // chip click and restore it after the re-render so the user stays put.
@@ -494,7 +505,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 searchResults.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
                 ))
               )
             ) : statusFilter ? (
@@ -508,7 +519,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 return filtered.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
                 ))
               })()
             ) : (
@@ -516,7 +527,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 {activeRows.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
                 ))}
                 {activeRows.length === 0 && pastRows.length > 0 && (
                   <tr><td colSpan={7} className="py-3 px-3 text-sm text-stone-400 italic">All meetings actioned — see Past Meetings below.</td></tr>
@@ -535,7 +546,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 {showPast && pastRows.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
                 ))}
               </>
             )}
@@ -625,8 +636,9 @@ function RecordingPlayer({ logId }) {
   )
 }
 
-function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch }) {
-  const { openDialer, openMessages } = useDialer()
+function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch, atlasTails }) {
+  const { openDialer, openMessages, openAtlas } = useDialer()
+  const hasImessage = !!atlasTails && atlasTails.has((deal.customer_phone || '').replace(/\D/g, '').slice(-10))
   const isWire = deal.payment_method === 'wire_ach'
   const when = deal.meeting_at ? new Date(deal.meeting_at) : null
   const setField = (patch) => onSave(deal.id, patch).catch(e => console.error('ae_deals save:', e))
@@ -669,6 +681,14 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
         <td className="py-2 px-3">
           <div className="flex items-center gap-2">
             <div className="text-stone-800">{deal.customer_name || <span className="text-stone-400">(no name)</span>}</div>
+            {hasImessage && deal.customer_phone && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); openAtlas(deal.customer_phone, { name: deal.customer_name, dealId: deal.id }) }}
+                title="Atlas Blue iMessage conversation — open"
+                className="shrink-0 inline-flex items-center justify-center hover:opacity-80 transition-opacity"
+                style={{ width: 16, height: 16, borderRadius: 5, background: '#0A84FF', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <MessageCircle className="w-2.5 h-2.5" style={{ color: 'white' }} strokeWidth={3} />
+              </button>
+            )}
             <div className="flex items-center gap-1 shrink-0">
               {contactEmail && (
                 <a href={`mailto:${contactEmail}`} onClick={(e) => e.stopPropagation()} title={`Email ${contactEmail}`}
@@ -685,9 +705,16 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
               )}
               {deal.customer_phone && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); openMessages(deal.customer_phone, { name: deal.customer_name, dealId: deal.id }) }}
-                  title={`Text ${deal.customer_phone}`}
+                  title={`Text via SMS (${deal.customer_phone})`}
                   className="p-1 text-stone-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors">
                   <MessageSquare className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {deal.customer_phone && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); openAtlas(deal.customer_phone, { name: deal.customer_name, dealId: deal.id }) }}
+                  title="iMessage via Atlas Blue"
+                  className="p-1 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                  <MessageCircle className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -852,7 +879,7 @@ function AeDealsPipeline({ profile, canEdit }) {
               {rows.map(d => (
                 <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                   expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                  onSave={saveDeal} onRemove={remove} onMatch={matchStripe} />
+                  onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
               ))}
             </tbody>
           </table>
