@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, Play, Loader2 } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -521,7 +521,7 @@ function CallHistory({ dealId }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('call_logs')
-        .select('id, started_at, duration_seconds, disposition, notes')
+        .select('id, started_at, duration_seconds, disposition, notes, recording_url')
         .eq('ae_deal_id', dealId).order('started_at', { ascending: false }).limit(10)
       if (error) { console.warn('call_logs read:', error.message); return [] }
       return data || []
@@ -538,10 +538,40 @@ function CallHistory({ dealId }) {
             {l.disposition && <span className="px-1.5 py-0.5 border border-stone-200 rounded shrink-0">{l.disposition}</span>}
             {l.duration_seconds ? <span className="text-stone-400 num-tabular shrink-0">{Math.floor(l.duration_seconds / 60)}:{String(l.duration_seconds % 60).padStart(2, '0')}</span> : null}
             {l.notes && <span className="text-stone-400 truncate">— {l.notes}</span>}
+            {l.recording_url && <RecordingPlayer logId={l.id} />}
           </div>
         ))}
       </div>
     </div>
+  )
+}
+
+// Plays a call recording through the authenticated dialer-recording-media proxy
+// (RLS-enforced). We fetch the media as a blob with the session token — an <audio
+// src> can't carry the auth header — then play it from an object URL.
+function RecordingPlayer({ logId }) {
+  const [src, setSrc] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState(false)
+  const load = async () => {
+    if (src || loading) return
+    setLoading(true); setErr(false)
+    try {
+      const { data, error } = await supabase.functions.invoke('dialer-recording-media', { body: { logId } })
+      if (error || !data) throw new Error(error?.message || 'no data')
+      // data is an octet-stream Blob; re-type as audio/mpeg so <audio> will play it.
+      const bytes = data instanceof Blob ? await data.arrayBuffer() : data
+      setSrc(URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })))
+    } catch (e) { console.warn('recording load:', e); setErr(true) } finally { setLoading(false) }
+  }
+  if (src) return <audio controls autoPlay src={src} className="h-6 max-w-[180px] shrink-0" />
+  return (
+    <button type="button" onClick={load} disabled={loading}
+      title="Play recording"
+      className="flex items-center gap-1 px-1.5 py-0.5 border border-stone-200 rounded shrink-0 hover:bg-stone-50 text-stone-500 disabled:opacity-50">
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+      {err ? 'Unavailable' : 'Recording'}
+    </button>
   )
 }
 

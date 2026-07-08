@@ -70,6 +70,21 @@ serve(async (req) => {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const voiceUrl = Deno.env.get("DIALER_VOICE_URL") || configuredUrl;
 
+  // ---- Call recording (M4). record-from-answer-dual = one 2-channel recording
+  // (rep + customer on separate tracks), starting when the call is answered.
+  // dialer-recording stores the RecordingUrl on call_logs: outbound matches by the
+  // client `ref`, inbound (no ref) matches by CallSid. Consent = verbal disclosure
+  // by the rep (chosen). To require an automated announcement instead, add a <Say>
+  // to the outbound leg + a <Number url> announce leg / <Client> URL here.
+  const recordingBase = Deno.env.get("DIALER_RECORDING_URL") || "";
+  const recAttrs = (refForCb: string) =>
+    recordingBase
+      ? ` record="record-from-answer-dual"` +
+        ` recordingStatusCallback="${escapeXml(refForCb ? `${recordingBase}?ref=${encodeURIComponent(refForCb)}` : recordingBase)}"` +
+        ` recordingStatusCallbackEvent="completed"` +
+        ` recordingStatusCallbackMethod="POST"`
+      : "";
+
   // ---- Post-dial ACTION callback (from the inbound <Dial action>): only play the
   // "unavailable" message when the client didn't actually connect. On a normal
   // completed/answered call, end silently (otherwise the caller hears the message
@@ -96,7 +111,7 @@ serve(async (req) => {
     }
     const twiml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<Response><Dial timeout="20" answerOnBridge="true" action="${escapeXml(voiceUrl)}" method="POST">` +
+      `<Response><Dial timeout="20" answerOnBridge="true" action="${escapeXml(voiceUrl)}" method="POST"${recAttrs("")}>` +
       `<Client>${escapeXml(repId)}</Client></Dial></Response>`;
     return xml(twiml);
   }
@@ -122,7 +137,7 @@ serve(async (req) => {
 
   const twiml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response><Dial callerId="${escapeXml(callerId)}" answerOnBridge="true">` +
+    `<Response><Dial callerId="${escapeXml(callerId)}" answerOnBridge="true"${recAttrs(ref)}>` +
     `<Number${cbAttrs}>${escapeXml(to)}</Number></Dial></Response>`;
   return xml(twiml);
 });

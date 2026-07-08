@@ -161,6 +161,9 @@ export function DialerProvider({ children }) {
     if (rid) logInsert({
       rep_id: rid, ae_deal_id: null, customer_name: null,
       customer_phone: call.parameters?.From || null, direction: 'inbound', status: 'in-progress',
+      // Store the inbound CallSid so dialer-recording can attach the recording
+      // (inbound has no client `ref`, so recordings match on CallSid).
+      twilio_call_sid: call.parameters?.CallSid || null,
       client_ref: (crypto?.randomUUID?.() || String(Date.now())), started_at: new Date().toISOString(),
     })
     call.accept()
