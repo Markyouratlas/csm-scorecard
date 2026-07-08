@@ -74,11 +74,43 @@ serve(async (req) => {
     const att = p?.attendees?.[0] || {};
     const customerName = att?.name || null;
     const customerEmail = (att?.email || "").trim().toLowerCase() || null;
-    const phone = e164(extractPhone(p) || "");
+    let phone = e164(extractPhone(p) || "");
     const startTime = p?.startTime || p?.start || null;
     const eventType = p?.eventType?.slug || p?.type || p?.eventTypeSlug || null;
 
     if (!uid || !hostName) return json({ ok: true, skipped: "missing uid/host", uid, hostName });
+
+    // If the booking has no phone but has an email, resolve the phone from our
+    // GoHighLevel CRM (email -> contact -> phone). Atlas contacts are phone-keyed
+    // with no email, so this GHL bridge is the way to link phone-keyed Atlas chats
+    // to a phoneless booking. Also enriches the deal's customer_phone (feeds dialer).
+    let phoneFromGhl = false;
+    let ghlStatus: any = "not-tried";
+    if (!phone && customerEmail) {
+      const ghlKey = Deno.env.get("GHL_API_KEY") || "";       // v2 Private Integration token
+      const ghlLoc = Deno.env.get("GHL_LOCATION_ID") || "";
+      if (!ghlKey || !ghlLoc) {
+        ghlStatus = "missing-secret";
+      } else {
+        try {
+          const g = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(ghlLoc)}&query=${encodeURIComponent(customerEmail)}`,
+            { headers: { Authorization: `Bearer ${ghlKey}`, Version: "2021-07-28" } });
+          ghlStatus = g.status;
+          if (g.ok) {
+            const gj = await g.json().catch(() => ({}));
+            const list: any[] = gj?.contacts || [];
+            const hit = list.find((c) => (c?.email || "").toLowerCase() === customerEmail && c?.phone) || list.find((c) => c?.phone);
+            const p2 = e164(hit?.phone || "");
+            if (p2) { phone = p2; phoneFromGhl = true; ghlStatus = "matched"; }
+            else ghlStatus = `ok-no-phone(${list.length})`;
+          } else {
+            const t = await g.text().catch(() => "");
+            console.warn("GHL lookup", g.status, t);
+            ghlStatus = `${g.status}:${t.slice(0, 80)}`;
+          }
+        } catch (e) { ghlStatus = "error"; console.warn("GHL lookup failed", String(e)); }
+      }
+    }
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -118,7 +150,7 @@ serve(async (req) => {
       }
     }
 
-    return json({ ok: true, dealId, aeId, linkedSessions: linked, linkBy });
+    return json({ ok: true, dealId, aeId, linkedSessions: linked, linkBy, phoneFromGhl, ghlStatus });
   } catch (e: any) {
     console.error("cal-booking-inbound error:", e);
     return json({ ok: false, error: e?.message || String(e) }, 200); // never make Cal retry-storm
