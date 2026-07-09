@@ -23,6 +23,7 @@ import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
 import CsHandoffPanel from './CsHandoffPanel.jsx'
+import CombinedDialsCard from './CombinedDialsCard'
 
 export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey }) {
   const [section, setSection] = useState('activity')
@@ -326,6 +327,7 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
         >
           {section === 'activity' && (
             <div className="space-y-12">
+              <CombinedDialsCard userId={profile.id} weekKey={weekKey} />
               <MeetingsSection weekData={weekData} setMeeting={setMeeting} totalMeetings={totalMeetings} meetingsByDay={meetingsByDay} />
               <div className="border-t border-stone-200 pt-12">
                 <LaunchesSection weekData={weekData} setField={setField} update={update} />
