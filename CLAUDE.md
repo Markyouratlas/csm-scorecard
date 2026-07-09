@@ -417,6 +417,30 @@ The Atlas Blue campaign id + sending number live in the memory file.
 `CAL_WEBHOOK_SECRET`, and (for the phoneless-booking bridge) `GHL_API_KEY` (v2 Private
 Integration token) + `GHL_LOCATION_ID`.
 
+## Combined dial tracking (GHL + in-app dialer)
+
+Each role scorecard (AE Funnel / CSM Meetings / FDE Activity) shows a **"Dials this
+week"** card (`src/CombinedDialsCard.jsx`): **Scorecard dialer** dials (from `call_logs`,
+outbound) on top, **GoHighLevel** dials below (from `ghl_call_events`), and a combined
+**Total** — daily (Mon–Sun) + weekly. Placed once per view, in the default section.
+
+**Why a webhook, not the API:** GHL exposes no public endpoint for human dialer calls per
+user/date (only Voice-AI call logs; the Call Reporting widgets are UI-only). So GHL dials
+are captured via a **GHL Workflow** (trigger **Call Details**, filter Call Direction =
+Outgoing) → **Custom Webhook** → `ghl-calls-inbound` (deploy `--no-verify-jwt`, gated by a
+`?token=` secret since GHL doesn't sign). The workflow body maps GHL tokens to
+`{ userEmail, ghlUserId, ghlUserName, direction:"outbound", contactId, calledAt, callStatus }`
+(the Phone Call folder has no call-id and no dialer-email token; "Answered By" ≠ dialer).
+
+**Attribution** (precedence): `userEmail` → `auth.users` login email → profile; else
+`ghl_user_id` → `profiles.ghl_user_id`; else `ghl_user_name` → `profiles.name` (the
+zero-config path — GHL users == scorecard people). `profiles` has no email column (it's on
+`auth.users`). **Dedupe** on `natural_key` = Message Id (if present) else composite
+`ghlUserId|contactId|calledAt`. Table `ghl_call_events` (+ `profiles.ghl_user_id`), schema
+`supabase-ghl-calls-migration.sql`; RLS mirrors `call_logs`. Secret: `GHL_CALLS_TOKEN`.
+Executives have no role scorecard, so their own dials record but don't display. See the
+[[ghl-call-tracking]] memory.
+
 ## Patterns to follow
 
 - **Prefer extending the existing pattern over inventing a new one.** Several things in this codebase look slightly inconsistent because they evolved through migrations (the `role` / `role_type` dual columns, the legacy `metric_targets` vs the new `atlas_targets`). Resist the urge to "clean these up" without an explicit reason — they're load-bearing for backward compatibility.
