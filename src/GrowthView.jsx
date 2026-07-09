@@ -16,6 +16,7 @@ import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
+import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
@@ -314,11 +315,18 @@ function NumCell({ value, onChange, prefix }) {
 const AB_BLUE = '#2563EB'
 const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 
-// Read-only numeric cell (auto-derived columns).
-function ReadCell({ value, money }) {
+// Read-only numeric cell (auto-derived columns). When onClick is passed the
+// value becomes a button that opens the drill-down modal.
+function ReadCell({ value, money, onClick }) {
+  const content = money ? fmtWhole(value) : (Number(value) || 0).toLocaleString()
   return (
     <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">
-      {money ? fmtWhole(value) : (Number(value) || 0).toLocaleString()}
+      {onClick
+        ? <button type="button" onClick={onClick}
+            className="underline decoration-dotted decoration-stone-300 underline-offset-2 hover:text-stone-900 hover:decoration-stone-500 transition-colors cursor-pointer">
+            {content}
+          </button>
+        : content}
     </td>
   )
 }
@@ -351,7 +359,11 @@ function AbHeadCell({ label, tip, tone = 'manual' }) {
 
 function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profile }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
+  const { viewedWeekDays, viewedWeekDeals, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
+
+  // Drill-down modal: click any bottom-funnel value to see the deals behind it.
+  const [drill, setDrill] = useState(null)
+  const openDrill = (metricKey, dayIdx, label) => setDrill({ metricKey, dayIdx, label })
 
   const setCell = (dayIdx, key, value) => update(d => ({
     ...d,
@@ -488,32 +500,33 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
             {workDayIdxs.map(dayIdx => {
               const a = viewedWeekDays[dayIdx] || {}
               const closeable = (a.demosCompleted || 0) - (a.demosUnqualified || 0)
+              const lbl = DAY_NAMES[dayIdx]
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
-                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
-                  <ReadCell value={a.demosBooked} />
-                  <ReadCell value={a.demosCompleted} />
-                  <ReadCell value={a.newCustomers} />
-                  <ReadCell value={a.cashCollected} money />
-                  <ReadCell value={a.dealValue} money />
-                  <DerivedCell value={showUpRate(a.demosCompleted, a.demosBooked)} format="pct" />
-                  <DerivedCell value={safeDiv(a.newCustomers, closeable)} format="pct" />
-                  <DerivedCell value={safeDiv(a.cashCollected, a.newCustomers)} format="money" />
-                  <DerivedCell value={safeDiv(a.dealValue, a.newCustomers)} format="money" />
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{lbl}</div></td>
+                  <ReadCell value={a.demosBooked} onClick={a.demosBooked ? () => openDrill('booked', dayIdx, lbl) : undefined} />
+                  <ReadCell value={a.demosCompleted} onClick={a.demosCompleted ? () => openDrill('completed', dayIdx, lbl) : undefined} />
+                  <ReadCell value={a.newCustomers} onClick={a.newCustomers ? () => openDrill('newCustomers', dayIdx, lbl) : undefined} />
+                  <ReadCell value={a.cashCollected} money onClick={a.newCustomers ? () => openDrill('cash', dayIdx, lbl) : undefined} />
+                  <ReadCell value={a.dealValue} money onClick={a.newCustomers ? () => openDrill('dealValue', dayIdx, lbl) : undefined} />
+                  <DerivedCell value={showUpRate(a.demosCompleted, a.demosBooked)} format="pct" onClick={a.demosBooked ? () => openDrill('showUp', dayIdx, lbl) : undefined} />
+                  <DerivedCell value={safeDiv(a.newCustomers, closeable)} format="pct" onClick={closeable > 0 ? () => openDrill('closing', dayIdx, lbl) : undefined} />
+                  <DerivedCell value={safeDiv(a.cashCollected, a.newCustomers)} format="money" onClick={a.newCustomers ? () => openDrill('avgCash', dayIdx, lbl) : undefined} />
+                  <DerivedCell value={safeDiv(a.dealValue, a.newCustomers)} format="money" onClick={a.newCustomers ? () => openDrill('avgDeal', dayIdx, lbl) : undefined} />
                 </tr>
               )
             })}
             <tr className="bg-stone-900 text-stone-50">
               <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.booked.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.completed.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.newCustomers.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.cash)}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.dealValue)}</td>
-              <FooterDerivedCell value={showUpRate(t.completed, t.booked)} format="pct" />
-              <FooterDerivedCell value={safeDiv(t.newCustomers, t.completed - t.unqualified)} format="pct" />
-              <FooterDerivedCell value={safeDiv(t.cash, t.newCustomers)} format="money" />
-              <FooterDerivedCell value={safeDiv(t.dealValue, t.newCustomers)} format="money" />
+              <FooterReadCell text={t.booked.toLocaleString()} onClick={t.booked ? () => openDrill('booked', null, 'This week') : undefined} />
+              <FooterReadCell text={t.completed.toLocaleString()} onClick={t.completed ? () => openDrill('completed', null, 'This week') : undefined} />
+              <FooterReadCell text={t.newCustomers.toLocaleString()} onClick={t.newCustomers ? () => openDrill('newCustomers', null, 'This week') : undefined} />
+              <FooterReadCell text={fmtWhole(t.cash)} onClick={t.newCustomers ? () => openDrill('cash', null, 'This week') : undefined} />
+              <FooterReadCell text={fmtWhole(t.dealValue)} onClick={t.newCustomers ? () => openDrill('dealValue', null, 'This week') : undefined} />
+              <FooterDerivedCell value={showUpRate(t.completed, t.booked)} format="pct" onClick={t.booked ? () => openDrill('showUp', null, 'This week') : undefined} />
+              <FooterDerivedCell value={safeDiv(t.newCustomers, t.completed - t.unqualified)} format="pct" onClick={(t.completed - t.unqualified) > 0 ? () => openDrill('closing', null, 'This week') : undefined} />
+              <FooterDerivedCell value={safeDiv(t.cash, t.newCustomers)} format="money" onClick={t.newCustomers ? () => openDrill('avgCash', null, 'This week') : undefined} />
+              <FooterDerivedCell value={safeDiv(t.dealValue, t.newCustomers)} format="money" onClick={t.newCustomers ? () => openDrill('avgDeal', null, 'This week') : undefined} />
             </tr>
           </tbody>
         </table>
@@ -570,11 +583,20 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           </ResponsiveContainer>
         </div>
       </div>
+
+      {drill && (
+        <AtlasBlueDrilldownModal
+          drill={drill}
+          deals={viewedWeekDeals}
+          workDayIdxs={workDayIdxs}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   )
 }
 
-function DerivedCell({ value, target, comparator, format }) {
+function DerivedCell({ value, target, comparator, format, onClick }) {
   let isGood = null
   if (value !== null && value !== undefined && !isNaN(value) && target !== undefined) {
     isGood = comparator === 'gte' ? value >= target : value <= target
@@ -585,12 +607,17 @@ function DerivedCell({ value, target, comparator, format }) {
     : value.toFixed(1)
   return (
     <td className={`py-2 px-2 text-center num-tabular text-xs ${isGood === true ? 'text-emerald-700 font-semibold' : isGood === false ? 'text-red-700 font-semibold' : 'text-stone-500'}`}>
-      {display}
+      {onClick
+        ? <button type="button" onClick={onClick}
+            className="underline decoration-dotted decoration-stone-300 underline-offset-2 hover:decoration-stone-500 transition-colors cursor-pointer">
+            {display}
+          </button>
+        : display}
     </td>
   )
 }
 
-function FooterDerivedCell({ value, target, comparator, format }) {
+function FooterDerivedCell({ value, target, comparator, format, onClick }) {
   let isGood = null
   if (value !== null && value !== undefined && !isNaN(value) && target !== undefined) {
     isGood = comparator === 'gte' ? value >= target : value <= target
@@ -600,7 +627,25 @@ function FooterDerivedCell({ value, target, comparator, format }) {
     : format === 'money' ? `$${value.toFixed(2)}`
     : value.toFixed(1)
   const color = isGood === true ? '#10B981' : isGood === false ? '#F87171' : '#F59E0B'
-  return <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color }}>{display}</td>
+  return (
+    <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color }}>
+      {onClick
+        ? <button type="button" onClick={onClick} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{display}</button>
+        : display}
+    </td>
+  )
+}
+
+// Total-row read cell (Booked/Completed/etc. on the dark footer). Clickable when
+// onClick is passed — opens the drill-down for the whole week.
+function FooterReadCell({ text, onClick }) {
+  return (
+    <td className="py-3 px-2 text-center num-tabular font-bold">
+      {onClick
+        ? <button type="button" onClick={onClick} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{text}</button>
+        : text}
+    </td>
+  )
 }
 
 function MonthlyView({ profile, monthKey, targets }) {
