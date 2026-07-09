@@ -213,7 +213,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
         {section === 'meta-live' && <MetaLiveSection refreshKey={metaRefreshKey} />}
         {section === 'ad-sets' && <AdSetsSection refreshKey={metaRefreshKey} />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
-        {section === 'channels' && <ChannelsSection weekData={weekData} update={update} />}
+        {section === 'channels' && <ChannelsSection weekData={weekData} update={update} weekKey={weekKey} />}
         {section === 'experiments' && <ExperimentsSection weekData={weekData} update={update} />}
         {section === 'notes' && <NotesSection weekData={weekData} update={update} />}
       </div>
@@ -715,6 +715,79 @@ function FooterReadCell({ text, onClick }) {
 
 function MonthlyView({ profile, monthKey, targets }) {
   const { weeks, loading } = useMtdData(profile.id, monthKey)
+
+  // Ad Spend + Paid Leads for the month, straight from Meta (meta_ads_daily) — so
+  // MTD is accurate for the whole month regardless of which weeks got persisted.
+  const [metaMonth, setMetaMonth] = useState(null) // { spend, leads } or null when Meta has no rows
+  useEffect(() => {
+    let cancelled = false
+    const [y, m] = monthKey.split('-').map(Number)
+    const start = `${monthKey}-01`
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) // last day of the month
+    supabase
+      .from('meta_ads_daily')
+      .select('spend, actions')
+      .gte('date_start', start)
+      .lte('date_start', end)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data || data.length === 0) { setMetaMonth(null); return }
+        let spend = 0, leads = 0
+        for (const r of data) {
+          spend += Number(r.spend) || 0
+          const lead = (r.actions || []).find(a => a.action_type === 'lead')
+          if (lead) leads += Number(lead.value) || 0
+        }
+        setMetaMonth({ spend: Math.round(spend * 100) / 100, leads: Math.round(leads) })
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthKey])
+
+  // Multi-month trend for the "Monthly Overview" chart (Ad Spend + Paid Leads),
+  // pulled from Meta. Selector controls how many trailing months to show.
+  const [chartMonths, setChartMonths] = useState(6)
+  const [monthlyTrend, setMonthlyTrend] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    const [y, m] = monthKey.split('-').map(Number)
+    const startD = new Date(Date.UTC(y, m - 1 - (chartMonths - 1), 1))
+    const startStr = startD.toISOString().slice(0, 10)
+    const endStr = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+    supabase
+      .from('meta_ads_daily')
+      .select('date_start, spend, actions')
+      .gte('date_start', startStr)
+      .lte('date_start', endStr)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        const byMonth = {}
+        for (const r of (error ? [] : data || [])) {
+          if (!r.date_start) continue
+          const mk = r.date_start.slice(0, 7)
+          const agg = (byMonth[mk] ||= { adSpend: 0, leads: 0 })
+          agg.adSpend += Number(r.spend) || 0
+          const lead = (r.actions || []).find(a => a.action_type === 'lead')
+          if (lead) agg.leads += Number(lead.value) || 0
+        }
+        const out = []
+        for (let i = 0; i < chartMonths; i++) {
+          const d = new Date(Date.UTC(y, m - 1 - (chartMonths - 1) + i, 1))
+          const mk = d.toISOString().slice(0, 7)
+          const agg = byMonth[mk] || { adSpend: 0, leads: 0 }
+          out.push({
+            label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+            adSpend: Math.round(agg.adSpend),
+            leads: agg.leads,
+            cpl: agg.leads > 0 ? agg.adSpend / agg.leads : null,
+          })
+        }
+        setMonthlyTrend(out)
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthKey, chartMonths])
+
   if (loading) return <div className="bg-white border border-stone-200 p-12 flex justify-center"><RocketLoader className="min-h-[160px]" label="Loading…" /></div>
 
   const totals = weeks.reduce((acc, w) => {
@@ -733,21 +806,29 @@ function MonthlyView({ profile, monthKey, targets }) {
     return acc
   }, { adSpend: 0, websiteVisitors: 0, optins: 0, organicLeads: 0, leads: 0, sqls: 0, demosBooked: 0, demosCompleted: 0, newCustomers: 0 })
 
+  // Meta is authoritative for ad spend + paid leads (matches the Daily Funnel).
+  const adSpend = metaMonth ? metaMonth.spend : totals.adSpend
+  const leads   = metaMonth ? metaMonth.leads : totals.leads
+
   const mtdOptin    = totals.websiteVisitors > 0 ? (totals.optins / totals.websiteVisitors) * 100 : null
-  const mtdCpl      = totals.leads > 0 ? totals.adSpend / totals.leads : null
-  const mtdSqlRate  = totals.leads > 0 ? (totals.sqls / totals.leads) * 100 : null
-  const mtdBooking  = totals.leads > 0 ? (totals.demosBooked / totals.leads) * 100 : null
-  const mtdCpd      = totals.demosBooked > 0 ? totals.adSpend / totals.demosBooked : null
-  const mtdCac      = totals.newCustomers > 0 ? totals.adSpend / totals.newCustomers : null
+  const mtdCpl      = leads > 0 ? adSpend / leads : null
+  const mtdSqlRate  = leads > 0 ? (totals.sqls / leads) * 100 : null
+  const mtdBooking  = leads > 0 ? (totals.demosBooked / leads) * 100 : null
+  const mtdCpd      = totals.demosBooked > 0 ? adSpend / totals.demosBooked : null
+  const mtdCac      = totals.newCustomers > 0 ? adSpend / totals.newCustomers : null
 
   return (
     <div className="space-y-6">
       <div className="bg-white border border-stone-200 p-6">
         <div className="display-font text-2xl font-medium text-stone-900 mb-1">Month-to-date</div>
-        <div className="text-sm text-stone-600 mb-4">{formatMonthLabel(monthKey)} · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} of data</div>
+        <div className="text-sm text-stone-600 mb-4">
+          {formatMonthLabel(monthKey)} · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'} of data
+          {metaMonth ? ' · Ad Spend, CPL & Paid-Lead rates are live from Meta' : ''}
+        </div>
         <MtdLegend />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <MtdCard label="Organic Leads"        value={totals.organicLeads}     target={targets.organic_leads} />
+          <MtdCard label="Paid Leads"           value={leads}                   target={targets.paid_leads ?? null} help={metaMonth ? 'Live from Meta this month' : undefined} />
           <MtdCard label="Website Visitors"     value={totals.websiteVisitors}  target={targets.website_visitors} />
           <MtdCard label="Opt-in Rate"          value={mtdOptin}                target={targets.optin_rate} unit="pct" />
           <MtdCard label="Cost Per Lead"        value={mtdCpl}                  target={targets.cpl} unit="money" />
@@ -755,7 +836,52 @@ function MonthlyView({ profile, monthKey, targets }) {
           <MtdCard label="Cost Per Booked Demo" value={mtdCpd}                  target={targets.cost_per_demo} unit="money" />
           <MtdCard label="CAC (blended)"        value={mtdCac}                  target={targets.cac} unit="money" />
           <MtdCard label="Booking Rate"         value={mtdBooking}              target={targets.booking_rate} unit="pct" />
-          <MtdCard label="Ad Spend"             value={totals.adSpend}          target={null} unit="money" help="Track vs. monthly ad budget" />
+          <MtdCard label="Ad Spend"             value={adSpend}                 target={null} unit="money" help={metaMonth ? 'Live from Meta this month' : 'Track vs. monthly ad budget'} />
+        </div>
+      </div>
+
+      {/* Monthly Overview — Ad Spend vs Paid Leads per month, live from Meta. */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-1">
+          <div className="display-font text-2xl font-medium text-stone-900">Monthly Overview</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[3, 6, 12, 24].map(n => (
+              <button key={n} onClick={() => setChartMonths(n)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: chartMonths === n ? AB_BLUE : 'rgba(37,99,235,0.08)',
+                  color: chartMonths === n ? 'white' : AB_BLUE,
+                  border: '1px solid rgba(37,99,235,0.25)',
+                }}>
+                {n}m
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-sm text-stone-600 mt-1">
+          Ad Spend vs Paid Leads per month, live from Meta. Cost-per-lead shows in the tooltip.
+        </p>
+        <div className="h-[300px] mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={monthlyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0ef" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="spend" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+              <YAxis yAxisId="leads" orientation="right" tick={{ fontSize: 11 }} />
+              <RTooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                formatter={(v, name) => {
+                  if (name === 'Ad Spend') return [`$${Math.round(Number(v)).toLocaleString()}`, name]
+                  if (name === 'CPL') return [v == null ? '—' : `$${Number(v).toFixed(2)}`, name]
+                  return [Number(v).toLocaleString(), name]
+                }}
+              />
+              <Bar yAxisId="spend" dataKey="adSpend" name="Ad Spend" fill="#93C5FD" radius={[3, 3, 0, 0]} />
+              <Bar yAxisId="leads" dataKey="leads" name="Paid Leads" fill="#10B981" radius={[3, 3, 0, 0]} />
+              {/* CPL carried for the tooltip only (transparent so it doesn't clutter the axes). */}
+              <Line yAxisId="leads" dataKey="cpl" name="CPL" stroke="transparent" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>
@@ -769,15 +895,48 @@ const CHANNELS = [
   { key: 'other',    label: 'Other',    color: '#78716C' },
 ]
 
-function ChannelsSection({ weekData, update }) {
+function ChannelsSection({ weekData, update, weekKey }) {
   const setCh = (chKey, key, value) => update(d => ({
     ...d, channels: { ...d.channels, [chKey]: { ...d.channels[chKey], [key]: Number(value) || 0 } },
   }))
 
+  // Meta channel — pull spend / impressions / clicks / leads live for the week
+  // (read-only). Other channels stay manual (no integration). Display-only:
+  // weekData.channels isn't consumed anywhere else, so no need to persist.
+  const [metaWeek, setMetaWeek] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    const [y, m, d] = weekKey.split('-').map(Number)
+    const end = new Date(Date.UTC(y, m - 1, d)); end.setUTCDate(end.getUTCDate() + 6)
+    const endStr = end.toISOString().slice(0, 10)
+    supabase
+      .from('meta_ads_daily')
+      .select('spend, impressions, inline_link_clicks, actions')
+      .gte('date_start', weekKey)
+      .lte('date_start', endStr)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data || data.length === 0) { setMetaWeek(null); return }
+        let spend = 0, impressions = 0, clicks = 0, leads = 0
+        for (const r of data) {
+          spend += Number(r.spend) || 0
+          impressions += Number(r.impressions) || 0
+          clicks += Number(r.inline_link_clicks) || 0
+          const lead = (r.actions || []).find(a => a.action_type === 'lead')
+          if (lead) leads += Number(lead.value) || 0
+        }
+        setMetaWeek({ spend: Math.round(spend * 100) / 100, impressions, clicks, leads })
+      })
+    return () => { cancelled = true }
+  }, [weekKey])
+
   return (
     <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
       <div className="display-font text-2xl font-medium text-stone-900 mb-1">Channel breakdown</div>
-      <p className="text-sm text-stone-600 mb-6">Weekly totals per channel.</p>
+      <p className="text-sm text-stone-600 mb-6">
+        Weekly totals per channel.
+        <span className="text-stone-400"> Meta’s Spend / Impressions / Clicks / Leads are pulled live from Meta (read-only); other channels are entered manually.</span>
+      </p>
       <table className="w-full text-sm min-w-[860px]">
         <thead>
           <tr className="border-b border-stone-200 bg-stone-50">
@@ -795,6 +954,11 @@ function ChannelsSection({ weekData, update }) {
         <tbody>
           {CHANNELS.map(ch => {
             const data = weekData.channels[ch.key]
+            // For Meta, override spend/impressions/clicks/leads with the live values.
+            const eff = (ch.key === 'meta' && metaWeek)
+              ? { ...data, spend: metaWeek.spend, impressions: metaWeek.impressions, clicks: metaWeek.clicks, leads: metaWeek.leads }
+              : data
+            const autoKeys = (ch.key === 'meta' && metaWeek) ? ['spend', 'impressions', 'clicks', 'leads'] : []
             return (
               <tr key={ch.key} className="border-b border-stone-100">
                 <td className="py-2 px-3">
@@ -805,12 +969,16 @@ function ChannelsSection({ weekData, update }) {
                 </td>
                 {['spend','impressions','clicks','leads','demosBooked','trialSignups'].map(k => (
                   <td key={k} className="py-2 px-2 text-center">
-                    <input type="number" min="0" step="any" value={data[k] || ''} onChange={(e) => setCh(ch.key, k, e.target.value)}
-                      className="w-20 text-center py-1.5 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />
+                    {autoKeys.includes(k)
+                      ? <span className="num-tabular text-sm text-stone-700" title="Live from Meta">
+                          {k === 'spend' ? fmtWhole(eff[k]) : (Number(eff[k]) || 0).toLocaleString()}
+                        </span>
+                      : <input type="number" min="0" step="any" value={data[k] || ''} onChange={(e) => setCh(ch.key, k, e.target.value)}
+                          className="w-20 text-center py-1.5 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-sm" />}
                   </td>
                 ))}
-                <DerivedCell value={ctr(data.clicks, data.impressions)} target={0.05} comparator="gte" format="pct" />
-                <DerivedCell value={cpl(data.spend, data.leads)} target={5} comparator="lte" format="money" />
+                <DerivedCell value={ctr(eff.clicks, eff.impressions)} target={0.05} comparator="gte" format="pct" />
+                <DerivedCell value={cpl(eff.spend, eff.leads)} target={5} comparator="lte" format="money" />
               </tr>
             )
           })}
