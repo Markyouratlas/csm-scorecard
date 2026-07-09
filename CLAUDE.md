@@ -470,6 +470,7 @@ In this order, for a complete mental model:
 - `useOdysseyMetrics` returns null for many metrics that genuinely don't have data sources yet. The UI handles null gracefully via the awaiting map. Don't fill nulls with 0 — they have different meanings (0 = "the team did nothing this week", null = "we have no way to measure this yet").
 - Daily granularity exists in `weekly_scorecards.data.daily[dayIdx]` for AE, Growth, and Ad Strategist roles only. CS, Engineering, Support, Implementation store week-level totals. The Daily Pulse tab handles this asymmetry with "Awaiting Daily logging" badges where appropriate.
 - The numbers on the Atlas Odyssey weekly tab can look slightly different from the legacy "Live data" tab. That's expected — Odyssey pulls historical actuals from `atlas_targets` (which were backfilled from a spreadsheet), while Live data computes from raw `weekly_scorecards` only. Once Stripe is wired, both will converge.
+- `MeetingRow` in `AeView.jsx` is rendered in **two** separate components — the Daily Funnel section and `AeDealsPipeline` ("Deals from meetings") — and each must supply ALL of its props independently. They don't share scope, so a prop backed by a hook/query (e.g. `atlasTails`, the Atlas Blue iMessage-badge lookup) has to be declared in *both* call sites. Adding a copy to only one is what caused a `ReferenceError: atlasTails is not defined` that blanked the whole AE Pipeline tab. If you add a new `MeetingRow` prop, wire it in both places.
 
 ## What's NOT done yet (the obvious next work)
 
