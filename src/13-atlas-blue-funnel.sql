@@ -15,16 +15,22 @@
 -- and status math (deriveFunnelWeek / closeableHeld in src/aeFunnel.js), so the
 -- Atlas Blue funnel and the AE Daily Funnel can never disagree.
 --
--- Idempotent: safe to re-run (CREATE OR REPLACE).
+-- Idempotent: safe to re-run. Return columns changed (added customer_name/email
+-- for the drill-down modal), so DROP first — CREATE OR REPLACE can't change a
+-- function's return signature.
 -- ============================================================
+
+DROP FUNCTION IF EXISTS public.atlas_blue_deals(timestamptz);
 
 CREATE OR REPLACE FUNCTION public.atlas_blue_deals(p_since timestamptz)
 RETURNS TABLE (
-  id         uuid,
-  meeting_at timestamptz,
-  status     text,
-  one_time   numeric,
-  mrr        numeric
+  id             uuid,
+  meeting_at     timestamptz,
+  status         text,
+  one_time       numeric,
+  mrr            numeric,
+  customer_name  text,
+  customer_email text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -49,7 +55,7 @@ BEGIN
   END IF;
 
   RETURN QUERY
-    SELECT d.id, d.meeting_at, d.status, d.one_time, d.mrr
+    SELECT d.id, d.meeting_at, d.status, d.one_time, d.mrr, d.customer_name, d.customer_email
       FROM ae_deals d
       JOIN cal_bookings cb           ON cb.uid = d.booking_uid
       JOIN cal_event_type_config cfg ON cfg.slug = cb.event_type_slug

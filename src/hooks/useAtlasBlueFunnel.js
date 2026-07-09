@@ -138,8 +138,15 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
     })
   }
 
+  // Raw deals for the viewed week (with dayIdx), so the drill-down modal can
+  // list the actual customers/prospects behind any bottom-funnel number.
+  const viewedWeekDeals = deals
+    .filter(d => weekKeyOfMeeting(d.meeting_at) === weekKey)
+    .map(d => ({ ...d, dayIdx: dayIdxOfMeeting(d.meeting_at) }))
+
   return {
     viewedWeekDays,
+    viewedWeekDeals,
     weeklyTrend,
     loading: isPending,
     error: error ?? null,
