@@ -816,6 +816,18 @@ function AeDealsPipeline({ profile, canEdit }) {
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
 
+  // Which prospects have an Atlas Blue iMessage conversation (last-10 phone set) —
+  // drives the iMessage badge on each row. Same cached query as the Daily Funnel
+  // section, so React Query dedupes it (no extra fetch).
+  const { data: atlasTails } = useQuery({
+    queryKey: ['atlas-contact-tails'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('atlas_sessions').select('contact_phone')
+      if (error) { console.warn('atlas tails:', error.message); return new Set() }
+      return new Set((data || []).map(r => (r.contact_phone || '').replace(/\D/g, '').slice(-10)).filter(Boolean))
+    },
+  })
+
   const saveDeal = async (id, patch) => {
     await save(id, patch)
     if (patch.status === 'Closed Won') {
