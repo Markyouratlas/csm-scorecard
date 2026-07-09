@@ -24,8 +24,9 @@ import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
 import CsHandoffPanel from './CsHandoffPanel.jsx'
 import CombinedDialsCard from './CombinedDialsCard'
+import { WeekNavigator } from './ScorecardShell'
 
-export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey }) {
+export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const [section, setSection] = useState('activity')
   const [weekData, setWeekData] = useState(null)
   const [submittedAt, setSubmittedAt] = useState(null)
@@ -43,6 +44,8 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
   const isExecDrillIn = propWeekKey !== undefined
   const [ownWeekKey, setOwnWeekKey] = useState(getWeekKey())
   const weekKey = isExecDrillIn ? propWeekKey : ownWeekKey
+  // Week setter: own state in self-view; ScorecardViewer's setter in an exec drill-in.
+  const effectiveSetWeekKey = isExecDrillIn ? propSetWeekKey : setOwnWeekKey
 
   const currentWeekKey = getWeekKey()
   const isViewingCurrentWeek = weekKey === currentWeekKey
@@ -237,40 +240,8 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
         </div>
       </header>
 
-      {/* Week navigator — own-scorecard only. Exec drill-in uses ScorecardViewer's nav. */}
-      {!isExecDrillIn && (
-        <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3 flex-wrap">
-            <button
-              onClick={() => setOwnWeekKey(stepWeek(weekKey, -1))}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded"
-              title="Previous week"
-            >
-              <ChevronLeft className="w-4 h-4" /> Previous week
-            </button>
-            <div className="flex flex-col items-center px-4 py-1 min-w-[200px]">
-              <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
-              <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
-            </div>
-            <button
-              onClick={() => setOwnWeekKey(stepWeek(weekKey, 1))}
-              disabled={weekKey >= currentWeekKey}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Next week"
-            >
-              Next week <ChevronRight className="w-4 h-4" />
-            </button>
-            {!isViewingCurrentWeek && (
-              <button
-                onClick={() => setOwnWeekKey(currentWeekKey)}
-                className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
-              >
-                Jump to current
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Week navigator moved inline — rendered between the hero and the section
+          tabs below, so it works the same in self-view and exec drill-in. */}
 
       <div className="max-w-7xl mx-auto px-6 py-10">
         <div className="mb-10 fade-up">
@@ -304,6 +275,8 @@ export default function FdeView({ profile, onSignOut, onSwitchToManager, onSwitc
           />
           <TestimonialsNorthStar profile={profile} weekKey={weekKey} />
         </div>
+
+        <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
 
         {/* Section nav */}
         <div className="flex flex-wrap gap-2 mb-8 fade-up" style={{ animationDelay: '120ms' }}>

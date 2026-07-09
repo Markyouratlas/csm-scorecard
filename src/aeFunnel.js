@@ -30,15 +30,17 @@ const TZ = 'America/Toronto'
 function torontoYMD(date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
 }
-// Monday (YYYY-MM-DD) of the week containing a 'YYYY-MM-DD'.
-function mondayOfYMD(ymd) {
+// Monday (YYYY-MM-DD) of the week containing a 'YYYY-MM-DD'. Exported so other
+// funnels can week-bucket plain date strings (e.g. Meta's daily date_start) with
+// the same boundary math the AE funnel uses.
+export function mondayOfYMD(ymd) {
   const [y, m, d] = ymd.split('-').map(Number)
   const dt = new Date(Date.UTC(y, m - 1, d))
   dt.setUTCDate(dt.getUTCDate() - (dt.getUTCDay() === 0 ? 6 : dt.getUTCDay() - 1))
   return dt.toISOString().slice(0, 10)
 }
 // JS getDay (0=Sun..6=Sat) of a 'YYYY-MM-DD'.
-function dayIdxOfYMD(ymd) {
+export function dayIdxOfYMD(ymd) {
   const [y, m, d] = ymd.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
 }
@@ -48,6 +50,14 @@ function dayIdxOfYMD(ymd) {
 export function weekKeyOfMeeting(meetingAt) {
   if (!meetingAt) return null
   return mondayOfYMD(torontoYMD(new Date(meetingAt)))
+}
+
+// JS getDay (0=Sun..6=Sat) of a meeting's Toronto calendar date — same bucketing
+// deriveFunnelWeek uses internally, exported so other funnels (e.g. the Atlas Blue
+// funnel) can place a deal on the same weekday without duplicating the TZ logic.
+export function dayIdxOfMeeting(meetingAt) {
+  if (!meetingAt) return null
+  return dayIdxOfYMD(torontoYMD(new Date(meetingAt)))
 }
 
 // Returns a 7-element array indexed by getDay():

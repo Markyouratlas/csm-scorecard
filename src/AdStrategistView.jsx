@@ -9,17 +9,18 @@ import { BLANK_AD_WEEK, AD_CHANNELS, CAMPAIGN_STATUSES, CREATIVE_STATUSES, newId
 import { cpm, ctr, cpc, cpl, optinRate } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
-  NorthStarTile, SectionTabs, PageHeader
+  NorthStarTile, SectionTabs, PageHeader, WeekNavigator
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function AdStrategistView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+export default function AdStrategistView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const {
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
   } = useScorecard(profile.id, propWeekKey, BLANK_AD_WEEK)
+  const effectiveSetWeekKey = isExecDrillIn ? propSetWeekKey : setWeekKey
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('daily')
 
@@ -59,7 +60,7 @@ export default function AdStrategistView({ profile, onSignOut, onSwitchToManager
       isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
       submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
       saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
-      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
+      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated} hideWeekNav>
       <PageHeader
         kicker={`Ad Strategist · Week of ${formatWeekLabel(weekKey)}`}
         kickerColor="#BE185D"
@@ -90,6 +91,8 @@ export default function AdStrategistView({ profile, onSignOut, onSwitchToManager
           icon={Users}
         />
       </div>
+
+      <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
 
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
