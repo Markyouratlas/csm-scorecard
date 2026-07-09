@@ -1158,6 +1158,59 @@ function TrackingGuide() {
       },
     },
     {
+      title: 'Twilio Dialer (live)',
+      provider: 'Supabase · call_logs + sms_messages',
+      status: 'connected',
+      metrics: [
+        'Outbound + inbound calls — dispositions, duration, follow-ups',
+        'Call recordings (dual-channel) with secure playback',
+        'Per-rep two-way SMS (+ RCS opt-in) threads',
+        'Dials this week — combined with GHL on each scorecard',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'call_logs', label: 'Call logs', order: 'started_at' },
+          { table: 'sms_messages', label: 'SMS / RCS', order: 'created_at' },
+        ],
+      },
+    },
+    {
+      title: 'GoHighLevel — Calls (live)',
+      provider: 'Supabase · ghl_call_events',
+      status: 'connected',
+      metrics: [
+        'Dials made in GHL per rep (Call Details webhook)',
+        'Combined with the in-app dialer for a total dial count',
+        'Attributed by email → GHL user id → name',
+        'Also bridges booking email → phone for deal linking',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'ghl_call_events', label: 'GHL calls', order: 'created_at' },
+        ],
+      },
+    },
+    {
+      title: 'Atlas Blue — iMessage (live)',
+      provider: 'Supabase · atlas_sessions + atlas_messages',
+      status: 'connected',
+      metrics: [
+        'Pre-meeting AI (iMessage) conversations per prospect',
+        'Human handoff — take over + reply from the Atlas Blue number',
+        'Campaign name + sending number + contact context',
+        'Linked to the AE deal by phone, realtime via webhook',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'atlas_sessions', label: 'Sessions', order: 'updated_at' },
+          { table: 'atlas_messages', label: 'Messages', order: 'inserted_at' },
+        ],
+      },
+    },
+    {
       title: 'Amplitude (or product analytics)',
       provider: 'Awaiting setup',
       status: 'awaiting',
