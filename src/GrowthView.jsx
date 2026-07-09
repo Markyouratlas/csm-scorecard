@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
@@ -17,6 +17,7 @@ import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
+import { dayIdxOfYMD } from './aeFunnel'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
@@ -36,6 +37,53 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
   const [metaRefreshKey, setMetaRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const { lastSync } = useMetaLastSync(metaRefreshKey)
+
+  // --- Auto-fill Spend + Paid Leads from Meta (authoritative, read-only) ---
+  // Meta is the source of truth for ad spend and paid-lead conversions, so we
+  // pull the viewed week's daily rows from meta_ads_daily and write them into
+  // weekData.daily[].adSpend / .leads. Persisting (via the normal autosave, which
+  // only writes the editable current week) keeps the Odyssey/Investor/Executive
+  // rollups — which read these fields — accurate without Nick hand-typing them.
+  const [metaByDay, setMetaByDay] = useState(null) // 7-el [{spend, leads}] by getDay, or null when Meta has no rows for the week
+  useEffect(() => {
+    let cancelled = false
+    const [y, m, d] = weekKey.split('-').map(Number)
+    const end = new Date(Date.UTC(y, m - 1, d)); end.setUTCDate(end.getUTCDate() + 6)
+    const endStr = end.toISOString().slice(0, 10)
+    supabase
+      .from('meta_ads_daily')
+      .select('date_start, spend, actions')
+      .gte('date_start', weekKey)
+      .lte('date_start', endStr)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error || !data || data.length === 0) { setMetaByDay(null); return } // no Meta rows → leave existing values untouched
+        const byDay = Array.from({ length: 7 }, () => ({ spend: 0, leads: 0 }))
+        for (const r of data) {
+          if (!r.date_start) continue
+          const idx = dayIdxOfYMD(r.date_start)
+          byDay[idx].spend += Number(r.spend) || 0
+          const lead = (r.actions || []).find(a => a.action_type === 'lead')
+          if (lead) byDay[idx].leads += Number(lead.value) || 0
+        }
+        byDay.forEach(x => { x.spend = Math.round(x.spend * 100) / 100; x.leads = Math.round(x.leads) })
+        setMetaByDay(byDay)
+      })
+    return () => { cancelled = true }
+  }, [weekKey, metaRefreshKey])
+
+  useEffect(() => {
+    if (loading || !weekData || !metaByDay) return
+    const changed = metaByDay.some((x, i) => {
+      const day = weekData.daily[i] || {}
+      return (Math.round((Number(day.adSpend) || 0) * 100) / 100) !== x.spend || (Number(day.leads) || 0) !== x.leads
+    })
+    if (!changed) return
+    update(prev => ({
+      ...prev,
+      daily: prev.daily.map((day, i) => metaByDay[i] ? { ...day, adSpend: metaByDay[i].spend, leads: metaByDay[i].leads } : day),
+    }))
+  }, [metaByDay, loading, weekData, update])
 
   const handleMetaSync = async () => {
     if (syncing) return
@@ -190,16 +238,17 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
         <div className="display-font text-2xl font-medium text-stone-900 mb-1">Top of funnel</div>
         <p className="text-sm text-stone-600 mb-6">
           Targets: opt-in <strong>20%</strong> · CPL <strong>$5</strong>
+          <span className="text-stone-400"> · Spend &amp; Paid Leads are pulled live from Meta (read-only).</span>
         </p>
         <table className="w-full text-sm min-w-[920px]">
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Spend</th>
+              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: AB_BLUE }}>Spend</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Visitors</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Opt-ins</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Organic Leads</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Paid Leads</th>
+              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: AB_BLUE }}>Paid Leads</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">SQLs</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Opt-in %</th>
               <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">CPL</th>
@@ -215,11 +264,11 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
                     <div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div>
                     <div className="text-[9px] text-stone-500 mono-font">{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                   </td>
-                  <NumCell value={day.adSpend} onChange={(v) => setCell(dayIdx, 'adSpend', v)} prefix="$" />
+                  <ReadCell value={day.adSpend} money />
                   <NumCell value={day.websiteVisitors} onChange={(v) => setCell(dayIdx, 'websiteVisitors', v)} />
                   <NumCell value={day.optins} onChange={(v) => setCell(dayIdx, 'optins', v)} />
                   <NumCell value={day.organicLeads} onChange={(v) => setCell(dayIdx, 'organicLeads', v)} />
-                  <NumCell value={day.leads} onChange={(v) => setCell(dayIdx, 'leads', v)} />
+                  <ReadCell value={day.leads} />
                   <NumCell value={day.sqls} onChange={(v) => setCell(dayIdx, 'sqls', v)} />
                   <DerivedCell value={optinRate(day.optins, day.websiteVisitors)} target={0.20} comparator="gte" format="pct" />
                   <DerivedCell value={cpl(day.adSpend, day.leads)} target={5} comparator="lte" format="money" />
