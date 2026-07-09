@@ -68,54 +68,19 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
         </div>
       )}
 
-      {/* Week navigator — hidden for the Growth view, which renders its own
-          inline WeekNavigator between the hero and the section tabs. */}
-      {targetProfile.role_type !== 'growth_manager' && (
-      <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
-          <button
-            onClick={() => setWeekKey(stepWeek(weekKey, -1))}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors"
-            title="Previous week"
-          >
-            <ChevronLeft className="w-4 h-4" /> Previous week
-          </button>
-          <div className="flex flex-col items-center px-4 py-1 min-w-[200px]">
-            <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
-            <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
-          </div>
-          <button
-            onClick={() => setWeekKey(stepWeek(weekKey, 1))}
-            disabled={weekKey >= getWeekKey()}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Next week"
-          >
-            Next week <ChevronRight className="w-4 h-4" />
-          </button>
-          {weekKey !== getWeekKey() && (
-            <button
-              onClick={() => setWeekKey(getWeekKey())}
-              className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
-            >
-              Jump to current
-            </button>
-          )}
-        </div>
-      </div>
-      )}
+      {/* Week navigator is rendered INLINE by each scorecard view (between the
+          hero and the section tabs) using the setWeekKey passed below — so the
+          viewer no longer renders its own top strip. */}
 
       {/* The actual scorecard. Note we pass the TARGET profile, not the viewer.
-          Key=weekKey ensures the component re-mounts when week changes.
-          onSignOut signs out the VIEWER's session (the executive who's drilling in),
-          not the target user — that's a session-level action on the auth session. */}
+          We key ONLY on the target id (not weekKey): every view reloads on weekKey
+          via its own effect, so remounting per-week is unnecessary and would reset
+          the user's selected section tab. onSignOut signs out the VIEWER's session
+          (the executive who's drilling in), not the target user. */}
       <ScorecardEditContext.Provider value={editMode}>
         <div className={!isViewingSelf && !editMode ? 'scorecard-readonly' : undefined}>
           <ScorecardComponent
-            // Growth renders its own inline week nav and reloads on weekKey via
-            // useScorecard's effect, so it must NOT remount on week change (that
-            // would reset the selected section). Other roles keep the historic
-            // remount-per-week behavior.
-            key={targetProfile.role_type === 'growth_manager' ? targetProfile.id : `${targetProfile.id}-${weekKey}`}
+            key={targetProfile.id}
             profile={targetProfile}
             weekKey={weekKey}
             setWeekKey={setWeekKey}

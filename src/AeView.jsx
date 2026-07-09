@@ -15,18 +15,21 @@ import { useDialer } from './DialerContext'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, {
-  NorthStarTile, SectionTabs, PageHeader, MoneyField
+  NorthStarTile, SectionTabs, PageHeader, MoneyField, WeekNavigator
 } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 import CommissionsTab from './CommissionsTab'
 
-export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const {
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
   } = useScorecard(profile.id, propWeekKey, BLANK_AE_WEEK, ['deals'])
+  // Week setter: hook owns it in self-view; in an exec drill-in the hook's setter
+  // is a no-op and ScorecardViewer passes the real one down as propSetWeekKey.
+  const effectiveSetWeekKey = isExecDrillIn ? propSetWeekKey : setWeekKey
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
   const aeDeals = useAeDeals(profile.id)
@@ -87,7 +90,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
       submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
       saving={saving} savedAt={savedAt}
       onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
-      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
+      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated} hideWeekNav>
       <PageHeader
         kicker={`Account Executive · Week of ${formatWeekLabel(weekKey)}`}
         kickerColor="#1E40AF"
@@ -121,6 +124,8 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
           tooltip={`Closes ÷ closeable demos held = ${totalSignups} ÷ ${closeableHeld(totalCompleted, totalUnqualified)}. Closeable backs out the ${totalUnqualified} Unqualified demo${totalUnqualified === 1 ? '' : 's'} from Demos Completed (${totalCompleted}), so non-fits don't drag your close rate down. Target 30%.`}
         />
       </div>
+
+      <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
 
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 

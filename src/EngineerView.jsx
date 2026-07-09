@@ -9,7 +9,7 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { BLANK_ENGINEER_WEEK, ENGINEER_CATEGORIES, IN_FLIGHT_STATUSES, newId } from './roleConstants'
-import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader } from './ScorecardShell'
+import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
 // Color tokens for categories
@@ -34,13 +34,14 @@ const STATUS_COLORS = {
   'Carry-over':  '#78716C',
 }
 
-export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const {
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
   } = useScorecard(profile.id, propWeekKey, BLANK_ENGINEER_WEEK)
+  const effectiveSetWeekKey = isExecDrillIn ? propSetWeekKey : setWeekKey
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('weekly')
 
@@ -69,7 +70,7 @@ export default function EngineerView({ profile, onSignOut, onSwitchToManager, on
       isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
       submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
       saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
-      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
+      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated} hideWeekNav>
       <PageHeader
         kicker={`Engineer · Week of ${formatWeekLabel(weekKey)}`}
         kickerColor="#7C3AED"
@@ -94,6 +95,8 @@ export default function EngineerView({ profile, onSignOut, onSwitchToManager, on
           icon={Bug}
         />
       </div>
+
+      <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
 
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
