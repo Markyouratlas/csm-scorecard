@@ -22,6 +22,7 @@ import { MtdCard, MtdLegend } from './MtdWidgets'
 import CommissionsTab from './CommissionsTab'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import CsHandoffPanel from './CsHandoffPanel.jsx'
+import CombinedDialsCard from './CombinedDialsCard'
 import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
 
@@ -367,6 +368,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
         >
           {section === 'meetings' && (
             <div className="space-y-8">
+              <CombinedDialsCard userId={profile.id} weekKey={weekKey} />
               <PhoneCallsSection
                 phoneCalls={weekData.phoneCalls}
                 setPhoneCalls={setPhoneCalls}

@@ -10,6 +10,7 @@ import { formatWeekLabel } from './dateUtils'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
+import CombinedDialsCard from './CombinedDialsCard'
 import { useDialer } from './DialerContext'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
@@ -124,7 +125,12 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
       <SectionTabs sections={sections} active={section} onChange={setSection} />
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
-        {section === 'funnel' && <FunnelSection weekData={weekData} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />}
+        {section === 'funnel' && (
+          <div className="space-y-6">
+            <CombinedDialsCard userId={profile.id} weekKey={weekKey} />
+            <FunnelSection weekData={weekData} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />
+          </div>
+        )}
         {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} canEdit={true} />}
         {section === 'monthly' && <AeMonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
         {section === 'commission' && <CommissionsTab profile={profile} />}
