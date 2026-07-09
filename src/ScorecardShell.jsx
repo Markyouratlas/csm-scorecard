@@ -47,6 +47,7 @@ export default function ScorecardShell({
   currentPage,
   title,
   subtitle,
+  hideWeekNav,
   children,
 }) {
   const [showSettings, setShowSettings] = useState(false)
@@ -111,8 +112,9 @@ export default function ScorecardShell({
       </header>
 
       {/* Week navigator — only when user is on their OWN scorecard
-          (exec drill-in has its own week nav in ScorecardViewer). */}
-      {hasSubmissionUI && !isExecDrillIn && setWeekKey && (
+          (exec drill-in has its own week nav in ScorecardViewer). Views that
+          render their own inline WeekNavigator pass hideWeekNav to suppress this. */}
+      {hasSubmissionUI && !isExecDrillIn && setWeekKey && !hideWeekNav && (
         <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
           <div className="max-w-7xl mx-auto flex items-center justify-center gap-3 flex-wrap">
             <button
@@ -359,6 +361,50 @@ export function SectionTabs({ sections, active, onChange }) {
           </GlassTab>
         )
       })}
+    </div>
+  )
+}
+
+// Reusable week navigator (Prev / current week / Next / Jump to current). Used
+// inline by views that want it positioned within the page body (e.g. between the
+// hero and the section tabs) instead of the shell's default full-width top strip.
+// Returns null when no setter is available (e.g. an exec drill-in that hasn't
+// wired a week setter), so callers can render it unconditionally.
+export function WeekNavigator({ weekKey, setWeekKey, currentWeekKey, isViewingCurrentWeek }) {
+  if (!setWeekKey || !weekKey) return null
+  return (
+    // pointerEvents:auto keeps week navigation clickable even when an inline
+    // placement sits inside the shell's locked/dimmed body wrapper.
+    <div className="bg-stone-100/60 border border-stone-200 rounded-lg px-4 py-2.5 mb-8 fade-up" style={{ pointerEvents: 'auto' }}>
+      <div className="flex items-center justify-center gap-3 flex-wrap">
+        <button
+          onClick={() => setWeekKey(stepWeek(weekKey, -1))}
+          className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded"
+          title="Previous week"
+        >
+          <ChevronLeft className="w-4 h-4" /> Previous week
+        </button>
+        <div className="flex flex-col items-center px-4 py-1 min-w-[200px]">
+          <div className="mono-font text-[9px] uppercase tracking-widest text-stone-500">Viewing</div>
+          <div className="font-medium text-stone-900 num-tabular text-sm">Week of {formatWeekLabel(weekKey)}</div>
+        </div>
+        <button
+          onClick={() => setWeekKey(stepWeek(weekKey, 1))}
+          disabled={currentWeekKey && weekKey >= currentWeekKey}
+          className="flex items-center gap-1 px-3 py-1.5 text-sm text-stone-700 hover:text-stone-900 hover:bg-stone-200 transition-colors rounded disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Next week"
+        >
+          Next week <ChevronRight className="w-4 h-4" />
+        </button>
+        {!isViewingCurrentWeek && currentWeekKey && (
+          <button
+            onClick={() => setWeekKey(currentWeekKey)}
+            className="ml-2 px-3 py-1.5 text-xs text-stone-600 hover:text-stone-900 underline"
+          >
+            Jump to current
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -68,7 +68,9 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
         </div>
       )}
 
-      {/* Week navigator */}
+      {/* Week navigator — hidden for the Growth view, which renders its own
+          inline WeekNavigator between the hero and the section tabs. */}
+      {targetProfile.role_type !== 'growth_manager' && (
       <div className="bg-stone-100/60 border-b border-stone-200 px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
           <button
@@ -100,6 +102,7 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
           )}
         </div>
       </div>
+      )}
 
       {/* The actual scorecard. Note we pass the TARGET profile, not the viewer.
           Key=weekKey ensures the component re-mounts when week changes.
@@ -108,9 +111,14 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
       <ScorecardEditContext.Provider value={editMode}>
         <div className={!isViewingSelf && !editMode ? 'scorecard-readonly' : undefined}>
           <ScorecardComponent
-            key={`${targetProfile.id}-${weekKey}`}
+            // Growth renders its own inline week nav and reloads on weekKey via
+            // useScorecard's effect, so it must NOT remount on week change (that
+            // would reset the selected section). Other roles keep the historic
+            // remount-per-week behavior.
+            key={targetProfile.role_type === 'growth_manager' ? targetProfile.id : `${targetProfile.id}-${weekKey}`}
             profile={targetProfile}
             weekKey={weekKey}
+            setWeekKey={setWeekKey}
             onSignOut={onSignOut || (() => {})}
             onSwitchToManager={onBack}      // "Manager view" doubles as back-to-dashboard
             onProfileUpdated={() => {}}     // edits to the viewed user's profile not supported here

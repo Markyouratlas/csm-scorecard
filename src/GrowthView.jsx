@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
@@ -14,18 +14,22 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
-import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo } from './metrics'
+import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
+import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
-import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader } from './ScorecardShell'
+import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
 import { MtdCard, MtdLegend } from './MtdWidgets'
 
-export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey }) {
+export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const {
     weekData, loading, saving, savedAt, update,
     weekKey, setWeekKey, isExecDrillIn, isViewingCurrentWeek, currentWeekKey,
     submittedAt, isLocked, submit, unsubmit, submitting,
   } = useScorecard(profile.id, propWeekKey, BLANK_GROWTH_WEEK, ['experiments'])
+  // Week setter: the hook owns it in self-view; in an exec drill-in the hook's
+  // setter is a no-op and ScorecardViewer passes the real one down as propSetWeekKey.
+  const effectiveSetWeekKey = isExecDrillIn ? propSetWeekKey : setWeekKey
   const { targets } = useTargets(profile.id, profile.role_type)
   const [section, setSection] = useState('funnel')
   const [metaRefreshKey, setMetaRefreshKey] = useState(0)
@@ -93,6 +97,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
+    { id: 'atlas-blue',  label: 'Atlas Blue',    icon: Sparkles },
     { id: 'meta-live',   label: 'Meta Live',     icon: Activity },
     { id: 'ad-sets',     label: 'Ad Sets',       icon: Layers },
     { id: 'monthly',     label: 'Monthly View',  icon: Calendar },
@@ -107,7 +112,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
       isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
       submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
       saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
-      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated}>
+      onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated} hideWeekNav>
       <PageHeader
         kicker={`Growth Manager · Week of ${formatWeekLabel(weekKey)}`}
         kickerColor="#BE185D"
@@ -133,6 +138,8 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
         />
       </div>
 
+      <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
+
       <div className="flex items-start justify-between gap-3 mb-2">
         <SectionTabs sections={sections} active={section} onChange={setSection} />
         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -153,6 +160,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
+        {section === 'atlas-blue' && <AtlasBlueFunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} />}
         {section === 'meta-live' && <MetaLiveSection refreshKey={metaRefreshKey} />}
         {section === 'ad-sets' && <AdSetsSection refreshKey={metaRefreshKey} />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
@@ -295,6 +303,274 @@ function NumCell({ value, onChange, prefix }) {
           className="w-16 text-center py-1 border border-stone-200 focus:border-stone-900 transition-colors num-tabular text-xs" />
       </div>
     </td>
+  )
+}
+
+// ============================================================================
+//  Atlas Blue funnel — Nick's ad-driven-only funnel. Manual top-of-funnel inputs
+//  (ad spend / visitors / test drives), everything else auto from ae_deals +
+//  Stripe via useAtlasBlueFunnel. See src/13-atlas-blue-funnel.sql.
+// ============================================================================
+const AB_BLUE = '#2563EB'
+const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
+
+// Read-only numeric cell (auto-derived columns).
+function ReadCell({ value, money }) {
+  return (
+    <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">
+      {money ? fmtWhole(value) : (Number(value) || 0).toLocaleString()}
+    </td>
+  )
+}
+
+// Chart legend item with a hover tooltip documenting where the series comes from.
+function LegendItem({ color, label, tip }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 cursor-help normal-case tracking-normal" title={tip}>
+      <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
+      {label}
+      <Info className="w-3 h-3 opacity-40" />
+    </span>
+  )
+}
+
+// Column heading with a hover tooltip (native title, so it never clips inside the
+// table's horizontal scroll container) documenting the source/calculation. tone:
+// 'live' = auto-pulled, 'manual' = typed in, 'calc' = derived from other columns.
+function AbHeadCell({ label, tip, tone = 'manual' }) {
+  const color = tone === 'live' ? AB_BLUE : tone === 'calc' ? '#047857' : undefined
+  const cls = tone === 'manual' ? 'text-stone-500' : ''
+  return (
+    <th title={tip}
+      className={`text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium cursor-help ${cls}`}
+      style={color ? { color } : undefined}>
+      <span className="inline-flex items-center justify-center gap-1">{label}<Info className="w-3 h-3 opacity-40" /></span>
+    </th>
+  )
+}
+
+function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profile }) {
+  const [chartWeeks, setChartWeeks] = useState(8)
+  const { viewedWeekDays, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
+
+  const setCell = (dayIdx, key, value) => update(d => ({
+    ...d,
+    daily: d.daily.map((day, i) => i === dayIdx ? { ...day, [key]: Number(value) || 0 } : day),
+  }))
+
+  // Totals across the user's work days for the viewed week.
+  const t = workDayIdxs.reduce((acc, di) => {
+    const m = weekData.daily[di] || {}
+    const a = viewedWeekDays[di] || {}
+    acc.adSpend += Number(a.adSpend) || 0
+    acc.visitors += Number(m.abVisitors) || 0
+    acc.testDrives += Number(m.abTestDrives) || 0
+    acc.booked += a.demosBooked || 0
+    acc.completed += a.demosCompleted || 0
+    acc.unqualified += a.demosUnqualified || 0
+    acc.newCustomers += a.newCustomers || 0
+    acc.cash += a.cashCollected || 0
+    acc.dealValue += a.dealValue || 0
+    return acc
+  }, { adSpend: 0, visitors: 0, testDrives: 0, booked: 0, completed: 0, unqualified: 0, newCustomers: 0, cash: 0, dealValue: 0 })
+
+  const chartData = weeklyTrend.map(w => ({
+    name: formatWeekLabel(w.weekKey),
+    adSpend: w.adSpend,
+    cashCollected: w.cashCollected,
+    roas: w.roas,
+  }))
+  const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  return (
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 rounded">
+          Couldn’t load the Atlas Blue deal data. The <code>atlas_blue_deals</code> function may not be
+          installed yet, or you may not have access.
+        </div>
+      )}
+
+      {/* ---------- TOP OF FUNNEL ---------- */}
+      <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles className="w-5 h-5" style={{ color: AB_BLUE }} />
+          <div className="display-font text-2xl font-medium text-stone-900">Top of funnel</div>
+        </div>
+        <p className="text-sm text-stone-600 mb-6">
+          Atlas Blue (ad-driven) only. Ad Spend is pulled live from Meta and Booked Calls from your
+          ad-driven bookings; Visitors and Test Drives are entered manually.
+        </p>
+        <table className="w-full text-sm min-w-[920px]">
+          <thead>
+            <tr className="border-b border-stone-200">
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+              <AbHeadCell label="Ad Spend" tone="live"
+                tip="Live from Meta Ads (meta_ads_daily.spend). Total Meta ad spend for the day — note this is ALL Meta campaigns, so it equals Atlas Blue spend only if every campaign is Atlas Blue." />
+              <AbHeadCell label="Visitors" tone="manual"
+                tip="Manual entry. Atlas Blue landing-page visitors — Meta has no true visitor count, so this is typed in until a web-analytics source is decided." />
+              <AbHeadCell label="Test Drives" tone="manual"
+                tip="Manual entry. Atlas Blue test-drive opt-ins — no confirmed live source yet (pending: Meta pixel event or product data)." />
+              <AbHeadCell label="Booked Calls" tone="live"
+                tip="Live from AD-DRIVEN bookings only (ae_deals whose Cal event type is flagged ad-driven). Organic bookings are excluded. Counts meetings booked that day, excluding Rescheduled and Deleted." />
+              <AbHeadCell label="Action %" tone="calc"
+                tip="Calculated: (Test Drives + Booked Calls) ÷ Visitors. Booked Calls are ad-driven only." />
+              <AbHeadCell label="Cost / Test Drive" tone="calc"
+                tip="Calculated: Ad Spend ÷ Test Drives." />
+              <AbHeadCell label="Cost / Booked Call" tone="calc"
+                tip="Calculated: Ad Spend ÷ Booked Calls, using AD-DRIVEN booked calls only — organic bookings are never counted here." />
+            </tr>
+          </thead>
+          <tbody>
+            {workDayIdxs.map(dayIdx => {
+              const m = weekData.daily[dayIdx] || {}
+              const a = viewedWeekDays[dayIdx] || {}
+              const booked = a.demosBooked || 0
+              return (
+                <tr key={dayIdx} className="border-b border-stone-100">
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <ReadCell value={a.adSpend} money />
+                  <NumCell value={m.abVisitors} onChange={(v) => setCell(dayIdx, 'abVisitors', v)} />
+                  <NumCell value={m.abTestDrives} onChange={(v) => setCell(dayIdx, 'abTestDrives', v)} />
+                  <ReadCell value={booked} />
+                  <DerivedCell value={safeDiv((Number(m.abTestDrives) || 0) + booked, m.abVisitors)} format="pct" />
+                  <DerivedCell value={safeDiv(a.adSpend, m.abTestDrives)} format="money" />
+                  <DerivedCell value={cpbc(a.adSpend, booked)} format="money" />
+                </tr>
+              )
+            })}
+            <tr className="bg-stone-900 text-stone-50">
+              <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.adSpend)}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.visitors.toLocaleString()}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.testDrives.toLocaleString()}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.booked.toLocaleString()}</td>
+              <FooterDerivedCell value={safeDiv(t.testDrives + t.booked, t.visitors)} format="pct" />
+              <FooterDerivedCell value={safeDiv(t.adSpend, t.testDrives)} format="money" />
+              <FooterDerivedCell value={cpbc(t.adSpend, t.booked)} format="money" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ---------- BOTTOM OF FUNNEL ---------- */}
+      <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+        <div className="display-font text-2xl font-medium text-stone-900 mb-1">Bottom of funnel</div>
+        <p className="text-sm text-stone-600 mb-6">
+          Live from your ad-driven deals, for the selected week only (use the week navigator to change it).
+          Show-Up and Close back out Deleted / Rescheduled / Unqualified, matching the AE funnel.{loading ? ' · Syncing deals…' : ''}
+        </p>
+        <table className="w-full text-sm min-w-[1040px]">
+          <thead>
+            <tr className="border-b border-stone-200">
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+              <AbHeadCell label="Booked" tone="live"
+                tip="Live from AD-DRIVEN ae_deals. Meetings booked that day, excluding Rescheduled and Deleted. Organic bookings are excluded." />
+              <AbHeadCell label="Completed" tone="live"
+                tip="Live from ad-driven ae_deals. Meetings the prospect attended (Showed, Proposal sent, Follow-up, Closed Won/Lost, and Unqualified — anyone who showed up)." />
+              <AbHeadCell label="New Customers" tone="live"
+                tip="Live from ad-driven ae_deals. Deals marked Closed Won, dated by the meeting day." />
+              <AbHeadCell label="Cash Collected" tone="live"
+                tip="Live from Stripe via ae_deals.one_time (Stripe-matched cash) on Closed Won deals. Shows $0 until a payment is matched to the deal in Stripe." />
+              <AbHeadCell label="Deal Value" tone="live"
+                tip="Live from ae_deals.mrr (Stripe-matched monthly contracted MRR) on Closed Won deals." />
+              <AbHeadCell label="Show-Up %" tone="calc"
+                tip="Calculated: Completed ÷ Booked. (Booked already excludes Rescheduled/Deleted.)" />
+              <AbHeadCell label="Closing %" tone="calc"
+                tip="Calculated: New Customers ÷ (Completed − Unqualified). Unqualified (showed-but-not-a-fit) are backed out of the denominator, matching the AE funnel." />
+              <AbHeadCell label="Avg Cash" tone="calc"
+                tip="Calculated: Cash Collected ÷ New Customers." />
+              <AbHeadCell label="Avg Deal Value" tone="calc"
+                tip="Calculated: Deal Value ÷ New Customers." />
+            </tr>
+          </thead>
+          <tbody>
+            {workDayIdxs.map(dayIdx => {
+              const a = viewedWeekDays[dayIdx] || {}
+              const closeable = (a.demosCompleted || 0) - (a.demosUnqualified || 0)
+              return (
+                <tr key={dayIdx} className="border-b border-stone-100">
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <ReadCell value={a.demosBooked} />
+                  <ReadCell value={a.demosCompleted} />
+                  <ReadCell value={a.newCustomers} />
+                  <ReadCell value={a.cashCollected} money />
+                  <ReadCell value={a.dealValue} money />
+                  <DerivedCell value={showUpRate(a.demosCompleted, a.demosBooked)} format="pct" />
+                  <DerivedCell value={safeDiv(a.newCustomers, closeable)} format="pct" />
+                  <DerivedCell value={safeDiv(a.cashCollected, a.newCustomers)} format="money" />
+                  <DerivedCell value={safeDiv(a.dealValue, a.newCustomers)} format="money" />
+                </tr>
+              )
+            })}
+            <tr className="bg-stone-900 text-stone-50">
+              <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.booked.toLocaleString()}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.completed.toLocaleString()}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.newCustomers.toLocaleString()}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.cash)}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.dealValue)}</td>
+              <FooterDerivedCell value={showUpRate(t.completed, t.booked)} format="pct" />
+              <FooterDerivedCell value={safeDiv(t.newCustomers, t.completed - t.unqualified)} format="pct" />
+              <FooterDerivedCell value={safeDiv(t.cash, t.newCustomers)} format="money" />
+              <FooterDerivedCell value={safeDiv(t.dealValue, t.newCustomers)} format="money" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ---------- WEEKLY OVERVIEW ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-1">
+          <div className="display-font text-2xl font-medium text-stone-900">Weekly Overview</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {WEEK_OPTIONS.map(w => (
+              <button key={w} onClick={() => setChartWeeks(w)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: chartWeeks === w ? AB_BLUE : 'rgba(37,99,235,0.08)',
+                  color: chartWeeks === w ? 'white' : AB_BLUE,
+                  border: '1px solid rgba(37,99,235,0.25)',
+                }}>
+                {w}w
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-sm text-stone-600 mt-1">
+          Ad-driven only. Cash is bucketed by each deal’s meeting week, so a week compares that
+          week’s Meta ad spend against cash from the ad-driven deals that met that week.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 mono-font text-[10px] text-stone-500">
+          <LegendItem color="#93C5FD" label="Ad Spend"
+            tip="Live from Meta Ads (meta_ads_daily.spend), summed per calendar week. Total across all Meta campaigns." />
+          <LegendItem color="#10B981" label="Cash Collected"
+            tip="Stripe-matched cash (ae_deals.one_time) on AD-DRIVEN Closed Won deals only, bucketed by the deal’s meeting week. Organic deals are excluded. Same source as the bottom-of-funnel table." />
+          <LegendItem color={AB_BLUE} label="ROAS"
+            tip="Return on ad spend = Cash Collected ÷ Ad Spend for the week. Blank when there was no ad spend that week." />
+        </div>
+        <div className="h-[300px] mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0ef" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={(v) => `${v.toFixed(1)}x`} />
+              <RTooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                formatter={(v, name) => {
+                  if (name === 'ROAS') return [v == null ? '—' : `${Number(v).toFixed(2)}x`, name]
+                  return [fmtWhole(v), name]
+                }}
+              />
+              <Bar yAxisId="left" dataKey="adSpend" name="Ad Spend" fill="#93C5FD" radius={[3, 3, 0, 0]} />
+              <Bar yAxisId="left" dataKey="cashCollected" name="Cash Collected" fill="#10B981" radius={[3, 3, 0, 0]} />
+              <Line yAxisId="right" type="monotone" dataKey="roas" name="ROAS" stroke={AB_BLUE} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
   )
 }
 
