@@ -244,14 +244,22 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: AB_BLUE }}>Spend</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Visitors</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Opt-ins</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Organic Leads</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: AB_BLUE }}>Paid Leads</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">SQLs</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Opt-in %</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">CPL</th>
+              <AbHeadCell label="Spend" tone="live"
+                tip="Live from Meta Ads (meta_ads_daily.spend) — total daily ad spend across all Meta campaigns. Read-only." />
+              <AbHeadCell label="Visitors" tone="manual"
+                tip="Manual entry. Website visitors — Meta has no true visitor count, so this is typed in." />
+              <AbHeadCell label="Opt-ins" tone="manual"
+                tip="Manual entry. Email / lead-magnet opt-ins." />
+              <AbHeadCell label="Organic Leads" tone="manual"
+                tip="Manual entry. Leads from non-paid (organic) sources." />
+              <AbHeadCell label="Paid Leads" tone="live"
+                tip="Live from Meta Ads — 'lead' conversions per day. Read-only." />
+              <AbHeadCell label="SQLs" tone="manual"
+                tip="Manual entry. Sales-qualified leads." />
+              <AbHeadCell label="Opt-in %" tone="calc"
+                tip="Calculated: Opt-ins ÷ Visitors. Target ≥ 20%." />
+              <AbHeadCell label="CPL" tone="calc"
+                tip="Calculated: Spend ÷ Paid Leads (cost per lead). Target ≤ $5." />
             </tr>
           </thead>
           <tbody>
@@ -299,14 +307,22 @@ function FunnelSection({ weekData, update, workDayIdxs, weekKey, totals }) {
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Booked</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Completed</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Trials</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">New Customers</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">SQL Rate</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Booking</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Show-Up</th>
-              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Close</th>
+              <AbHeadCell label="Booked" tone="manual"
+                tip="Manual entry. Demos / calls booked." />
+              <AbHeadCell label="Completed" tone="manual"
+                tip="Manual entry. Demos / calls completed (prospect attended)." />
+              <AbHeadCell label="Trials" tone="manual"
+                tip="Manual entry. Trial signups." />
+              <AbHeadCell label="New Customers" tone="manual"
+                tip="Manual entry. New customers acquired." />
+              <AbHeadCell label="SQL Rate" tone="calc"
+                tip="Calculated: SQLs ÷ Paid Leads. ⚠ NEEDS CLARIFICATION — can exceed 100% because SQLs are entered manually while Paid Leads is now pulled live from Meta, so they aren't the same population. Confirm the intended denominator (e.g. total leads incl. organic, or a different source). Target ≥ 25%." />
+              <AbHeadCell label="Booking" tone="calc"
+                tip="Calculated: Booked ÷ Paid Leads. ⚠ NEEDS CLARIFICATION — this can exceed 100% because Booked is entered manually while Paid Leads is now pulled live from Meta, so they aren't the same population. Confirm the intended denominator (e.g. total leads incl. organic, or a different source). Target ≥ 20%." />
+              <AbHeadCell label="Show-Up" tone="calc"
+                tip="Calculated: Completed ÷ Booked. Target ≥ 75%." />
+              <AbHeadCell label="Close" tone="calc"
+                tip="Calculated: Trials ÷ Completed (close rate). Target ≥ 30%." />
             </tr>
           </thead>
           <tbody>
