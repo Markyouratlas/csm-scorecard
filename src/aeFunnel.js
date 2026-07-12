@@ -61,14 +61,17 @@ export function dayIdxOfMeeting(meetingAt) {
 }
 
 // Returns a 7-element array indexed by getDay():
-//   [{ demosBooked, demosCompleted, demosUnqualified, trialSignups }, …]
+//   [{ demosBooked, demosCompleted, demosUnqualified, trialSignups, intros }, …]
+// 'Intro' (channel-partner intro) is fully backed out of the demo funnel — it's
+// NOT a booked demo, not attended, not closeable — and counted only in `intros`.
 export function deriveFunnelWeek(deals, weekKey) {
-  const out = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 }))
+  const out = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }))
   for (const d of deals || []) {
     if (!d.meeting_at) continue
     const ymd = torontoYMD(new Date(d.meeting_at))
     if (mondayOfYMD(ymd) !== weekKey) continue
     const idx = dayIdxOfYMD(ymd)
+    if (d.status === 'Intro') { out[idx].intros += 1; continue }
     if (d.status !== 'Rescheduled' && d.status !== 'Deleted') out[idx].demosBooked += 1
     if (AE_ATTENDED_STATUSES.includes(d.status)) out[idx].demosCompleted += 1
     if (d.status === 'Unqualified') out[idx].demosUnqualified += 1
@@ -94,6 +97,7 @@ export function funnelMatches(daily, derived) {
     if ((Number(c.demosCompleted) || 0) !== x.demosCompleted) return false
     if ((Number(c.demosUnqualified) || 0) !== x.demosUnqualified) return false
     if ((Number(c.trialSignups) || 0) !== x.trialSignups) return false
+    if ((Number(c.intros) || 0) !== (x.intros || 0)) return false
   }
   return true
 }

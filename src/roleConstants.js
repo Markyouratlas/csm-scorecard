@@ -62,6 +62,7 @@ const blankAeDay = () => ({
   demosCompleted: 0,
   demosUnqualified: 0,   // attended-but-not-a-fit; counts as held, excluded from close-rate denom
   trialSignups: 0,
+  intros: 0,             // channel-partner intro meetings — tracked separately, backed out of the demo funnel
 })
 
 export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', 'Lost']
@@ -72,8 +73,12 @@ export const AE_DEAL_STAGES = ['Discovery', 'Demo', 'Trial', 'Closing', 'Won', '
 // tabs): positive lifecycle first, then the non-fit outcomes (No-show, then
 // Unqualified) toward the right, with Deleted last.
 export const AE_MEETING_STATUSES = [
-  'Scheduled', 'Showed', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost', 'No-show', 'Unqualified', 'Deleted',
+  'Scheduled', 'Intro', 'Showed', 'Proposal sent', 'Follow-up', 'Rescheduled', 'Closed Won', 'Closed Lost', 'No-show', 'Unqualified', 'Deleted',
 ]
+// 'Intro' = a channel-partner/wholesaler intro meeting. It has no chance to close,
+// so it's kept OUT of AE_ATTENDED_STATUSES / AE_CLOSEABLE_STATUSES and out of
+// demosBooked (see aeFunnel.js) — tracked only in its own `intros` metric. Only
+// surfaced in the UI for profiles with tracks_channel_intros (Heather).
 // Statuses that mean the prospect attended (drive Demos Completed + show-up rate).
 // Includes 'Unqualified' — they showed up, just weren't a fit.
 export const AE_ATTENDED_STATUSES = ['Showed', 'Unqualified', 'Proposal sent', 'Follow-up', 'Closed Won', 'Closed Lost']

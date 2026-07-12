@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X } from 'lucide-react'
+import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X, Handshake } from 'lucide-react'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -57,6 +57,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         demosCompleted: derived[i].demosCompleted,
         demosUnqualified: derived[i].demosUnqualified,
         trialSignups: derived[i].trialSignups,
+        intros: derived[i].intros,
       })),
     }))
   }, [aeDeals.deals, aeDeals.loading, weekKey, loading, weekData, update])
@@ -71,9 +72,12 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
   const totalCompleted = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosCompleted) || 0), 0)
   const totalUnqualified = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosUnqualified) || 0), 0)
   const totalSignups = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].trialSignups) || 0), 0)
+  const totalIntros = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].intros) || 0), 0)
   const showUp = showUpRate(totalCompleted, totalBooked)
   // Close rate excludes unqualified demos from the denominator (showed, not a fit).
   const close = closeRate(totalSignups, closeableHeld(totalCompleted, totalUnqualified))
+  // Channel-partner intro tracking — gated to flagged profiles (e.g. Heather).
+  const tracksIntros = !!profile.tracks_channel_intros
 
   const sections = [
     { id: 'funnel',     label: 'Daily Funnel',   icon: Target },
@@ -98,7 +102,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         italicized={`your week, ${profile.name.split(' ')[0]}?`}
       />
 
-      <div className="grid md:grid-cols-3 gap-4 mb-12 fade-up" style={{ animationDelay: '80ms' }}>
+      <div className={`grid ${tracksIntros ? 'md:grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4 mb-12 fade-up`} style={{ animationDelay: '80ms' }}>
         <NorthStarTile
           label="Demos Completed"
           value={totalCompleted}
@@ -123,6 +127,16 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
           icon={TrendingUp}
           tooltip={`Closes ÷ closeable demos held = ${totalSignups} ÷ ${closeableHeld(totalCompleted, totalUnqualified)}. Closeable backs out the ${totalUnqualified} Unqualified demo${totalUnqualified === 1 ? '' : 's'} from Demos Completed (${totalCompleted}), so non-fits don't drag your close rate down. Target 30%.`}
         />
+        {tracksIntros && (
+          <NorthStarTile
+            label="Intro Meetings"
+            value={totalIntros}
+            sublabel="Channel-partner intros this week"
+            color="#6639A6"
+            icon={Handshake}
+            tooltip={`Intro meetings with wholesalers / channel partners this week (${totalIntros}). Set a meeting's status to “Intro” to count it here. Intros are kept out of Demos Booked/Completed and your Show-Up & Close rates.`}
+          />
+        )}
       </div>
 
       <WeekNavigator weekKey={weekKey} setWeekKey={effectiveSetWeekKey} currentWeekKey={currentWeekKey} isViewingCurrentWeek={isViewingCurrentWeek} />
@@ -157,9 +171,10 @@ function AeMonthlyView({ profile, monthKey, targets }) {
       acc.demosCompleted += Number(d.demosCompleted) || 0
       acc.demosUnqualified += Number(d.demosUnqualified) || 0
       acc.trialSignups += Number(d.trialSignups) || 0
+      acc.intros += Number(d.intros) || 0
     }
     return acc
-  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 })
+  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 })
 
   // Aggregate deals (from latest week's view since deals carry forward)
   // Use the most recent week's deals since they represent the current pipeline state
@@ -185,6 +200,7 @@ function AeMonthlyView({ profile, monthKey, targets }) {
         <MtdCard label="Average Deal Size" value={avgDealSize} target={targets.avg_deal_size} unit="money" help={`From ${wonThisMonth.length} won deal${wonThisMonth.length === 1 ? '' : 's'}`} />
         <MtdCard label="New MRR Closed" value={newMrr} target={targets.new_mrr} unit="money" />
         <MtdCard label="Demos Booked" value={totals.demosBooked} target={null} />
+        {profile?.tracks_channel_intros && <MtdCard label="Intro Meetings" value={totals.intros} target={null} help="Channel-partner intros this month" />}
       </div>
     </div>
   )
@@ -198,6 +214,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
     const d = new Date(monday); d.setDate(monday.getDate() + (dayIdx - 1)); return d
   }
 
+  const tracksIntros = !!profile?.tracks_channel_intros
   const totals = workDayIdxs.reduce((acc, di) => {
     const day = weekData.daily[di]
     return {
@@ -205,8 +222,9 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
       demosCompleted: acc.demosCompleted + (Number(day.demosCompleted) || 0),
       demosUnqualified: acc.demosUnqualified + (Number(day.demosUnqualified) || 0),
       trialSignups: acc.trialSignups + (Number(day.trialSignups) || 0),
+      intros: acc.intros + (Number(day.intros) || 0),
     }
-  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 })
+  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 })
 
   return (
     <div className="space-y-6">
@@ -220,6 +238,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Demos Booked</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Demos Completed</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Closes</th>
+            {tracksIntros && <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: '#6639A6' }}>Intros</th>}
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Show-Up</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Close</th>
           </tr>
@@ -239,6 +258,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosBooked || 0}</td>
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosCompleted || 0}</td>
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.trialSignups || 0}</td>
+                {tracksIntros && <td className="py-2 px-2 text-center num-tabular text-sm" style={{ color: '#6639A6' }}>{day.intros || 0}</td>}
                 <DerivedCell value={dayShowUp} target={0.75} comparator="gte" format="pct" />
                 <DerivedCell value={dayClose} target={0.30} comparator="gte" format="pct" />
               </tr>
@@ -249,6 +269,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosBooked}</td>
             <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosCompleted}</td>
             <td className="py-3 px-2 text-center num-tabular font-bold">{totals.trialSignups}</td>
+            {tracksIntros && <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#C4B5FD' }}>{totals.intros}</td>}
             <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#F59E0B' }}>
               {fmtPct(showUpRate(totals.demosCompleted, totals.demosBooked))}
             </td>
@@ -307,6 +328,10 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   // Shares the single useAeDeals instance lifted to AeView (avoids a double fetch
   // and keeps the funnel-deriving effect and this table on the same data).
   const { deals, importCalMeetings, save, addManual, remove, matchStripe } = aeDeals
+  const tracksIntros = !!profile?.tracks_channel_intros
+  const partners = tracksIntros
+    ? [...new Set(deals.filter(d => d.status === 'Intro').map(d => (d.customer_name || '').trim()).filter(Boolean))].sort()
+    : []
   const [importing, setImporting] = useState(false)
   const [expanded, setExpanded] = useState(null)
   const [err, setErr] = useState(null)
@@ -387,6 +412,7 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
   // 'Deleted' only appears once there's at least one, so it doesn't clutter the row.
   const statusCounts = AE_MEETING_STATUSES
     .filter(s => s !== 'Deleted' || weekMeetings.some(d => d.status === 'Deleted'))
+    .filter(s => s !== 'Intro' || tracksIntros)
     .map(s => ({ status: s, n: weekMeetings.filter(d => d.status === s).length }))
 
   const doImport = async () => {
@@ -516,7 +542,8 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 searchResults.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails}
+                    tracksIntros={tracksIntros} partners={partners} />
                 ))
               )
             ) : statusFilter ? (
@@ -530,7 +557,8 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 return filtered.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails}
+                    tracksIntros={tracksIntros} partners={partners} />
                 ))
               })()
             ) : (
@@ -538,7 +566,8 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 {activeRows.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails}
+                    tracksIntros={tracksIntros} partners={partners} />
                 ))}
                 {activeRows.length === 0 && pastRows.length > 0 && (
                   <tr><td colSpan={7} className="py-3 px-3 text-sm text-stone-400 italic">All meetings actioned — see Past Meetings below.</td></tr>
@@ -557,7 +586,8 @@ function MeetingsTable({ profile, weekKey, canEdit, aeDeals }) {
                 {showPast && pastRows.map(d => (
                   <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                     expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
+                    onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails}
+                    tracksIntros={tracksIntros} partners={partners} />
                 ))}
               </>
             )}
@@ -647,8 +677,10 @@ function RecordingPlayer({ logId }) {
   )
 }
 
-function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch, atlasTails }) {
+function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMatch, atlasTails, tracksIntros, partners }) {
   const { openDialer, openMessages, openAtlas } = useDialer()
+  // 'Intro' status only offered to channel-intro-enabled profiles (e.g. Heather).
+  const statusOptions = AE_MEETING_STATUSES.filter(s => s !== 'Intro' || tracksIntros)
   const hasImessage = !!atlasTails && atlasTails.has((deal.customer_phone || '').replace(/\D/g, '').slice(-10))
   const isWire = deal.payment_method === 'wire_ach'
   const when = deal.meeting_at ? new Date(deal.meeting_at) : null
@@ -734,7 +766,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
         </td>
         <td className="py-2 px-3">
           <select disabled={!canEdit} value={deal.status} onChange={(e) => setField({ status: e.target.value })} className={`w-full ${ctrl}`}>
-            {AE_MEETING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </td>
         <td className="py-2 px-3">
@@ -779,6 +811,19 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Notes</div>
                 <input key={deal.notes || 'empty'} disabled={!canEdit} defaultValue={deal.notes || ''} onBlur={(e) => setField({ notes: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
               </div>
+              {tracksIntros && deal.status !== 'Intro' && (
+                <div>
+                  <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Referred by <span className="normal-case tracking-normal text-stone-400">· channel partner</span></div>
+                  <select disabled={!canEdit} value={deal.referred_by_partner || ''} onChange={(e) => setField({ referred_by_partner: e.target.value || null })} className={`w-full ${ctrl}`}>
+                    <option value="">— None —</option>
+                    {(partners || []).map(p => <option key={p} value={p}>{p}</option>)}
+                    {deal.referred_by_partner && !(partners || []).includes(deal.referred_by_partner) && (
+                      <option value={deal.referred_by_partner}>{deal.referred_by_partner}</option>
+                    )}
+                  </select>
+                  <div className="text-[10px] text-stone-400 mt-1">Attribute this deal to the wholesaler who forwarded it (from your Intro meetings) — feeds the Partner Referrals rollup for comp.</div>
+                </div>
+              )}
             </div>
             {!isWire && canEdit && (
               <div className="pl-5 mt-3 flex items-center gap-3 flex-wrap">
@@ -841,10 +886,18 @@ function AeDealsPipeline({ profile, canEdit }) {
     }
   }
 
+  const tracksIntros = !!profile?.tracks_channel_intros
+  // Channel partners = the wholesalers from her Intro meetings (drives the
+  // "Referred by" picker + the Partner Referrals rollup).
+  const partners = tracksIntros
+    ? [...new Set(deals.filter(d => d.status === 'Intro').map(d => (d.customer_name || '').trim()).filter(Boolean))].sort()
+    : []
+
   // Only actioned deals surface (status changed off 'Scheduled'); Deleted hidden.
   const actioned = deals.filter(d => d.status !== 'Scheduled' && d.status !== 'Deleted')
-  // "All open" = actioned and not terminal (Closed Won/Lost, Unqualified).
-  const openDeals = actioned.filter(d => !AE_CLOSED_STATUSES.includes(d.status))
+  // "All open" = actioned and not terminal (Closed Won/Lost, Unqualified) and not
+  // an Intro (channel-partner intros aren't revenue opportunities).
+  const openDeals = actioned.filter(d => !AE_CLOSED_STATUSES.includes(d.status) && d.status !== 'Intro')
   // Per-status tabs, in lifecycle order, only for statuses that have deals.
   const presentStatuses = AE_MEETING_STATUSES.filter(
     s => s !== 'Scheduled' && s !== 'Deleted' && actioned.some(d => d.status === s)
@@ -902,12 +955,68 @@ function AeDealsPipeline({ profile, canEdit }) {
               {rows.map(d => (
                 <MeetingRow key={d.id} deal={d} canEdit={canEdit}
                   expanded={expanded === d.id} onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
-                  onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails} />
+                  onSave={saveDeal} onRemove={remove} onMatch={matchStripe} atlasTails={atlasTails}
+                  tracksIntros={tracksIntros} partners={partners} />
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {tracksIntros && <PartnerReferrals deals={deals} />}
+    </div>
+  )
+}
+
+// Per-channel-partner rollup of attributed deals — for compensating the
+// wholesalers who forward deals. Read-only; source = the AE's ae_deals.
+function PartnerReferrals({ deals }) {
+  const byPartner = {}
+  for (const d of deals) {
+    const p = (d.referred_by_partner || '').trim()
+    if (!p) continue
+    const a = (byPartner[p] ||= { partner: p, count: 0, won: 0, wonValue: 0, openValue: 0 })
+    a.count += 1
+    if (d.status === 'Closed Won') { a.won += 1; a.wonValue += (Number(d.one_time) || 0) + (Number(d.mrr) || 0) }
+    else if (!AE_CLOSED_STATUSES.includes(d.status) && d.status !== 'Intro') a.openValue += (Number(d.expected_mrr) || Number(d.mrr) || 0)
+  }
+  const rows = Object.values(byPartner).sort((a, b) => b.wonValue - a.wonValue || b.count - a.count)
+
+  return (
+    <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+      <div className="flex items-center gap-2 mb-1">
+        <Handshake className="w-5 h-5" style={{ color: '#6639A6' }} />
+        <div className="display-font text-2xl font-medium text-stone-900">Partner Referrals</div>
+      </div>
+      <p className="text-sm text-stone-600 mb-4">
+        Deals attributed to the channel partners you met in Intro meetings — for compensating referrals. Expand a deal and set <strong>Referred by</strong> to attribute it here.
+      </p>
+      {rows.length === 0 ? (
+        <div className="text-sm text-stone-500 py-4">No deals attributed to a partner yet.</div>
+      ) : (
+        <table className="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr className="border-b border-stone-200 bg-stone-50">
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Partner</th>
+              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Deals</th>
+              <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Won</th>
+              <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-emerald-700 font-medium">Won value</th>
+              <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Open pipeline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.partner} className="border-b border-stone-100">
+                <td className="py-2.5 px-3 font-medium text-stone-800">{r.partner}</td>
+                <td className="py-2.5 px-2 text-center num-tabular text-stone-700">{r.count}</td>
+                <td className="py-2.5 px-2 text-center num-tabular text-stone-700">{r.won}</td>
+                <td className="py-2.5 px-3 text-right num-tabular font-semibold text-emerald-700">${Math.round(r.wonValue).toLocaleString()}</td>
+                <td className="py-2.5 px-3 text-right num-tabular text-stone-700">${Math.round(r.openValue).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

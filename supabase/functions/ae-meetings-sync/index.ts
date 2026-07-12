@@ -79,16 +79,19 @@ const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up",
 // Only the funnel fields are touched; other daily fields, deals, notes, and
 // submitted_at are preserved. The orchestrator batches the actual I/O.
 function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingData: any, nowISO: string): any | null {
-  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0 }));
+  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }));
   for (const d of rows) {
     if (!d.meeting_at) continue;
     const idx = dayIdxOfYMD(torontoYMD(new Date(d.meeting_at)));
+    // 'Intro' (channel-partner intro) is fully backed out of the demo funnel and
+    // counted only in `intros` — mirrors src/aeFunnel.js. Keep in sync.
+    if (d.status === "Intro") { daily[idx].intros += 1; continue; }
     if (d.status !== "Rescheduled" && d.status !== "Deleted") daily[idx].demosBooked += 1;
     if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
     if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
     if (d.status === "Closed Won") daily[idx].trialSignups += 1;
   }
-  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups);
+  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups && !x.intros);
   const exists = existingData != null;
   if (!exists && allZero) return null; // nothing to record; don't create an empty row
 
@@ -103,7 +106,8 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
       if ((Number(c.demosBooked) || 0) !== daily[i].demosBooked
         || (Number(c.demosCompleted) || 0) !== daily[i].demosCompleted
         || (Number(c.demosUnqualified) || 0) !== daily[i].demosUnqualified
-        || (Number(c.trialSignups) || 0) !== daily[i].trialSignups) { changed = true; break; }
+        || (Number(c.trialSignups) || 0) !== daily[i].trialSignups
+        || (Number(c.intros) || 0) !== daily[i].intros) { changed = true; break; }
     }
     if (!changed) return null;
   }
@@ -114,6 +118,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
     demosCompleted: daily[i].demosCompleted,
     demosUnqualified: daily[i].demosUnqualified,
     trialSignups: daily[i].trialSignups,
+    intros: daily[i].intros,
   }));
   const newData = { ...base, daily: newDaily, deals: Array.isArray(base.deals) ? base.deals : [] };
   return { user_id: aeId, week_key: weekKey, data: newData, updated_at: nowISO };
