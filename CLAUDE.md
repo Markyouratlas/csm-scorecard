@@ -227,6 +227,16 @@ Only plan against the full, confirmed column list.
   `src/aeFunnel.js` (`deriveFunnelWeek`/`closeableHeld`/`weekKeyOfMeeting`) — keep
   the two in sync. Schema: `supabase-ae-deals-migration.sql` (`ae_deals`, incl.
   `expected_mrr` for open-deal pipeline forecast), `supabase-ae-meetings-cron.sql`.
+  **⚠️ The funnel math lives in BOTH `aeFunnel.js` (client) and `ae-meetings-sync`
+  `funnelUpsertRow` (server) — any status/derivation change must be made in both AND
+  the function redeployed (`--no-verify-jwt`), or the nightly cron clobbers the
+  client's numbers.** The `Intro` status (channel-partner intro meetings) is
+  **fully backed out** of the demo funnel there — counted only in `daily[].intros`,
+  excluded from `demosBooked`/completed/show-up/close. Intro tracking + channel-
+  partner deal attribution (`ae_deals.referred_by_partner`, the "Referred by" picker,
+  and the Partner Referrals rollup) are **gated to `profiles.tracks_channel_intros`**
+  (Heather only; distinct from the older `channel_partner_enabled`/`channel_deals`
+  portal). Schema: `src/14-ae-channel-attribution.sql`.
 - **Investor Daily/Weekly Update** (crons, fill-only-blank, never clobber exec edits)
   → `daily-update-autofill` writes `atlas_daily_updates` (incl. `cash_stripe`, and
   AE-funnel-derived `calls_booked/calls_held/calls_unqualified/deals_closed`);
