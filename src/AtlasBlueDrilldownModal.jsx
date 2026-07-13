@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { AE_ATTENDED_STATUSES } from './roleConstants'
 
@@ -65,7 +66,9 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
       ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} total`
       : `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'}`
 
-  return (
+  // Portal to <body> so the modal escapes the shell's locked-week wrapper
+  // (pointer-events:none + reduced opacity) when viewing a submitted past week.
+  return createPortal((
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(28,25,23,0.55)' }} onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
@@ -127,5 +130,5 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
         </div>
       </div>
     </div>
-  )
+  ), document.body)
 }
