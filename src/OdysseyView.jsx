@@ -1133,6 +1133,25 @@ function TrackingGuide() {
       },
     },
     {
+      title: 'Google Analytics 4 (live)',
+      provider: 'Supabase · ga4_daily_metrics + ga4_daily_events',
+      status: 'connected',
+      metrics: [
+        'Sessions + active users, by day and channel',
+        'Traffic by default channel group',
+        'Opt-in events — voice clone, iMessage clone, demo booked',
+        'Opt-in rate (session key-event rate)',
+        'Daily pull, rolling 90-day window (self-corrects GA4 finalization)',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'ga4_daily_metrics', label: 'Daily metrics', order: 'date' },
+          { table: 'ga4_daily_events', label: 'Opt-in events', order: 'date' },
+        ],
+      },
+    },
+    {
       title: 'Stripe (live)',
       provider: 'Supabase · commission_customers + oneoff_payments',
       status: 'connected',
