@@ -169,6 +169,7 @@ export default function AtlasBlueDrilldownModal({ drill, deals, bookings = [], t
                     <tr key={d.id} className="border-b border-stone-100">
                       <td className="py-2.5 px-4">
                         <div className="font-medium text-stone-900 leading-tight">{d.customer_name || 'Unnamed'}</div>
+                        {d.rep_name && <div className="text-[11px] text-stone-500">with {d.rep_name}</div>}
                         {d.customer_email && <div className="text-[11px] text-stone-400 truncate max-w-[220px]">{d.customer_email}</div>}
                       </td>
                       <td className="py-2.5 px-3 num-tabular text-xs text-stone-600">{fmtDate(d.meeting_at)}</td>

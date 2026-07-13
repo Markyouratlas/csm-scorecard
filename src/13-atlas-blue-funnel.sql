@@ -18,7 +18,9 @@
 -- Idempotent: safe to re-run. Return columns changed (added customer_name/email
 -- for the drill-down modal, and booked_at = the Cal.com booking-created date so the
 -- top-of-funnel "Booked Calls" can be bucketed by WHEN the call was booked, not the
--- meeting date), so DROP first — CREATE OR REPLACE can't change a return signature.
+-- meeting date; and rep_name = the Cal.com host, i.e. the salesperson the meeting is
+-- booked with, shown in the drill-down), so DROP first — CREATE OR REPLACE can't
+-- change a return signature.
 -- ============================================================
 
 DROP FUNCTION IF EXISTS public.atlas_blue_deals(timestamptz);
@@ -32,7 +34,8 @@ RETURNS TABLE (
   one_time       numeric,
   mrr            numeric,
   customer_name  text,
-  customer_email text
+  customer_email text,
+  rep_name       text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -57,7 +60,8 @@ BEGIN
   END IF;
 
   RETURN QUERY
-    SELECT d.id, d.meeting_at, cb.created_at_cal AS booked_at, d.status, d.one_time, d.mrr, d.customer_name, d.customer_email
+    SELECT d.id, d.meeting_at, cb.created_at_cal AS booked_at, d.status, d.one_time, d.mrr,
+           d.customer_name, d.customer_email, cb.host_name AS rep_name
       FROM ae_deals d
       JOIN cal_bookings cb           ON cb.uid = d.booking_uid
       JOIN cal_event_type_config cfg ON cfg.slug = cb.event_type_slug
