@@ -216,6 +216,12 @@ Only plan against the full, confirmed column list.
   `attendee_name/attendee_email`, `start_time`, `status`, `event_type_slug`, `raw`,
   …) and reads `cal_event_type_config`; state in `cal_sync_state`.
 - **Meta** → `meta-sync` writes `meta_ads_metrics`.
+- **GA4** (Google Analytics 4) → `ga4-sync` (daily cron `supabase-ga4-cron.sql`) mints a
+  service-account RS256 token via Web Crypto (NOT `@google-analytics/data` — Node/gRPC won't run
+  in Deno) and calls the Data API over REST; writes `ga4_daily_metrics` (date×channel) +
+  `ga4_daily_events` (date×opt-in-event). Property id `443554875` (never the `G-` id); secret
+  `GA4_SA_KEY_B64`. Schema `src/18-ga4-metrics.sql`. Read by `src/hooks/useGa4Metrics.js` →
+  the GrowthView "Website (GA4)" tab (`Ga4Section`).
 - **ProfitWell** → `profitwell-sync`.
 - **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
   meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
