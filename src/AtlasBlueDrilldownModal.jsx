@@ -32,6 +32,7 @@ const METRICS = {
   avgDeal:      { title: 'Avg deal value / customer', filter: d => d.status === 'Closed Won', sumKey: 'mrr', money: true, avg: true },
   showUp:       { title: 'Show-up rate — booked calls',    filter: d => d.status !== 'Rescheduled', note: 'Show-up % = who attended ÷ these booked calls.' },
   closing:      { title: 'Closing rate — closeable held',  filter: d => AE_ATTENDED_STATUSES.includes(d.status) && d.status !== 'Unqualified', note: 'Closing % = Closed Won ÷ these closeable calls (Unqualified already removed).' },
+  callsBooked:  { title: 'Calls booked', bookings: true, filter: d => d.status !== 'Rescheduled', note: 'Counted on the day the call was booked (Cal.com booking date), not the meeting date.' },
   testDrives:   { title: 'Test drives', testDrives: true, note: 'Distinct customers who had a conversation with the “Atlas Blue Paid Ads Funnel Agent” campaign, dated by their first conversation.' },
 }
 
@@ -52,7 +53,7 @@ const STATUS_STYLE = {
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return '—' } }
 
-export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [], workDayIdxs, onClose }) {
+export default function AtlasBlueDrilldownModal({ drill, deals, bookings = [], testDrives = [], workDayIdxs, onClose }) {
   const { openAtlas } = useDialer()
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -62,9 +63,10 @@ export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [],
 
   const meta = METRICS[drill.metricKey] || { title: drill.metricKey, filter: () => true }
   const isTestDrives = !!meta.testDrives
+  const isBookings = !!meta.bookings // deals scoped by booking date, not meeting date
 
   const rows = useMemo(() => {
-    const source = isTestDrives ? testDrives : deals
+    const source = isTestDrives ? testDrives : isBookings ? bookings : deals
     const inScope = drill.dayIdx == null
       ? source.filter(r => workDayIdxs.includes(r.dayIdx))
       : source.filter(r => r.dayIdx === drill.dayIdx)
@@ -73,13 +75,15 @@ export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [],
     }
     return inScope.filter(meta.filter)
       .slice()
-      .sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
+      .sort((a, b) => new Date(b.booked_at || b.meeting_at || 0) - new Date(a.booked_at || a.meeting_at || 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deals, testDrives, drill, workDayIdxs])
+  }, [deals, bookings, testDrives, drill, workDayIdxs])
 
   const total = meta.sumKey ? rows.reduce((s, d) => s + (Number(d[meta.sumKey]) || 0), 0) : null
   const summary = isTestDrives
     ? `${rows.length} test drive${rows.length === 1 ? '' : 's'}`
+    : isBookings
+    ? `${rows.length} call${rows.length === 1 ? '' : 's'} booked`
     : meta.avg
       ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · avg ${fmtMoney(rows.length ? total / rows.length : 0)} · total ${fmtMoney(total)}`
       : meta.money

@@ -47,7 +47,7 @@ import { stepWeek } from '../dateUtils.js'
 const ATLAS_BLUE_CAMPAIGN_ID = '120240301558250144' // "Atlas Blue (iMessage)"
 
 const blankDay = () => ({
-  adSpend: 0, visitors: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
+  adSpend: 0, visitors: 0, callsBooked: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
   newCustomers: 0, cashCollected: 0, dealValue: 0, testDrives: 0,
 })
 
@@ -115,6 +115,16 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
       cell.dealValue += Number(d.mrr) || 0
     }
   }
+  // Top-of-funnel "Booked Calls" — counted on the day the CALL WAS BOOKED
+  // (Cal.com booking-created date), NOT the meeting date, so it measures booking
+  // activity and never lands on a future day. Rescheduled is backed out to match
+  // the meeting-based booked count.
+  for (const d of deals) {
+    if (d.status === 'Rescheduled' || !d.booked_at) continue
+    if (weekKeyOfMeeting(d.booked_at) !== weekKey) continue
+    const idx = dayIdxOfMeeting(d.booked_at)
+    if (idx != null) viewedWeekDays[idx].callsBooked += 1
+  }
   // Meta ad spend + landing-page-view "visitors" for the viewed week, on the
   // matching weekday.
   for (const r of metaRows) {
@@ -176,6 +186,13 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
     .filter(d => weekKeyOfMeeting(d.meeting_at) === weekKey)
     .map(d => ({ ...d, dayIdx: dayIdxOfMeeting(d.meeting_at) }))
 
+  // Deals BOOKED in the viewed week (dayIdx by booked_at), so the top-of-funnel
+  // "Booked Calls" drill-down lists the calls booked that day (Rescheduled backed
+  // out, matching the count).
+  const viewedWeekBookings = deals
+    .filter(d => d.status !== 'Rescheduled' && d.booked_at && weekKeyOfMeeting(d.booked_at) === weekKey)
+    .map(d => ({ ...d, dayIdx: dayIdxOfMeeting(d.booked_at) }))
+
   // Test-drive customers for the viewed week (with dayIdx), so the Test Drives
   // cell can drill into the actual contacts behind the count.
   const viewedWeekTestDrives = testDrives
@@ -185,6 +202,7 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
   return {
     viewedWeekDays,
     viewedWeekDeals,
+    viewedWeekBookings,
     viewedWeekTestDrives,
     weeklyTrend,
     loading: isPending,
