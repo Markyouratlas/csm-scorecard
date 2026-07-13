@@ -15,6 +15,8 @@ import ProfitwellAllMetrics from './ProfitwellAllMetrics'
 import { accessTier } from './teams'
 import { useGlassInteraction } from './hooks/useGlassInteraction.js'
 import { useExecutiveMetrics } from './hooks/useExecutiveMetrics.js'
+import FunnelBreakdownModal from './FunnelBreakdownModal.jsx'
+import { getWeekKey } from './dateUtils'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, BarChart } from 'recharts'
@@ -267,6 +269,7 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
   // Until Stripe is wired, we show the new-MRR-closed-this-month from AE
   // deals as a partial signal — flagged as such.
   const newMrrClosedMonth = metrics?.revenue?.newMrrClosedMonth
+  const [salesDrill, setSalesDrill] = useState(null) // per-rep Sales funnel breakdown ('booked' | 'showup')
   const [metaPreset, setMetaPreset] = useState('last_7d')
   const [metaPausedOpen, setMetaPausedOpen] = useState(false)
   const [metaExpandedId, setMetaExpandedId] = useState(null)
@@ -355,7 +358,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           value={metrics?.sales?.demosBookedWeek}
           color="#F59E0B"
           loading={loading}
-          calc="Total demos booked by Account Executives this week."
+          calc="Total demos booked by Account Executives this week. Click to see the per-rep breakdown."
+          onClick={() => setSalesDrill('booked')}
         />
         <GaugeCard
           label="Show-Up Rate"
@@ -364,7 +368,8 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           target={75}
           color="#F59E0B"
           loading={loading}
-          calc="Demos completed ÷ demos booked, as a percentage. Higher is better."
+          calc="Demos completed ÷ demos booked, as a percentage. Higher is better. Click to see the per-rep breakdown."
+          onClick={() => setSalesDrill('showup')}
         />
         <GaugeCard
           label="Close Rate"
@@ -392,6 +397,9 @@ function DashboardBody({ profile, metrics, loading, error, meta, refresh, onSwit
           calc="Total recurring revenue signed across won deals this month."
         />
       </div>
+      {salesDrill && (
+        <FunnelBreakdownModal weekKey={getWeekKey()} metric={salesDrill} onClose={() => setSalesDrill(null)} />
+      )}
 
       {/* MARKETING — wired */}
       <SectionHeading
@@ -920,12 +928,13 @@ function SectionHeading({ eyebrow, title, color }) {
 //  MetricCard — number + (optional) sparkline + tooltip
 // =============================================================================
 
-function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loading, calc, source }) {
+function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loading, calc, source, onClick }) {
   const isReady = !loading && value !== null && value !== undefined
   const formatted = isReady ? formatNumber(value) : null
 
   return (
-    <div className="dashboard-card relative">
+    <div className={`dashboard-card relative ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow group' : ''}`}
+      {...(onClick ? { role: 'button', tabIndex: 0, onClick, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } } : {})}>
       <div className="flex items-center gap-1.5 mb-3">
         <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">{label}</div>
         <InfoTooltip content={calc} />
@@ -957,7 +966,7 @@ function MetricCard({ label, value, prefix = '', unit = '', color = BRAND, loadi
 //  GaugeCard — semicircular SVG gauge for % metrics with a target
 // =============================================================================
 
-function GaugeCard({ label, value, unit = '%', target, color, loading, calc }) {
+function GaugeCard({ label, value, unit = '%', target, color, loading, calc, onClick }) {
   const isReady = !loading && value !== null && value !== undefined
 
   // Geometry — semicircle arc from -180° to 0°
@@ -993,7 +1002,8 @@ function GaugeCard({ label, value, unit = '%', target, color, loading, calc }) {
           : '#EF4444'
 
   return (
-    <div className="dashboard-card relative">
+    <div className={`dashboard-card relative ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow group' : ''}`}
+      {...(onClick ? { role: 'button', tabIndex: 0, onClick, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } } : {})}>
       <div className="flex items-center gap-1.5 mb-1">
         <div className="mono-font text-[10.5px] uppercase tracking-[0.14em] font-semibold text-stone-500">{label}</div>
         <InfoTooltip content={calc} />
