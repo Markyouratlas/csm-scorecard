@@ -11,6 +11,8 @@ import { AE_ATTENDED_STATUSES } from './roleConstants'
 //  Props:
 //    drill   — { metricKey, dayIdx (number|null for the whole week), label }
 //    deals   — viewedWeekDeals from useAtlasBlueFunnel (raw rows + dayIdx)
+//    testDrives — viewedWeekTestDrives (contact_key + first_at + dayIdx) for the
+//                 'testDrives' metric, which lists conversation contacts, not deals
 //    workDayIdxs — the user's work days (getDay indices) for the "whole week" scope
 //    onClose — close handler
 // ============================================================================
@@ -29,6 +31,15 @@ const METRICS = {
   avgDeal:      { title: 'Avg deal value / customer', filter: d => d.status === 'Closed Won', sumKey: 'mrr', money: true, avg: true },
   showUp:       { title: 'Show-up rate — booked calls',    filter: d => d.status !== 'Rescheduled', note: 'Show-up % = who attended ÷ these booked calls.' },
   closing:      { title: 'Closing rate — closeable held',  filter: d => AE_ATTENDED_STATUSES.includes(d.status) && d.status !== 'Unqualified', note: 'Closing % = Closed Won ÷ these closeable calls (Unqualified already removed).' },
+  testDrives:   { title: 'Test drives', testDrives: true, note: 'Distinct customers who had a conversation with the “Atlas Blue Paid Ads Funnel Agent” campaign, dated by their first conversation.' },
+}
+
+// A contact_key is a 10-digit phone (preferred) or an email. Pretty-print phones.
+const fmtContact = (key) => {
+  if (!key) return '—'
+  const digits = String(key).replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  return key
 }
 
 const STATUS_STYLE = {
@@ -40,7 +51,7 @@ const STATUS_STYLE = {
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return '—' } }
 
-export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onClose }) {
+export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [], workDayIdxs, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -48,23 +59,30 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
   }, [onClose])
 
   const meta = METRICS[drill.metricKey] || { title: drill.metricKey, filter: () => true }
+  const isTestDrives = !!meta.testDrives
 
   const rows = useMemo(() => {
+    const source = isTestDrives ? testDrives : deals
     const inScope = drill.dayIdx == null
-      ? deals.filter(d => workDayIdxs.includes(d.dayIdx))
-      : deals.filter(d => d.dayIdx === drill.dayIdx)
+      ? source.filter(r => workDayIdxs.includes(r.dayIdx))
+      : source.filter(r => r.dayIdx === drill.dayIdx)
+    if (isTestDrives) {
+      return inScope.slice().sort((a, b) => new Date(b.first_at || 0) - new Date(a.first_at || 0))
+    }
     return inScope.filter(meta.filter)
       .slice()
       .sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deals, drill, workDayIdxs])
+  }, [deals, testDrives, drill, workDayIdxs])
 
   const total = meta.sumKey ? rows.reduce((s, d) => s + (Number(d[meta.sumKey]) || 0), 0) : null
-  const summary = meta.avg
-    ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · avg ${fmtMoney(rows.length ? total / rows.length : 0)} · total ${fmtMoney(total)}`
-    : meta.money
-      ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} total`
-      : `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'}`
+  const summary = isTestDrives
+    ? `${rows.length} test drive${rows.length === 1 ? '' : 's'}`
+    : meta.avg
+      ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · avg ${fmtMoney(rows.length ? total / rows.length : 0)} · total ${fmtMoney(total)}`
+      : meta.money
+        ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} total`
+        : `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'}`
 
   // Portal to <body> so the modal escapes the shell's locked-week wrapper
   // (pointer-events:none + reduced opacity) when viewing a submitted past week.
@@ -91,7 +109,26 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
         {/* Body */}
         <div className="overflow-y-auto">
           {rows.length === 0 ? (
-            <div className="px-6 py-12 text-center text-sm text-stone-500">No deals for this metric in this period.</div>
+            <div className="px-6 py-12 text-center text-sm text-stone-500">
+              {isTestDrives ? 'No test drives in this period.' : 'No deals for this metric in this period.'}
+            </div>
+          ) : isTestDrives ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-stone-50">
+                <tr className="border-b border-stone-200">
+                  <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Contact</th>
+                  <th className="text-right py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">First conversation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((td, i) => (
+                  <tr key={`${td.contact_key}-${i}`} className="border-b border-stone-100">
+                    <td className="py-2.5 px-4 font-medium text-stone-900">{fmtContact(td.contact_key)}</td>
+                    <td className="py-2.5 px-4 text-right num-tabular text-xs text-stone-600">{fmtDate(td.first_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-stone-50">

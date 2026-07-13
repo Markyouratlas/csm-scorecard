@@ -426,7 +426,7 @@ function AbHeadCell({ label, tip, tone = 'manual' }) {
 
 function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profile }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, viewedWeekDeals, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
+  const { viewedWeekDays, viewedWeekDeals, viewedWeekTestDrives, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
 
   // Drill-down modal: click any bottom-funnel value to see the deals behind it.
   const [drill, setDrill] = useState(null)
@@ -504,13 +504,14 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
             {workDayIdxs.map(dayIdx => {
               const a = viewedWeekDays[dayIdx] || {}
               const booked = a.demosBooked || 0
+              const lbl = DAY_NAMES[dayIdx]
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
-                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{lbl}</div></td>
                   <ReadCell value={a.adSpend} money />
                   <ReadCell value={a.visitors} />
-                  <ReadCell value={a.testDrives} />
-                  <ReadCell value={booked} />
+                  <ReadCell value={a.testDrives} onClick={a.testDrives ? () => openDrill('testDrives', dayIdx, lbl) : undefined} />
+                  <ReadCell value={booked} onClick={booked ? () => openDrill('booked', dayIdx, lbl) : undefined} />
                   <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + booked, a.visitors)} format="pct" />
                   <DerivedCell value={safeDiv(a.adSpend, a.testDrives)} format="money" />
                   <DerivedCell value={cpbc(a.adSpend, booked)} format="money" />
@@ -521,8 +522,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
               <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.adSpend)}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{t.visitors.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.testDrives.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.booked.toLocaleString()}</td>
+              <FooterReadCell text={t.testDrives.toLocaleString()} onClick={t.testDrives ? () => openDrill('testDrives', null, 'This week') : undefined} />
+              <FooterReadCell text={t.booked.toLocaleString()} onClick={t.booked ? () => openDrill('booked', null, 'This week') : undefined} />
               <FooterDerivedCell value={safeDiv(t.testDrives + t.booked, t.visitors)} format="pct" />
               <FooterDerivedCell value={safeDiv(t.adSpend, t.testDrives)} format="money" />
               <FooterDerivedCell value={cpbc(t.adSpend, t.booked)} format="money" />
@@ -654,6 +655,7 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
         <AtlasBlueDrilldownModal
           drill={drill}
           deals={viewedWeekDeals}
+          testDrives={viewedWeekTestDrives}
           workDayIdxs={workDayIdxs}
           onClose={() => setDrill(null)}
         />

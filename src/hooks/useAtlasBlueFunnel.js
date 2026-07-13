@@ -176,9 +176,16 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
     .filter(d => weekKeyOfMeeting(d.meeting_at) === weekKey)
     .map(d => ({ ...d, dayIdx: dayIdxOfMeeting(d.meeting_at) }))
 
+  // Test-drive customers for the viewed week (with dayIdx), so the Test Drives
+  // cell can drill into the actual contacts behind the count.
+  const viewedWeekTestDrives = testDrives
+    .filter(td => td.contact_key && td.first_at && weekKeyOfMeeting(td.first_at) === weekKey)
+    .map(td => ({ contact_key: td.contact_key, first_at: td.first_at, dayIdx: dayIdxOfMeeting(td.first_at) }))
+
   return {
     viewedWeekDays,
     viewedWeekDeals,
+    viewedWeekTestDrives,
     weeklyTrend,
     loading: isPending,
     error: error ?? null,
