@@ -18,6 +18,7 @@ import { getWeekKey, formatWeekLabel } from './dateUtils'
 import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
+import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import { dayIdxOfYMD } from './aeFunnel'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
@@ -149,6 +150,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
     { id: 'atlas-blue',  label: 'Atlas Blue',    icon: Sparkles },
+    { id: 'atlas-blue-webinar', label: 'AB Webinar', icon: Users },
     { id: 'meta-live',   label: 'Meta Live',     icon: Activity },
     { id: 'ad-sets',     label: 'Ad Sets',       icon: Layers },
     { id: 'monthly',     label: 'Monthly View',  icon: Calendar },
@@ -212,6 +214,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
         {section === 'atlas-blue' && <AtlasBlueFunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} />}
+        {section === 'atlas-blue-webinar' && <AtlasBlueWebinarSection workDayIdxs={workDayIdxs} weekKey={weekKey} />}
         {section === 'meta-live' && <MetaLiveSection refreshKey={metaRefreshKey} />}
         {section === 'ad-sets' && <AdSetsSection refreshKey={metaRefreshKey} />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
@@ -662,6 +665,121 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           onClose={() => setDrill(null)}
         />
       )}
+    </div>
+  )
+}
+
+// Atlas Blue Webinar — the "Atlas Blue - Workshop" Meta campaign. Only Ad Spend +
+// Visitors are available today (from Meta); later funnel stages have no source yet
+// so they're intentionally not rendered. Same visual language as the Atlas Blue tab.
+function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
+  const [chartWeeks, setChartWeeks] = useState(8)
+  const { viewedWeekDays, weeklyTrend, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks)
+
+  const t = workDayIdxs.reduce((acc, di) => {
+    const a = viewedWeekDays[di] || {}
+    acc.adSpend += Number(a.adSpend) || 0
+    acc.visitors += Number(a.visitors) || 0
+    return acc
+  }, { adSpend: 0, visitors: 0 })
+
+  const chartData = weeklyTrend.map(w => ({ name: formatWeekLabel(w.weekKey), adSpend: w.adSpend, visitors: w.visitors }))
+  const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  return (
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 rounded">
+          Couldn’t load the Atlas Blue Webinar Meta data.
+        </div>
+      )}
+
+      {/* ---------- TOP OF FUNNEL ---------- */}
+      <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+        <div className="flex items-center gap-2 mb-1">
+          <Users className="w-5 h-5" style={{ color: AB_BLUE }} />
+          <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Webinar</div>
+        </div>
+        <p className="text-sm text-stone-600 mb-6">
+          The “Atlas Blue - Workshop” Meta campaign. Ad Spend + Visitors are pulled live from Meta;
+          registration / attendee / booked-call stages will be added once we wire a source for them.
+          {loading ? ' · Syncing…' : ''}
+        </p>
+        <table className="w-full text-sm min-w-[560px]">
+          <thead>
+            <tr className="border-b border-stone-200">
+              <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
+              <AbHeadCell label="Ad Spend" tone="live"
+                tip="Live from Meta Ads (meta_ads_daily.spend) for the Atlas Blue - Workshop campaign only." />
+              <AbHeadCell label="Visitors" tone="live"
+                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded) for the Atlas Blue - Workshop campaign only." />
+              <AbHeadCell label="Cost / Visitor" tone="calc"
+                tip="Calculated: Ad Spend ÷ Visitors." />
+            </tr>
+          </thead>
+          <tbody>
+            {workDayIdxs.map(dayIdx => {
+              const a = viewedWeekDays[dayIdx] || {}
+              return (
+                <tr key={dayIdx} className="border-b border-stone-100">
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <ReadCell value={a.adSpend} money />
+                  <ReadCell value={a.visitors} />
+                  <DerivedCell value={safeDiv(a.adSpend, a.visitors)} format="money" />
+                </tr>
+              )
+            })}
+            <tr className="bg-stone-900 text-stone-50">
+              <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.adSpend)}</td>
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.visitors.toLocaleString()}</td>
+              <FooterDerivedCell value={safeDiv(t.adSpend, t.visitors)} format="money" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ---------- WEEKLY OVERVIEW ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-1">
+          <div className="display-font text-2xl font-medium text-stone-900">Weekly Overview</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {WEEK_OPTIONS.map(w => (
+              <button key={w} onClick={() => setChartWeeks(w)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: chartWeeks === w ? AB_BLUE : 'rgba(37,99,235,0.08)',
+                  color: chartWeeks === w ? 'white' : AB_BLUE,
+                  border: '1px solid rgba(37,99,235,0.25)',
+                }}>
+                {w}w
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 mono-font text-[10px] text-stone-500">
+          <LegendItem color="#93C5FD" label="Ad Spend"
+            tip="Live from Meta Ads (meta_ads_daily.spend) for the workshop campaign, summed per calendar week." />
+          <LegendItem color={AB_BLUE} label="Visitors"
+            tip="Meta 'landing_page_view' for the workshop campaign, summed per calendar week." />
+        </div>
+        <div className="h-[300px] mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0ef" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+              <RTooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                formatter={(v, name) => [name === 'Ad Spend' ? fmtWhole(v) : Number(v).toLocaleString(), name]}
+              />
+              <Bar yAxisId="left" dataKey="adSpend" name="Ad Spend" fill="#93C5FD" radius={[3, 3, 0, 0]} />
+              <Line yAxisId="right" type="monotone" dataKey="visitors" name="Visitors" stroke={AB_BLUE} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   )
 }
