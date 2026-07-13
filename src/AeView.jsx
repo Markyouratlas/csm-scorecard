@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X, Handshake } from 'lucide-react'
+import AeFunnelDrilldownModal from './AeFunnelDrilldownModal'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
@@ -215,6 +216,10 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
   }
 
   const tracksIntros = !!profile?.tracks_channel_intros
+  // Drill-down: click a Daily-funnel count to see the deals behind it.
+  const [drill, setDrill] = useState(null)
+  const openDrill = (metricKey, dayIdx, label) => setDrill({ metricKey, dayIdx, label })
+  const drillDeals = aeDeals?.deals || []
   const totals = workDayIdxs.reduce((acc, di) => {
     const day = weekData.daily[di]
     return {
@@ -255,10 +260,10 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
                   <div className="font-medium text-stone-800">{DAY_NAMES[dayIdx]}</div>
                   <div className="text-[10px] text-stone-500 mono-font">{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                 </td>
-                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosBooked || 0}</td>
-                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.demosCompleted || 0}</td>
-                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800">{day.trialSignups || 0}</td>
-                {tracksIntros && <td className="py-2 px-2 text-center num-tabular text-sm" style={{ color: '#6639A6' }}>{day.intros || 0}</td>}
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.demosBooked} onClick={() => openDrill('booked', dayIdx, DAY_NAMES[dayIdx])} /></td>
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.demosCompleted} onClick={() => openDrill('completed', dayIdx, DAY_NAMES[dayIdx])} /></td>
+                <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.trialSignups} onClick={() => openDrill('closes', dayIdx, DAY_NAMES[dayIdx])} /></td>
+                {tracksIntros && <td className="py-2 px-2 text-center num-tabular text-sm" style={{ color: '#6639A6' }}><DrillNum value={day.intros} onClick={() => openDrill('intros', dayIdx, DAY_NAMES[dayIdx])} /></td>}
                 <DerivedCell value={dayShowUp} target={0.75} comparator="gte" format="pct" />
                 <DerivedCell value={dayClose} target={0.30} comparator="gte" format="pct" />
               </tr>
@@ -266,10 +271,10 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
           })}
           <tr className="bg-stone-900 text-stone-50">
             <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Weekly Total</td>
-            <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosBooked}</td>
-            <td className="py-3 px-2 text-center num-tabular font-bold">{totals.demosCompleted}</td>
-            <td className="py-3 px-2 text-center num-tabular font-bold">{totals.trialSignups}</td>
-            {tracksIntros && <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#C4B5FD' }}>{totals.intros}</td>}
+            <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.demosBooked} onClick={() => openDrill('booked', null, 'This week')} dark /></td>
+            <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.demosCompleted} onClick={() => openDrill('completed', null, 'This week')} dark /></td>
+            <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.trialSignups} onClick={() => openDrill('closes', null, 'This week')} dark /></td>
+            {tracksIntros && <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#C4B5FD' }}><DrillNum value={totals.intros} onClick={() => openDrill('intros', null, 'This week')} dark /></td>}
             <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#F59E0B' }}>
               {fmtPct(showUpRate(totals.demosCompleted, totals.demosBooked))}
             </td>
@@ -281,7 +286,28 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
       </table>
     </div>
     <MeetingsTable profile={profile} weekKey={weekKey} canEdit={canEdit} aeDeals={aeDeals} />
+    {drill && (
+      <AeFunnelDrilldownModal
+        drill={drill}
+        deals={drillDeals}
+        weekKey={weekKey}
+        workDayIdxs={workDayIdxs}
+        onClose={() => setDrill(null)}
+      />
+    )}
     </div>
+  )
+}
+
+// A funnel count that opens the drill-down modal when > 0 (plain number otherwise).
+function DrillNum({ value, onClick, dark }) {
+  const n = Number(value) || 0
+  if (!n) return <>{n}</>
+  return (
+    <button type="button" onClick={onClick}
+      className={`underline decoration-dotted underline-offset-2 cursor-pointer transition-colors ${dark ? 'decoration-white/40 hover:decoration-white/90' : 'decoration-stone-300 hover:decoration-stone-600'}`}>
+      {n}
+    </button>
   )
 }
 
