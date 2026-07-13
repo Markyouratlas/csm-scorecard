@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { AE_ATTENDED_STATUSES } from './roleConstants'
 import { weekKeyOfMeeting, dayIdxOfMeeting } from './aeFunnel'
@@ -67,7 +68,9 @@ export default function AeFunnelDrilldownModal({ drill, deals, weekKey, workDayI
     ? `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'} · ${fmtMoney(totalMrr)}/mo · ${fmtMoney(totalCash)} cash`
     : `${rows.length} ${rows.length === 1 ? 'meeting' : 'meetings'}`
 
-  return (
+  // Portal to <body> so the modal escapes the shell's locked-week wrapper
+  // (pointer-events:none + reduced opacity) when viewing a submitted past week.
+  return createPortal((
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(28,25,23,0.55)' }} onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-stone-200 flex items-start justify-between gap-4">
@@ -123,5 +126,5 @@ export default function AeFunnelDrilldownModal({ drill, deals, weekKey, workDayI
         </div>
       </div>
     </div>
-  )
+  ), document.body)
 }

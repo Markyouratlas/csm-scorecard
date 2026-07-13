@@ -304,7 +304,9 @@ function DrillNum({ value, onClick, dark }) {
   const n = Number(value) || 0
   if (!n) return <>{n}</>
   return (
-    <button type="button" onClick={onClick}
+    // pointerEvents:auto keeps the drill-down clickable on locked/submitted past
+    // weeks, where the shell dims the body with pointer-events:none.
+    <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }}
       className={`underline decoration-dotted underline-offset-2 cursor-pointer transition-colors ${dark ? 'decoration-white/40 hover:decoration-white/90' : 'decoration-stone-300 hover:decoration-stone-600'}`}>
       {n}
     </button>
