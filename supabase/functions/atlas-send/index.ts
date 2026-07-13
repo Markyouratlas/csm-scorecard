@@ -24,7 +24,7 @@ const cors = {
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 const ATLAS_BASE = "https://api.youratlas.com/v1/api";
-const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead"]);
+const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead", "growth_manager"]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -50,7 +50,8 @@ serve(async (req) => {
       .select("id, campaign_id, contact_phone, contact_email, rep_id, human_handoff").eq("id", sessionId).maybeSingle();
     if (sErr) return json({ error: `Session lookup failed: ${sErr.message}` }, 500);
     if (!s) return json({ error: `Session not found: ${sessionId}` }, 404);
-    if (!isManager && s.rep_id !== user.id) return json({ error: "Forbidden" }, 403);
+    const canActAny = isManager || prof.role_type === "growth_manager";
+    if (!canActAny && s.rep_id !== user.id) return json({ error: "Forbidden" }, 403);
     if (!s.human_handoff) return json({ error: "Take over the conversation first (AI still active)." }, 409);
 
     const res = await fetch(`${ATLAS_BASE}/campaign-chat/${encodeURIComponent(s.campaign_id)}/send-human-response`, {

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { X, MessageCircle } from 'lucide-react'
 import { AE_ATTENDED_STATUSES } from './roleConstants'
+import { useDialer } from './DialerContext'
 
 // ============================================================================
 //  AtlasBlueDrilldownModal — lists the customers/prospects behind a single
@@ -52,6 +53,7 @@ const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return '—' } }
 
 export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [], workDayIdxs, onClose }) {
+  const { openAtlas } = useDialer()
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -121,12 +123,28 @@ export default function AtlasBlueDrilldownModal({ drill, deals, testDrives = [],
                 </tr>
               </thead>
               <tbody>
-                {rows.map((td, i) => (
-                  <tr key={`${td.contact_key}-${i}`} className="border-b border-stone-100">
-                    <td className="py-2.5 px-4 font-medium text-stone-900">{fmtContact(td.contact_key)}</td>
-                    <td className="py-2.5 px-4 text-right num-tabular text-xs text-stone-600">{fmtDate(td.first_at)}</td>
-                  </tr>
-                ))}
+                {rows.map((td, i) => {
+                  const isPhone = td.contact_key && !String(td.contact_key).includes('@')
+                  return (
+                    <tr key={`${td.contact_key}-${i}`} className="border-b border-stone-100">
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-2">
+                          {isPhone && (
+                            <button type="button"
+                              onClick={(e) => { e.stopPropagation(); openAtlas(td.contact_key, { name: fmtContact(td.contact_key) }) }}
+                              title="Atlas Blue iMessage conversation — open"
+                              className="shrink-0 inline-flex items-center justify-center hover:opacity-80 transition-opacity"
+                              style={{ width: 16, height: 16, borderRadius: 5, background: '#0A84FF', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              <MessageCircle className="w-2.5 h-2.5" style={{ color: 'white' }} strokeWidth={3} />
+                            </button>
+                          )}
+                          <span className="font-medium text-stone-900">{fmtContact(td.contact_key)}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-4 text-right num-tabular text-xs text-stone-600">{fmtDate(td.first_at)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           ) : (

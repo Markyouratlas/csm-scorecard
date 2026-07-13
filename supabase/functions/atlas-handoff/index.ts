@@ -20,7 +20,7 @@ const cors = {
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 const ATLAS_BASE = "https://api.youratlas.com/v1/api";
-const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead"]);
+const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead", "growth_manager"]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -45,8 +45,9 @@ serve(async (req) => {
     const { data: s } = await admin.from("atlas_sessions")
       .select("id, campaign_id, contact_phone, contact_email, rep_id, human_handoff").eq("id", sessionId).maybeSingle();
     if (!s) return json({ error: `Session not found: ${sessionId}` }, 404);
-    // Only the owning AE (or a manager/exec) may take over.
-    if (!isManager && s.rep_id !== user.id) return json({ error: "Forbidden" }, 403);
+    // Only the owning AE (or a manager/exec/growth_manager) may take over.
+    const canActAny = isManager || prof.role_type === "growth_manager";
+    if (!canActAny && s.rep_id !== user.id) return json({ error: "Forbidden" }, 403);
 
     const contact = s.contact_phone || s.contact_email;
     if (!s.campaign_id || !contact) return json({ error: "Session missing campaign/contact" }, 400);
