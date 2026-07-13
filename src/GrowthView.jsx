@@ -443,7 +443,7 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
     const a = viewedWeekDays[di] || {}
     acc.adSpend += Number(a.adSpend) || 0
     acc.visitors += Number(m.abVisitors) || 0
-    acc.testDrives += Number(m.abTestDrives) || 0
+    acc.testDrives += Number(a.testDrives) || 0
     acc.booked += a.demosBooked || 0
     acc.completed += a.demosCompleted || 0
     acc.unqualified += a.demosUnqualified || 0
@@ -477,8 +477,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           <div className="display-font text-2xl font-medium text-stone-900">Top of funnel</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          Atlas Blue (ad-driven) only. Ad Spend is pulled live from Meta and Booked Calls from your
-          ad-driven bookings; Visitors and Test Drives are entered manually.
+          Atlas Blue (ad-driven) only. Ad Spend (Meta), Test Drives (Atlas Blue conversations) and
+          Booked Calls (ad-driven bookings) are pulled live; only Visitors is entered manually.
         </p>
         <table className="w-full text-sm min-w-[920px]">
           <thead>
@@ -488,8 +488,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
                 tip="Live from Meta Ads (meta_ads_daily.spend). Total Meta ad spend for the day — note this is ALL Meta campaigns, so it equals Atlas Blue spend only if every campaign is Atlas Blue." />
               <AbHeadCell label="Visitors" tone="manual"
                 tip="Manual entry. Atlas Blue landing-page visitors — Meta has no true visitor count, so this is typed in until a web-analytics source is decided." />
-              <AbHeadCell label="Test Drives" tone="manual"
-                tip="Manual entry. Atlas Blue test-drive opt-ins — no confirmed live source yet (pending: Meta pixel event or product data)." />
+              <AbHeadCell label="Test Drives" tone="live"
+                tip="Live — distinct customers who had a conversation with the 'Atlas Blue Paid Ads Funnel Agent' campaign, counted on the day of their first conversation." />
               <AbHeadCell label="Booked Calls" tone="live"
                 tip="Live from AD-DRIVEN bookings only (ae_deals whose Cal event type is flagged ad-driven). Organic bookings are excluded. Counts meetings booked that day, excluding Rescheduled and Deleted." />
               <AbHeadCell label="Action %" tone="calc"
@@ -510,10 +510,10 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
                   <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
                   <ReadCell value={a.adSpend} money />
                   <NumCell value={m.abVisitors} onChange={(v) => setCell(dayIdx, 'abVisitors', v)} />
-                  <NumCell value={m.abTestDrives} onChange={(v) => setCell(dayIdx, 'abTestDrives', v)} />
+                  <ReadCell value={a.testDrives} />
                   <ReadCell value={booked} />
-                  <DerivedCell value={safeDiv((Number(m.abTestDrives) || 0) + booked, m.abVisitors)} format="pct" />
-                  <DerivedCell value={safeDiv(a.adSpend, m.abTestDrives)} format="money" />
+                  <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + booked, m.abVisitors)} format="pct" />
+                  <DerivedCell value={safeDiv(a.adSpend, a.testDrives)} format="money" />
                   <DerivedCell value={cpbc(a.adSpend, booked)} format="money" />
                 </tr>
               )

@@ -43,7 +43,7 @@ import { stepWeek } from '../dateUtils.js'
 
 const blankDay = () => ({
   adSpend: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
-  newCustomers: 0, cashCollected: 0, dealValue: 0,
+  newCustomers: 0, cashCollected: 0, dealValue: 0, testDrives: 0,
 })
 
 export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
@@ -58,23 +58,28 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
       const since = new Date(`${chartStart}T00:00:00Z`)
       since.setUTCDate(since.getUTCDate() - 2)
 
-      const [{ data: deals, error: dErr }, { data: metaRows, error: mErr }] = await Promise.all([
+      const [{ data: deals, error: dErr }, { data: metaRows, error: mErr }, { data: testDrives, error: tErr }] = await Promise.all([
         supabase.rpc('atlas_blue_deals', { p_since: since.toISOString() }),
         supabase
           .from('meta_ads_daily')
           .select('date_start, spend')
           .gte('date_start', chartStart),
+        // Distinct customers who chatted with the Atlas Blue paid-ads campaign,
+        // dated by their first conversation (the client buckets by week/day).
+        supabase.rpc('atlas_blue_test_drives'),
       ])
       if (dErr) throw dErr
-      // Meta spend is a nice-to-have; if that table read fails, keep the funnel
-      // working with $0 spend rather than blanking the whole tab.
+      // Meta spend + test drives are nice-to-haves; if either read fails, keep the
+      // funnel working rather than blanking the whole tab.
       if (mErr) console.warn('atlas blue funnel — meta_ads_daily read failed:', mErr.message)
-      return { deals: deals || [], metaRows: mErr ? [] : (metaRows || []) }
+      if (tErr) console.warn('atlas blue funnel — atlas_blue_test_drives read failed:', tErr.message)
+      return { deals: deals || [], metaRows: mErr ? [] : (metaRows || []), testDrives: tErr ? [] : (testDrives || []) }
     },
   })
 
   const deals = data?.deals || []
   const metaRows = data?.metaRows || []
+  const testDrives = data?.testDrives || []
 
   // ----- Viewed week: per-day auto metrics for the two tables -----
   const viewedWeekDays = Array.from({ length: 7 }, blankDay)
@@ -98,6 +103,14 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
   for (const r of metaRows) {
     if (!r.date_start || mondayOfYMD(r.date_start) !== weekKey) continue
     viewedWeekDays[dayIdxOfYMD(r.date_start)].adSpend += Number(r.spend) || 0
+  }
+  // Test Drives — distinct campaign customers, counted in the week/day of their
+  // FIRST conversation (first_at from the rpc).
+  for (const td of testDrives) {
+    if (!td.contact_key || !td.first_at) continue
+    if (weekKeyOfMeeting(td.first_at) !== weekKey) continue
+    const idx = dayIdxOfMeeting(td.first_at)
+    if (idx != null) viewedWeekDays[idx].testDrives += 1
   }
 
   // ----- Weekly trend: one row per week in the chart window -----
