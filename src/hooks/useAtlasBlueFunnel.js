@@ -23,11 +23,10 @@ import { stepWeek } from '../dateUtils.js'
 //      dealValue   = Σ mrr of Closed Won                   (Stripe-matched contracted MRR)
 //
 //  • Ad Spend + Visitors — auto-pulled from Meta (`meta_ads_daily`, daily rows
-//    summed per day/week). Ad Spend = `spend`; Visitors = the `landing_page_view`
-//    action out of the raw `actions` jsonb. NOTE: this is total Meta activity across
-//    all campaigns; it equals "Atlas Blue" only if every Meta campaign is Atlas Blue.
-//    Add a campaign_name filter here if non-Blue campaigns ever run. meta_ads_daily
-//    only covers ~90 days, so weeks older than that show $0 / 0.
+//    summed per day/week), FILTERED to the Atlas Blue (iMessage) campaign only
+//    (ATLAS_BLUE_CAMPAIGN_ID). Ad Spend = `spend`; Visitors = the `landing_page_view`
+//    action out of the raw `actions` jsonb. meta_ads_daily only covers ~90 days, so
+//    weeks older than that show $0 / 0.
 //
 //  Args:
 //    userId  — the Growth Manager's profile id (kept for RLS/query-key symmetry)
@@ -40,6 +39,12 @@ import { stepWeek } from '../dateUtils.js'
 //    weeklyTrend    — [{ weekKey, adSpend, cashCollected, bookedCalls, completed,
 //                        newCustomers, dealValue, roas }] oldest→newest, length `weeks`
 // =============================================================================
+
+// The one Meta campaign that IS the Atlas Blue paid-ads funnel. Ad Spend + Visitors
+// are filtered to this so the funnel never picks up unrelated campaigns (AI Revenue
+// Engine, Atlas Transform, the Workshop campaign, etc.). By campaign_id, not name,
+// so a campaign rename in Meta can't silently break the filter.
+const ATLAS_BLUE_CAMPAIGN_ID = '120240301558250144' // "Atlas Blue (iMessage)"
 
 const blankDay = () => ({
   adSpend: 0, visitors: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
@@ -73,6 +78,7 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
         supabase
           .from('meta_ads_daily')
           .select('date_start, spend, actions')
+          .eq('campaign_id', ATLAS_BLUE_CAMPAIGN_ID)
           .gte('date_start', chartStart),
         // Distinct customers who chatted with the Atlas Blue paid-ads campaign,
         // dated by their first conversation (the client buckets by week/day).

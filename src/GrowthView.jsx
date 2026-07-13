@@ -476,17 +476,18 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           <div className="display-font text-2xl font-medium text-stone-900">Top of funnel</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          Atlas Blue (ad-driven) only. Every column is pulled live — Ad Spend + Visitors from Meta,
-          Test Drives from Atlas Blue conversations, and Booked Calls from ad-driven bookings.
+          Atlas Blue (ad-driven) only. Every column is pulled live — Ad Spend + Visitors from the
+          Atlas Blue (iMessage) Meta campaign, Test Drives from Atlas Blue conversations, and Booked
+          Calls from ad-driven bookings.
         </p>
         <table className="w-full text-sm min-w-[920px]">
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
               <AbHeadCell label="Ad Spend" tone="live"
-                tip="Live from Meta Ads (meta_ads_daily.spend). Total Meta ad spend for the day — note this is ALL Meta campaigns, so it equals Atlas Blue spend only if every campaign is Atlas Blue." />
+                tip="Live from Meta Ads (meta_ads_daily.spend) for the Atlas Blue (iMessage) campaign only." />
               <AbHeadCell label="Visitors" tone="live"
-                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded). Total across all Meta campaigns, so it equals Atlas Blue only if every campaign is Atlas Blue." />
+                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded) for the Atlas Blue (iMessage) campaign only." />
               <AbHeadCell label="Test Drives" tone="live"
                 tip="Live — distinct customers who had a conversation with the 'Atlas Blue Paid Ads Funnel Agent' campaign, counted on the day of their first conversation." />
               <AbHeadCell label="Booked Calls" tone="live"
