@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { X, MessageCircle } from 'lucide-react'
 import { AE_ATTENDED_STATUSES } from './roleConstants'
+import { useDialer } from './DialerContext'
 
 // ============================================================================
 //  AtlasBlueDrilldownModal — lists the customers/prospects behind a single
@@ -11,6 +12,8 @@ import { AE_ATTENDED_STATUSES } from './roleConstants'
 //  Props:
 //    drill   — { metricKey, dayIdx (number|null for the whole week), label }
 //    deals   — viewedWeekDeals from useAtlasBlueFunnel (raw rows + dayIdx)
+//    testDrives — viewedWeekTestDrives (contact_key + first_at + dayIdx) for the
+//                 'testDrives' metric, which lists conversation contacts, not deals
 //    workDayIdxs — the user's work days (getDay indices) for the "whole week" scope
 //    onClose — close handler
 // ============================================================================
@@ -29,6 +32,16 @@ const METRICS = {
   avgDeal:      { title: 'Avg deal value / customer', filter: d => d.status === 'Closed Won', sumKey: 'mrr', money: true, avg: true },
   showUp:       { title: 'Show-up rate — booked calls',    filter: d => d.status !== 'Rescheduled', note: 'Show-up % = who attended ÷ these booked calls.' },
   closing:      { title: 'Closing rate — closeable held',  filter: d => AE_ATTENDED_STATUSES.includes(d.status) && d.status !== 'Unqualified', note: 'Closing % = Closed Won ÷ these closeable calls (Unqualified already removed).' },
+  callsBooked:  { title: 'Calls booked', bookings: true, filter: d => d.status !== 'Rescheduled', note: 'Counted on the day the call was booked (Cal.com booking date), not the meeting date.' },
+  testDrives:   { title: 'Test drives', testDrives: true, note: 'Distinct customers who had a conversation with the “Atlas Blue Paid Ads Funnel Agent” campaign, dated by their first conversation.' },
+}
+
+// A contact_key is a 10-digit phone (preferred) or an email. Pretty-print phones.
+const fmtContact = (key) => {
+  if (!key) return '—'
+  const digits = String(key).replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  return key
 }
 
 const STATUS_STYLE = {
@@ -40,7 +53,8 @@ const STATUS_STYLE = {
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return '—' } }
 
-export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onClose }) {
+export default function AtlasBlueDrilldownModal({ drill, deals, bookings = [], testDrives = [], workDayIdxs, onClose }) {
+  const { openAtlas } = useDialer()
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -48,23 +62,33 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
   }, [onClose])
 
   const meta = METRICS[drill.metricKey] || { title: drill.metricKey, filter: () => true }
+  const isTestDrives = !!meta.testDrives
+  const isBookings = !!meta.bookings // deals scoped by booking date, not meeting date
 
   const rows = useMemo(() => {
+    const source = isTestDrives ? testDrives : isBookings ? bookings : deals
     const inScope = drill.dayIdx == null
-      ? deals.filter(d => workDayIdxs.includes(d.dayIdx))
-      : deals.filter(d => d.dayIdx === drill.dayIdx)
+      ? source.filter(r => workDayIdxs.includes(r.dayIdx))
+      : source.filter(r => r.dayIdx === drill.dayIdx)
+    if (isTestDrives) {
+      return inScope.slice().sort((a, b) => new Date(b.first_at || 0) - new Date(a.first_at || 0))
+    }
     return inScope.filter(meta.filter)
       .slice()
-      .sort((a, b) => new Date(b.meeting_at || 0) - new Date(a.meeting_at || 0))
+      .sort((a, b) => new Date(b.booked_at || b.meeting_at || 0) - new Date(a.booked_at || a.meeting_at || 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deals, drill, workDayIdxs])
+  }, [deals, bookings, testDrives, drill, workDayIdxs])
 
   const total = meta.sumKey ? rows.reduce((s, d) => s + (Number(d[meta.sumKey]) || 0), 0) : null
-  const summary = meta.avg
-    ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · avg ${fmtMoney(rows.length ? total / rows.length : 0)} · total ${fmtMoney(total)}`
-    : meta.money
-      ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} total`
-      : `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'}`
+  const summary = isTestDrives
+    ? `${rows.length} test drive${rows.length === 1 ? '' : 's'}`
+    : isBookings
+    ? `${rows.length} call${rows.length === 1 ? '' : 's'} booked`
+    : meta.avg
+      ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · avg ${fmtMoney(rows.length ? total / rows.length : 0)} · total ${fmtMoney(total)}`
+      : meta.money
+        ? `${rows.length} customer${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} total`
+        : `${rows.length} ${rows.length === 1 ? 'deal' : 'deals'}`
 
   // Portal to <body> so the modal escapes the shell's locked-week wrapper
   // (pointer-events:none + reduced opacity) when viewing a submitted past week.
@@ -91,7 +115,42 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
         {/* Body */}
         <div className="overflow-y-auto">
           {rows.length === 0 ? (
-            <div className="px-6 py-12 text-center text-sm text-stone-500">No deals for this metric in this period.</div>
+            <div className="px-6 py-12 text-center text-sm text-stone-500">
+              {isTestDrives ? 'No test drives in this period.' : 'No deals for this metric in this period.'}
+            </div>
+          ) : isTestDrives ? (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-stone-50">
+                <tr className="border-b border-stone-200">
+                  <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Contact</th>
+                  <th className="text-right py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">First conversation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((td, i) => {
+                  const isPhone = td.contact_key && !String(td.contact_key).includes('@')
+                  return (
+                    <tr key={`${td.contact_key}-${i}`} className="border-b border-stone-100">
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-2">
+                          {isPhone && (
+                            <button type="button"
+                              onClick={(e) => { e.stopPropagation(); openAtlas(td.contact_key, { name: fmtContact(td.contact_key) }) }}
+                              title="Atlas Blue iMessage conversation — open"
+                              className="shrink-0 inline-flex items-center justify-center hover:opacity-80 transition-opacity"
+                              style={{ width: 16, height: 16, borderRadius: 5, background: '#0A84FF', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              <MessageCircle className="w-2.5 h-2.5" style={{ color: 'white' }} strokeWidth={3} />
+                            </button>
+                          )}
+                          <span className="font-medium text-stone-900">{fmtContact(td.contact_key)}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-4 text-right num-tabular text-xs text-stone-600">{fmtDate(td.first_at)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           ) : (
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-stone-50">
@@ -110,6 +169,7 @@ export default function AtlasBlueDrilldownModal({ drill, deals, workDayIdxs, onC
                     <tr key={d.id} className="border-b border-stone-100">
                       <td className="py-2.5 px-4">
                         <div className="font-medium text-stone-900 leading-tight">{d.customer_name || 'Unnamed'}</div>
+                        {d.rep_name && <div className="text-[11px] text-stone-500">with {d.rep_name}</div>}
                         {d.customer_email && <div className="text-[11px] text-stone-400 truncate max-w-[220px]">{d.customer_email}</div>}
                       </td>
                       <td className="py-2.5 px-3 num-tabular text-xs text-stone-600">{fmtDate(d.meeting_at)}</td>

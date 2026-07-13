@@ -426,7 +426,7 @@ function AbHeadCell({ label, tip, tone = 'manual' }) {
 
 function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profile }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, viewedWeekDeals, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
+  const { viewedWeekDays, viewedWeekDeals, viewedWeekBookings, viewedWeekTestDrives, weeklyTrend, loading, error } = useAtlasBlueFunnel(profile.id, weekKey, chartWeeks)
 
   // Drill-down modal: click any bottom-funnel value to see the deals behind it.
   const [drill, setDrill] = useState(null)
@@ -443,6 +443,7 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
     acc.adSpend += Number(a.adSpend) || 0
     acc.visitors += Number(a.visitors) || 0
     acc.testDrives += Number(a.testDrives) || 0
+    acc.callsBooked += a.callsBooked || 0
     acc.booked += a.demosBooked || 0
     acc.completed += a.demosCompleted || 0
     acc.unqualified += a.demosUnqualified || 0
@@ -450,7 +451,7 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
     acc.cash += a.cashCollected || 0
     acc.dealValue += a.dealValue || 0
     return acc
-  }, { adSpend: 0, visitors: 0, testDrives: 0, booked: 0, completed: 0, unqualified: 0, newCustomers: 0, cash: 0, dealValue: 0 })
+  }, { adSpend: 0, visitors: 0, testDrives: 0, callsBooked: 0, booked: 0, completed: 0, unqualified: 0, newCustomers: 0, cash: 0, dealValue: 0 })
 
   const chartData = weeklyTrend.map(w => ({
     name: formatWeekLabel(w.weekKey),
@@ -476,21 +477,22 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           <div className="display-font text-2xl font-medium text-stone-900">Top of funnel</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          Atlas Blue (ad-driven) only. Every column is pulled live — Ad Spend + Visitors from Meta,
-          Test Drives from Atlas Blue conversations, and Booked Calls from ad-driven bookings.
+          Atlas Blue (ad-driven) only. Every column is pulled live — Ad Spend + Visitors from the
+          Atlas Blue (iMessage) Meta campaign, Test Drives from Atlas Blue conversations, and Booked
+          Calls from ad-driven bookings.
         </p>
         <table className="w-full text-sm min-w-[920px]">
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
               <AbHeadCell label="Ad Spend" tone="live"
-                tip="Live from Meta Ads (meta_ads_daily.spend). Total Meta ad spend for the day — note this is ALL Meta campaigns, so it equals Atlas Blue spend only if every campaign is Atlas Blue." />
+                tip="Live from Meta Ads (meta_ads_daily.spend) for the Atlas Blue (iMessage) campaign only." />
               <AbHeadCell label="Visitors" tone="live"
-                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded). Total across all Meta campaigns, so it equals Atlas Blue only if every campaign is Atlas Blue." />
+                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded) for the Atlas Blue (iMessage) campaign only." />
               <AbHeadCell label="Test Drives" tone="live"
                 tip="Live — distinct customers who had a conversation with the 'Atlas Blue Paid Ads Funnel Agent' campaign, counted on the day of their first conversation." />
               <AbHeadCell label="Booked Calls" tone="live"
-                tip="Live from AD-DRIVEN bookings only (ae_deals whose Cal event type is flagged ad-driven). Organic bookings are excluded. Counts meetings booked that day, excluding Rescheduled and Deleted." />
+                tip="Live from AD-DRIVEN bookings only (ae_deals whose Cal event type is flagged ad-driven). Counted on the day the call was BOOKED (Cal.com booking date), not the meeting date, excluding Rescheduled and Deleted. Organic bookings are excluded." />
               <AbHeadCell label="Action %" tone="calc"
                 tip="Calculated: (Test Drives + Booked Calls) ÷ Visitors. Booked Calls are ad-driven only." />
               <AbHeadCell label="Cost / Test Drive" tone="calc"
@@ -502,17 +504,18 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           <tbody>
             {workDayIdxs.map(dayIdx => {
               const a = viewedWeekDays[dayIdx] || {}
-              const booked = a.demosBooked || 0
+              const callsBooked = a.callsBooked || 0
+              const lbl = DAY_NAMES[dayIdx]
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
-                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
+                  <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{lbl}</div></td>
                   <ReadCell value={a.adSpend} money />
                   <ReadCell value={a.visitors} />
-                  <ReadCell value={a.testDrives} />
-                  <ReadCell value={booked} />
-                  <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + booked, a.visitors)} format="pct" />
+                  <ReadCell value={a.testDrives} onClick={a.testDrives ? () => openDrill('testDrives', dayIdx, lbl) : undefined} />
+                  <ReadCell value={callsBooked} onClick={callsBooked ? () => openDrill('callsBooked', dayIdx, lbl) : undefined} />
+                  <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + callsBooked, a.visitors)} format="pct" />
                   <DerivedCell value={safeDiv(a.adSpend, a.testDrives)} format="money" />
-                  <DerivedCell value={cpbc(a.adSpend, booked)} format="money" />
+                  <DerivedCell value={cpbc(a.adSpend, callsBooked)} format="money" />
                 </tr>
               )
             })}
@@ -520,11 +523,11 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
               <td className="py-3 px-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.adSpend)}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{t.visitors.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.testDrives.toLocaleString()}</td>
-              <td className="py-3 px-2 text-center num-tabular font-bold">{t.booked.toLocaleString()}</td>
-              <FooterDerivedCell value={safeDiv(t.testDrives + t.booked, t.visitors)} format="pct" />
+              <FooterReadCell text={t.testDrives.toLocaleString()} onClick={t.testDrives ? () => openDrill('testDrives', null, 'This week') : undefined} />
+              <FooterReadCell text={t.callsBooked.toLocaleString()} onClick={t.callsBooked ? () => openDrill('callsBooked', null, 'This week') : undefined} />
+              <FooterDerivedCell value={safeDiv(t.testDrives + t.callsBooked, t.visitors)} format="pct" />
               <FooterDerivedCell value={safeDiv(t.adSpend, t.testDrives)} format="money" />
-              <FooterDerivedCell value={cpbc(t.adSpend, t.booked)} format="money" />
+              <FooterDerivedCell value={cpbc(t.adSpend, t.callsBooked)} format="money" />
             </tr>
           </tbody>
         </table>
@@ -653,6 +656,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
         <AtlasBlueDrilldownModal
           drill={drill}
           deals={viewedWeekDeals}
+          bookings={viewedWeekBookings}
+          testDrives={viewedWeekTestDrives}
           workDayIdxs={workDayIdxs}
           onClose={() => setDrill(null)}
         />
