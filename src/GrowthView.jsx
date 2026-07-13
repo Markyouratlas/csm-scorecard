@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
@@ -19,6 +19,7 @@ import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
+import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import { dayIdxOfYMD } from './aeFunnel'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
@@ -151,6 +152,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
     { id: 'atlas-blue',  label: 'Atlas Blue',    icon: Sparkles },
     { id: 'atlas-blue-webinar', label: 'AB Webinar', icon: Users },
+    { id: 'ga4',         label: 'Website (GA4)', icon: Globe },
     { id: 'meta-live',   label: 'Meta Live',     icon: Activity },
     { id: 'ad-sets',     label: 'Ad Sets',       icon: Layers },
     { id: 'monthly',     label: 'Monthly View',  icon: Calendar },
@@ -215,6 +217,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
         {section === 'atlas-blue' && <AtlasBlueFunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} />}
         {section === 'atlas-blue-webinar' && <AtlasBlueWebinarSection workDayIdxs={workDayIdxs} weekKey={weekKey} />}
+        {section === 'ga4' && <Ga4Section />}
         {section === 'meta-live' && <MetaLiveSection refreshKey={metaRefreshKey} />}
         {section === 'ad-sets' && <AdSetsSection refreshKey={metaRefreshKey} />}
         {section === 'monthly' && <MonthlyView profile={profile} monthKey={monthKey} targets={targets} />}
@@ -833,6 +836,164 @@ function FooterReadCell({ text, onClick }) {
         ? <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{text}</button>
         : text}
     </td>
+  )
+}
+
+// ---- GA4 "Website" section (reads ga4_daily_metrics/ga4_daily_events) ----
+const GA4_ORANGE = '#E8710A'
+
+function Ga4Tile({ label, value, sub, loading }) {
+  return (
+    <div className="border border-stone-200 rounded-lg p-4" style={{ background: 'rgba(232,113,10,0.03)' }}>
+      <div className="mono-font text-[10px] uppercase tracking-[0.12em] font-semibold text-stone-500 mb-2">{label}</div>
+      {loading
+        ? <div className="h-7 flex items-center"><Loader2 className="w-4 h-4 animate-spin text-stone-300" /></div>
+        : <div className="display-font text-2xl font-medium" style={{ color: GA4_ORANGE }}>{value}</div>}
+      {sub && <div className="text-[10px] text-stone-400 mt-1">{sub}</div>}
+    </div>
+  )
+}
+
+function Ga4Section() {
+  const [days, setDays] = useState(30)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [syncing, setSyncing] = useState(false)
+  const [syncErr, setSyncErr] = useState(null)
+  const { channelRows, dailyTrend, totals, optIns, hasData, loading, error, refresh } = useGa4Metrics(days, refreshKey)
+
+  const fmtNum = (v) => v == null ? '—' : Number(v).toLocaleString()
+  const fmtPct = (v) => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`
+
+  const runRefresh = async () => {
+    setSyncing(true); setSyncErr(null)
+    try {
+      const { data, error: e } = await supabase.functions.invoke('ga4-sync')
+      if (e || data?.ok === false) throw new Error(e?.message || data?.error || 'Sync failed')
+      setRefreshKey(k => k + 1); refresh()
+    } catch (err) { setSyncErr(err.message || 'Sync failed') } finally { setSyncing(false) }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header + period + refresh */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
+          <div className="flex items-center gap-2">
+            <Globe className="w-5 h-5" style={{ color: GA4_ORANGE }} />
+            <div>
+              <div className="display-font text-2xl font-medium text-stone-900">Website (GA4)</div>
+              <p className="text-sm text-stone-600 mt-1">Google Analytics 4 — sessions, users, opt-ins, and traffic by channel. Synced daily.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => setDays(d)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: days === d ? GA4_ORANGE : 'rgba(232,113,10,0.08)',
+                  color: days === d ? 'white' : GA4_ORANGE,
+                  border: '1px solid rgba(232,113,10,0.25)',
+                }}>
+                {d} Days
+              </button>
+            ))}
+            <button onClick={runRefresh} disabled={syncing} title="Pull the latest from GA4"
+              className="ml-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-stone-200 text-stone-600 hover:border-stone-400 transition-all disabled:opacity-50">
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
+        </div>
+        {syncErr && <div className="text-xs text-red-600 mt-2">{syncErr}</div>}
+
+        {!loading && !hasData ? (
+          <div className="mt-6 bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 rounded">
+            No GA4 data yet. Once the service-account credentials are set and the first sync runs, sessions / users / opt-ins will appear here.
+          </div>
+        ) : (
+          <>
+            <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-6 mb-3">Last {days} days</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <Ga4Tile label="Sessions" value={fmtNum(totals?.sessions)} sub="Total sessions" loading={loading} />
+              <Ga4Tile label="Active Users" value={fmtNum(totals?.activeUsers)} sub="Sum of daily active users" loading={loading} />
+              <Ga4Tile label="Opt-in Rate" value={fmtPct(totals?.optInRate)} sub="Session key-event rate" loading={loading} />
+            </div>
+
+            <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-8 mb-3">Opt-ins</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Ga4Tile label="Voice clone" value={fmtNum(optIns.voice_clone_optin)} sub="voice_clone_optin" loading={loading} />
+              <Ga4Tile label="iMessage clone" value={fmtNum(optIns.imessage_clone_optin)} sub="imessage_clone_optin" loading={loading} />
+              <Ga4Tile label="Demo booked" value={fmtNum(optIns.demo_booked)} sub="demo_booked" loading={loading} />
+            </div>
+          </>
+        )}
+      </div>
+
+      {error && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3 rounded">
+          Couldn’t load GA4 data. The <code>ga4_daily_metrics</code> tables may not be created yet, or you may not have access.
+        </div>
+      )}
+
+      {hasData && (
+        <>
+          {/* Sessions over time */}
+          <div className="bg-white border border-stone-200 p-6">
+            <div className="display-font text-xl font-medium text-stone-900 mb-1">Sessions Over Time</div>
+            <p className="text-sm text-stone-600 mb-4">Daily sessions across all channels.</p>
+            <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={dailyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9c96a8' }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: '#9c96a8' }} />
+                  <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} />
+                  <Area type="monotone" dataKey="sessions" name="Sessions" stroke={GA4_ORANGE} fill="rgba(232,113,10,0.12)" strokeWidth={2} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Traffic by channel */}
+          <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
+            <div className="display-font text-xl font-medium text-stone-900 mb-1">Traffic by Channel</div>
+            <p className="text-sm text-stone-600 mb-4">Sessions, users, and key events by default channel group (last {days} days).</p>
+            <table className="w-full text-sm min-w-[560px]">
+              <thead>
+                <tr className="border-b border-stone-200">
+                  <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Channel</th>
+                  <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Sessions</th>
+                  <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Active Users</th>
+                  <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Key Events</th>
+                  <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Opt-in Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {channelRows.map(c => (
+                  <tr key={c.channel} className="border-b border-stone-100">
+                    <td className="py-2 px-3 font-medium text-stone-800 text-xs">{c.channel}</td>
+                    <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">{c.sessions.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">{c.activeUsers.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">{c.keyEvents.toLocaleString()}</td>
+                    <td className="py-2 px-2 text-center num-tabular text-xs text-stone-500">{(c.rate * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ width: '100%', height: 260 }} className="mt-6">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={channelRows} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0eef5" vertical={false} />
+                  <XAxis dataKey="channel" tick={{ fontSize: 10, fill: '#9c96a8' }} interval={0} angle={-15} textAnchor="end" height={50} />
+                  <YAxis tick={{ fontSize: 10, fill: '#9c96a8' }} />
+                  <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }} />
+                  <Bar dataKey="sessions" name="Sessions" fill={GA4_ORANGE} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
