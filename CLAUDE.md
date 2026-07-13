@@ -223,7 +223,12 @@ Only plan against the full, confirmed column list.
   and writes it back into `weekly_scorecards.data.daily[]` (`demosBooked` =
   not-Rescheduled, `demosCompleted` = attended incl. `Unqualified`,
   `demosUnqualified` = `Unqualified`, `trialSignups` = `Closed Won`), bucketing by
-  America/Toronto. `{backfill:true}` recomputes every AE-week. The client mirror is
+  America/Toronto. **Closes (`trialSignups`) bucket by the CLOSE week
+  (`ae_deals.closed_at` = the cash-collected date — defaults to the Stripe cash date
+  from `stripe-customer-match`, AE-editable via the "Closed date" field, guarded by
+  `closed_at_source`); every other metric buckets by the meeting week.** So the cron
+  now dual-buckets and fetches deals by meeting-OR-close week. Schema:
+  `src/15-ae-closed-at.sql`. `{backfill:true}` recomputes every AE-week. The client mirror is
   `src/aeFunnel.js` (`deriveFunnelWeek`/`closeableHeld`/`weekKeyOfMeeting`) — keep
   the two in sync. Schema: `supabase-ae-deals-migration.sql` (`ae_deals`, incl.
   `expected_mrr` for open-deal pipeline forecast), `supabase-ae-meetings-cron.sql`.
@@ -236,7 +241,11 @@ Only plan against the full, confirmed column list.
   partner deal attribution (`ae_deals.referred_by_partner`, the "Referred by" picker,
   and the Partner Referrals rollup) are **gated to `profiles.tracks_channel_intros`**
   (Heather only; distinct from the older `channel_partner_enabled`/`channel_deals`
-  portal). Schema: `src/14-ae-channel-attribution.sql`.
+  portal). Schema: `src/14-ae-channel-attribution.sql`. The AE Daily Funnel
+  (`AeFunnelDrilldownModal`) and the Growth Atlas Blue funnel
+  (`AtlasBlueDrilldownModal`) both have click-a-number **drill-down modals** listing
+  the deals behind each count — rendered via `createPortal` to `<body>` (+ clickable
+  numbers keep `pointer-events:auto`) so they work on locked/submitted past weeks.
 - **Investor Daily/Weekly Update** (crons, fill-only-blank, never clobber exec edits)
   → `daily-update-autofill` writes `atlas_daily_updates` (incl. `cash_stripe`, and
   AE-funnel-derived `calls_booked/calls_held/calls_unqualified/deals_closed`);

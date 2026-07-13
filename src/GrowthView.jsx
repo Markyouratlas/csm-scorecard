@@ -387,7 +387,7 @@ function ReadCell({ value, money, onClick }) {
   return (
     <td className="py-2 px-2 text-center num-tabular text-xs text-stone-700">
       {onClick
-        ? <button type="button" onClick={onClick}
+        ? <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }}
             className="underline decoration-dotted decoration-stone-300 underline-offset-2 hover:text-stone-900 hover:decoration-stone-500 transition-colors cursor-pointer">
             {content}
           </button>
@@ -673,7 +673,7 @@ function DerivedCell({ value, target, comparator, format, onClick }) {
   return (
     <td className={`py-2 px-2 text-center num-tabular text-xs ${isGood === true ? 'text-emerald-700 font-semibold' : isGood === false ? 'text-red-700 font-semibold' : 'text-stone-500'}`}>
       {onClick
-        ? <button type="button" onClick={onClick}
+        ? <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }}
             className="underline decoration-dotted decoration-stone-300 underline-offset-2 hover:decoration-stone-500 transition-colors cursor-pointer">
             {display}
           </button>
@@ -695,7 +695,7 @@ function FooterDerivedCell({ value, target, comparator, format, onClick }) {
   return (
     <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color }}>
       {onClick
-        ? <button type="button" onClick={onClick} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{display}</button>
+        ? <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{display}</button>
         : display}
     </td>
   )
@@ -707,7 +707,7 @@ function FooterReadCell({ text, onClick }) {
   return (
     <td className="py-3 px-2 text-center num-tabular font-bold">
       {onClick
-        ? <button type="button" onClick={onClick} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{text}</button>
+        ? <button type="button" onClick={onClick} style={{ pointerEvents: 'auto' }} className="underline decoration-dotted decoration-white/40 underline-offset-2 hover:decoration-white/80 transition-colors cursor-pointer">{text}</button>
         : text}
     </td>
   )
