@@ -81,15 +81,29 @@ const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up",
 function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingData: any, nowISO: string): any | null {
   const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }));
   for (const d of rows) {
-    if (!d.meeting_at) continue;
-    const idx = dayIdxOfYMD(torontoYMD(new Date(d.meeting_at)));
-    // 'Intro' (channel-partner intro) is fully backed out of the demo funnel and
-    // counted only in `intros` — mirrors src/aeFunnel.js. Keep in sync.
-    if (d.status === "Intro") { daily[idx].intros += 1; continue; }
-    if (d.status !== "Rescheduled" && d.status !== "Deleted") daily[idx].demosBooked += 1;
-    if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
-    if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
-    if (d.status === "Closed Won") daily[idx].trialSignups += 1;
+    // Meeting-week metrics (booked / completed / unqualified / intros). 'Intro' is
+    // fully backed out of the demo funnel and counted only in `intros`.
+    if (d.meeting_at) {
+      const mymd = torontoYMD(new Date(d.meeting_at));
+      if (mondayOf(mymd) === weekKey) {
+        const idx = dayIdxOfYMD(mymd);
+        if (d.status === "Intro") { daily[idx].intros += 1; }
+        else {
+          if (d.status !== "Rescheduled" && d.status !== "Deleted") daily[idx].demosBooked += 1;
+          if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
+          if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
+        }
+      }
+    }
+    // Close (trialSignups) bucketed by the CLOSE week (closed_at, else meeting_at)
+    // — mirrors src/aeFunnel.js. Keep in sync.
+    if (d.status === "Closed Won") {
+      const src = d.closed_at || d.meeting_at;
+      if (src) {
+        const cymd = torontoYMD(new Date(src));
+        if (mondayOf(cymd) === weekKey) daily[dayIdxOfYMD(cymd)].trialSignups += 1;
+      }
+    }
   }
   const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups && !x.intros);
   const exists = existingData != null;
@@ -214,10 +228,29 @@ serve(async (req) => {
     // meetings. Idempotent; preserves manual daily fields, deals, notes, lock.
     let funnelWeeksWritten = 0;
     {
-      let q = admin.from("ae_deals").select("ae_id, meeting_at, status").not("meeting_at", "is", null);
-      if (!backfill) q = q.gte("meeting_at", sinceISO).lt("meeting_at", untilISO);
-      const { data: allDeals, error: dErr } = await q.limit(50000);
-      if (dErr) return json({ error: dErr.message }, 500);
+      // Default mode needs deals whose MEETING or CLOSE lands in the week — a deal
+      // that met earlier but closed this week must still update this week's Close.
+      // Two queries + dedupe (avoids fragile PostgREST .or() timestamp syntax).
+      const cols = "id, ae_id, meeting_at, status, closed_at";
+      let allDeals: any[] = [];
+      if (backfill) {
+        const { data, error: dErr } = await admin.from("ae_deals").select(cols).not("meeting_at", "is", null).limit(50000);
+        if (dErr) return json({ error: dErr.message }, 500);
+        allDeals = data || [];
+      } else {
+        const [mRes, cRes] = await Promise.all([
+          admin.from("ae_deals").select(cols).not("meeting_at", "is", null).gte("meeting_at", sinceISO).lt("meeting_at", untilISO).limit(50000),
+          admin.from("ae_deals").select(cols).eq("status", "Closed Won").gte("closed_at", sinceISO).lt("closed_at", untilISO).limit(50000),
+        ]);
+        if (mRes.error) return json({ error: mRes.error.message }, 500);
+        if (cRes.error) return json({ error: cRes.error.message }, 500);
+        const seen = new Set<string>();
+        for (const d of [...(mRes.data || []), ...(cRes.data || [])]) {
+          if (d.id && seen.has(d.id)) continue;
+          if (d.id) seen.add(d.id);
+          allDeals.push(d);
+        }
+      }
 
       const groups = new Map<string, { aeId: string; weekKey: string; rows: any[] }>();
       const touch = (aeId: string, wk: string) => {
@@ -226,11 +259,15 @@ serve(async (req) => {
         if (!g) { g = { aeId, weekKey: wk, rows: [] }; groups.set(key, g); }
         return g;
       };
+      // Assign each deal to its MEETING-week group (booked/completed/unqualified/intros)
+      // and, if Closed Won, its CLOSE-week group (the Close) — funnelUpsertRow filters
+      // each metric to the group's week, so a deal in both groups isn't double-counted.
       for (const d of allDeals || []) {
         if (!d.ae_id) continue;
-        const wk = mondayOf(torontoYMD(new Date(d.meeting_at)));
-        if (!backfill && wk !== weekKey) continue; // safety: this week only in default mode
-        touch(d.ae_id, wk).rows.push(d);
+        const metWk = d.meeting_at ? mondayOf(torontoYMD(new Date(d.meeting_at))) : null;
+        const clsWk = (d.status === "Closed Won") ? mondayOf(torontoYMD(new Date(d.closed_at || d.meeting_at))) : null;
+        if (metWk && (backfill || metWk === weekKey)) touch(d.ae_id, metWk).rows.push(d);
+        if (clsWk && clsWk !== metWk && (backfill || clsWk === weekKey)) touch(d.ae_id, clsWk).rows.push(d);
       }
       // Default mode: ensure every known AE's current week is recomputed even with no meetings.
       if (!backfill) for (const aeId of aeByName.values()) touch(aeId, weekKey);
