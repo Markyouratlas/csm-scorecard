@@ -307,7 +307,9 @@ function DerivedCell({ value, target, comparator, format }) {
 async function recordCommissionDeal(profile, deal) {
   const email = (deal.payment_email || deal.customer_email || '').trim().toLowerCase()
   if (!email) return { skipped: 'no email' }
-  const closed = (deal.meeting_at ? new Date(deal.meeting_at) : new Date()).toISOString().slice(0, 10)
+  // Commission close date = the actual close/cash date, falling back to the meeting date.
+  const closedSrc = deal.closed_at || deal.meeting_at
+  const closed = (closedSrc ? new Date(closedSrc) : new Date()).toISOString().slice(0, 10)
   const { error } = await supabase.from('commission_pending_deals').insert({
     ae_id: profile.id,
     ae_name: profile.name || 'AE',
@@ -787,6 +789,18 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
         <tr className="border-b border-stone-100 bg-stone-50/60">
           <td colSpan={7} className="py-4 px-3">
             <div className="grid sm:grid-cols-2 gap-4 pl-5">
+              {deal.status === 'Closed Won' && (
+                <div>
+                  <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Closed date <span className="normal-case tracking-normal text-stone-400">· cash-collected week</span></div>
+                  <input disabled={!canEdit} type="date"
+                    value={deal.closed_at ? new Date(deal.closed_at).toISOString().slice(0, 10) : ''}
+                    onChange={(e) => setField(e.target.value
+                      ? { closed_at: new Date(e.target.value + 'T12:00:00Z').toISOString(), closed_at_source: 'manual' }
+                      : { closed_at: null, closed_at_source: 'manual' })}
+                    className={`w-full ${ctrl}`} />
+                  <div className="text-[10px] text-stone-400 mt-1">Defaults to the Stripe cash-collected date; the Close rolls up under this week. Edit if the cash landed on a different date.</div>
+                </div>
+              )}
               <div>
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Expected MRR <span className="normal-case tracking-normal text-stone-400">· pipeline forecast</span></div>
                 <input disabled={!canEdit} type="number" min="0" step="any" defaultValue={deal.expected_mrr ?? ''}

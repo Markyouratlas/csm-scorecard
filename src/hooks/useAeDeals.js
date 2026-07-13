@@ -140,14 +140,22 @@ export function useAeDeals(aeId) {
     const { data, error } = await supabase.functions.invoke('stripe-customer-match', { body: { email: e } })
     if (error) throw error
     if (data?.error) throw new Error(data.error)
-    await save(id, {
+    const patch = {
       mrr: data?.mrr ?? null,
       one_time: data?.one_time ?? null,
       matched_stripe_customer_id: data?.stripe_customer_id ?? null,
-    })
+    }
+    // Default the close/cash date to Stripe's cash-collected date — but never
+    // overwrite a date the AE set by hand (closed_at_source === 'manual').
+    const deal = deals.find(d => d.id === id)
+    if (data?.cash_collected_at && deal?.closed_at_source !== 'manual') {
+      patch.closed_at = data.cash_collected_at
+      patch.closed_at_source = 'stripe'
+    }
+    await save(id, patch)
     return data
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save])
+  }, [save, deals])
 
   return {
     deals,

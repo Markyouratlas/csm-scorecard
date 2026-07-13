@@ -13,7 +13,7 @@
 //          (reuses STRIPE_SECRET_KEY — no new secret)
 //
 // Invoke:  supabase.functions.invoke('stripe-customer-match', { body: { email } })
-// Returns: { matched, stripe_customer_id, name, mrr, one_time, currency:'usd' }
+// Returns: { matched, stripe_customer_id, name, mrr, one_time, cash_collected_at, currency:'usd' }
 // ============================================================
 
 // deno-lint-ignore-file no-explicit-any
@@ -94,6 +94,7 @@ serve(async (req) => {
     if (custList.length === 0) return json({ matched: false, mrr: null, one_time: null, currency: "usd" });
 
     let mrr = 0, oneTime = 0, primaryId: string | null = null, name: string | null = null;
+    let lastCashUnix = 0; // max succeeded-charge `created` → the cash-collected date
     for (const cust of custList) {
       const subs = await stripeList("subscriptions", sk, `customer=${cust.id}&status=all&expand[]=data.items.data.price`);
       let custMrr = 0;
@@ -109,7 +110,10 @@ serve(async (req) => {
         if (ch.status !== "succeeded" || ch.paid !== true) continue;
         if (ch.currency && ch.currency !== "usd") continue;
         const cap = (ch.amount_captured != null ? ch.amount_captured : ch.amount) || 0;
-        if (cap > 0) oneTime += cap / 100;
+        if (cap > 0) {
+          oneTime += cap / 100;
+          if (typeof ch.created === "number" && ch.created > lastCashUnix) lastCashUnix = ch.created;
+        }
       }
       // Prefer the customer that actually has recurring revenue as the primary id.
       if (!primaryId || custMrr > 0) { primaryId = cust.id; name = cust.name || cust.email || null; }
@@ -121,6 +125,9 @@ serve(async (req) => {
       name,
       mrr: Math.round(mrr * 100) / 100,
       one_time: Math.round(oneTime * 100) / 100,
+      // Date cash was collected = the most recent succeeded USD charge. Drives the
+      // deal's default close week (AE can override). Null if no cash charges.
+      cash_collected_at: lastCashUnix > 0 ? new Date(lastCashUnix * 1000).toISOString() : null,
       currency: "usd",
     });
   } catch (e: any) {

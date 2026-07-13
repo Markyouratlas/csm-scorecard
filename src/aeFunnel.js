@@ -64,18 +64,36 @@ export function dayIdxOfMeeting(meetingAt) {
 //   [{ demosBooked, demosCompleted, demosUnqualified, trialSignups, intros }, …]
 // 'Intro' (channel-partner intro) is fully backed out of the demo funnel — it's
 // NOT a booked demo, not attended, not closeable — and counted only in `intros`.
+//
+// Closes (trialSignups) bucket by the CLOSE week (closed_at, the cash-collected
+// date; falls back to meeting_at when unset) — a deal that met in one week but
+// closed in another shows its Close under the week it actually closed. Every
+// other metric stays on the meeting week. Keep in sync with the server mirror
+// (ae-meetings-sync funnelUpsertRow).
 export function deriveFunnelWeek(deals, weekKey) {
   const out = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }))
   for (const d of deals || []) {
-    if (!d.meeting_at) continue
-    const ymd = torontoYMD(new Date(d.meeting_at))
-    if (mondayOfYMD(ymd) !== weekKey) continue
-    const idx = dayIdxOfYMD(ymd)
-    if (d.status === 'Intro') { out[idx].intros += 1; continue }
-    if (d.status !== 'Rescheduled' && d.status !== 'Deleted') out[idx].demosBooked += 1
-    if (AE_ATTENDED_STATUSES.includes(d.status)) out[idx].demosCompleted += 1
-    if (d.status === 'Unqualified') out[idx].demosUnqualified += 1
-    if (d.status === 'Closed Won') out[idx].trialSignups += 1
+    // Meeting-week metrics (booked / completed / unqualified / intros).
+    if (d.meeting_at) {
+      const ymd = torontoYMD(new Date(d.meeting_at))
+      if (mondayOfYMD(ymd) === weekKey) {
+        const idx = dayIdxOfYMD(ymd)
+        if (d.status === 'Intro') { out[idx].intros += 1 }
+        else {
+          if (d.status !== 'Rescheduled' && d.status !== 'Deleted') out[idx].demosBooked += 1
+          if (AE_ATTENDED_STATUSES.includes(d.status)) out[idx].demosCompleted += 1
+          if (d.status === 'Unqualified') out[idx].demosUnqualified += 1
+        }
+      }
+    }
+    // Close bucketed by the close/cash week (closed_at, else meeting_at).
+    if (d.status === 'Closed Won') {
+      const closeSrc = d.closed_at || d.meeting_at
+      if (closeSrc) {
+        const cymd = torontoYMD(new Date(closeSrc))
+        if (mondayOfYMD(cymd) === weekKey) out[dayIdxOfYMD(cymd)].trialSignups += 1
+      }
+    }
   }
   return out
 }
