@@ -466,6 +466,13 @@ This is **full interactive for `growth_manager`**: read granted in `src/17-atlas
 `atlas-send`/`atlas-start` include `growth_manager` in `DIALER_ROLES` + let it act on ANY session
 (not just its own) — redeploy those three (JWT-on, normal deploy) on any change.
 
+**"AB Webinar" tab** (`atlas-blue-webinar` section + `useAtlasBlueWebinar.js`) is a SEPARATE
+Meta campaign — `'Atlas Blue - Workshop'` (`campaign_id = '120246016759050144'`). Meta-only:
+live Ad Spend + Visitors (`landing_page_view`) + derived Cost/Visitor + a weekly chart. Later
+funnel stages (registrations/attendees/booked calls) are intentionally NOT rendered — the
+test-drive agent belongs to the iMessage campaign and deals aren't Meta-campaign-attributable.
+Don't confuse the two campaign_ids: iMessage funnel = `…250144`, webinar = `…050144`.
+
 ## Combined dial tracking (GHL + in-app dialer)
 
 Each role scorecard (AE Funnel / CSM Meetings / FDE Activity) shows a **"Dials this
