@@ -436,6 +436,36 @@ The Atlas Blue campaign id + sending number live in the memory file.
 `CAL_WEBHOOK_SECRET`, and (for the phoneless-booking bridge) `GHL_API_KEY` (v2 Private
 Integration token) + `GHL_LOCATION_ID`.
 
+### Growth "Atlas Blue" funnel tab (`GrowthView.jsx` + `useAtlasBlueFunnel.js`)
+
+Nick's (role_type `growth_manager`) ad-driven funnel tab. Growth is NOT manager/exec, so
+raw tables are RLS-blocked; data comes through SECURITY DEFINER rpcs gated to
+executive + growth_manager. Sources:
+- **Bottom funnel** (Booked/Completed/New Customers/Cash/Deal Value) → `atlas_blue_deals(p_since)`
+  rpc (`src/13-atlas-blue-funnel.sql`): ad-driven `ae_deals` (`booking_uid → cal_bookings →
+  cal_event_type_config.is_ad_driven`). Returns `meeting_at`, `booked_at` (=
+  `cal_bookings.created_at_cal`), `rep_name` (= `cal_bookings.host_name`), status/one_time/mrr/
+  customer. Status math mirrors `aeFunnel.js`.
+- **Ad Spend + Visitors** → `meta_ads_daily`, **filtered to `campaign_id =
+  '120240301558250144'` ("Atlas Blue (iMessage)")** via `ATLAS_BLUE_CAMPAIGN_ID` (only that
+  campaign is Atlas Blue). Visitors = the `landing_page_view` action out of the raw `actions`
+  jsonb. The whole top-of-funnel is live (no manual inputs; `abVisitors`/`abTestDrives` are gone).
+- **Test Drives** → `atlas_blue_test_drives()` rpc (`src/16-…`): distinct customers who chatted
+  with campaign name `'Atlas Blue Paid Ads Funnel Agent'` (an `atlas_sessions` name, distinct
+  from the Meta campaign_id), counted on their first-conversation day.
+
+**Bucketing gotcha:** top-of-funnel **"Booked Calls" buckets by `booked_at`** (the day the call
+was booked) so it never lands on a future day; the bottom-of-funnel **"Booked" buckets by
+`meeting_at`** (it's the show-up/close cohort denominator). The hook keeps these as two fields —
+`callsBooked` vs `demosBooked` — don't collapse them.
+
+**Drill-downs:** `AtlasBlueDrilldownModal` (portal-rendered). Test Drives rows show a blue
+iMessage bubble (phone contacts) → `useDialer().openAtlas` opens the Atlas Blue conversation.
+This is **full interactive for `growth_manager`**: read granted in `src/17-atlas-blue-growth-read.sql`
+(added growth_manager to the "Managers read all atlas_*" policies) and `atlas-handoff`/
+`atlas-send`/`atlas-start` include `growth_manager` in `DIALER_ROLES` + let it act on ANY session
+(not just its own) — redeploy those three (JWT-on, normal deploy) on any change.
+
 ## Combined dial tracking (GHL + in-app dialer)
 
 Each role scorecard (AE Funnel / CSM Meetings / FDE Activity) shows a **"Dials this
