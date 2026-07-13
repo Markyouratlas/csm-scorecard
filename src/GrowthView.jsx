@@ -6,6 +6,8 @@ import { useMetaDaily } from './hooks/useMetaDaily.js'
 import { useMetaAdSets } from './hooks/useMetaAdSets.js'
 import { useMetaLastSync } from './hooks/useMetaLastSync.js'
 import { useCalBookings } from './hooks/useCalBookings.js'
+import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
+import BreakdownModal from './BreakdownModal.jsx'
 import { useCalEventTypes } from './hooks/useCalEventTypes.js'
 import { supabase } from './supabase.js'
 import { useScorecard } from './useScorecard'
@@ -1059,6 +1061,7 @@ const META_BLUE = '#1877F2'
 
 function MetaLiveSection({ refreshKey = 0 }) {
   const [preset, setPreset] = useState('last_7d')
+  const [callsOpen, setCallsOpen] = useState(false)
   const meta = useMetaAds(preset, refreshKey)
   const [trendDays, setTrendDays] = useState(30)
   const daily = useMetaDaily(trendDays, refreshKey)
@@ -1115,11 +1118,12 @@ function MetaLiveSection({ refreshKey = 0 }) {
         {/* Booked Calls & Conversions */}
         <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-8 mb-3">Booked Calls & Conversions</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetaTile label="Paid Booked Calls" value={fmtNum(cal.paidCount)} sub="Atlas Blue (ad-driven)" loading={cal.loading} />
+          <MetaTile label="Paid Booked Calls" value={fmtNum(cal.paidCount)} sub="Atlas Blue (ad-driven) · click to view" loading={cal.loading} onClick={() => setCallsOpen(true)} />
           <MetaTile label="Cost / Booked Call" value={fmtMoney(costPerBookedCall)} sub="Spend ÷ Atlas Blue calls" loading={cal.loading || meta.loading} />
           <MetaTile label="Organic Booked Calls" value={fmtNum(cal.organicCount)} sub="Non-ad bookings" loading={cal.loading} />
           <MetaTile label="Total Booked Calls" value={fmtNum(cal.bookedCalls)} sub="All bookings (via Cal.com)" loading={cal.loading} />
         </div>
+        {callsOpen && <PaidCallsBreakdownModal days={presetToDays[preset] ?? 30} onClose={() => setCallsOpen(false)} />}
       </div>
 
       {/* 30-Day Trend — spend + clicks */}
@@ -1327,9 +1331,13 @@ function EventTypeSettings({ refreshKey = 0 }) {
   )
 }
 
-function MetaTile({ label, value, sub, loading }) {
+function MetaTile({ label, value, sub, loading, onClick }) {
+  const Wrapper = onClick ? 'button' : 'div'
+  const props = onClick
+    ? { type: 'button', onClick, className: 'border border-stone-200 rounded-lg p-4 text-left w-full hover:border-stone-400 hover:shadow-sm transition-all cursor-pointer' }
+    : { className: 'border border-stone-200 rounded-lg p-4' }
   return (
-    <div className="border border-stone-200 rounded-lg p-4" style={{ background: 'rgba(24,119,242,0.02)' }}>
+    <Wrapper {...props} style={{ background: 'rgba(24,119,242,0.02)' }}>
       <div className="mono-font text-[10px] uppercase tracking-[0.12em] font-semibold text-stone-500 mb-2">{label}</div>
       {loading ? (
         <div className="h-7 flex items-center"><Loader2 className="w-4 h-4 animate-spin text-stone-300" /></div>
@@ -1337,7 +1345,23 @@ function MetaTile({ label, value, sub, loading }) {
         <div className="display-font text-2xl font-medium" style={{ color: META_BLUE }}>{value}</div>
       )}
       {sub && <div className="text-[10px] text-stone-400 mt-1">{sub}</div>}
-    </div>
+    </Wrapper>
+  )
+}
+
+// Drill-down for the "Paid Booked Calls" tile — lists the ad-driven bookings
+// (per host, expandable to the individual customers) for the selected window.
+function PaidCallsBreakdownModal({ days, onClose }) {
+  const { rows, total, loading } = useCalBookingsByRep({ days, filter: 'paid' })
+  return (
+    <BreakdownModal
+      title="Paid Booked Calls"
+      subtitle="Ad-driven (Atlas Blue) bookings in this window, by host"
+      rows={rows}
+      total={total}
+      loading={loading}
+      onClose={onClose}
+    />
   )
 }
 

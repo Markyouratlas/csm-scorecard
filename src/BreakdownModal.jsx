@@ -4,7 +4,7 @@ import { X, Users, ChevronDown, ChevronRight } from 'lucide-react'
 
 const BRAND = '#6639A6'
 
-export default function BreakdownModal({ title, subtitle, rows = [], total = 0, loading = false, showSplit = false, splitMode = 'show', onClose }) {
+export default function BreakdownModal({ title, subtitle, rows = [], total = 0, loading = false, showSplit = false, splitMode = 'show', byLabel = 'Breakdown by Rep', onClose }) {
   // Close on ESC
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose?.() }
@@ -34,7 +34,7 @@ export default function BreakdownModal({ title, subtitle, rows = [], total = 0, 
         <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-stone-200">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mono-text text-[10px] uppercase tracking-[0.18em] font-semibold mb-1" style={{ color: BRAND }}>
-              <Users className="w-3 h-3" /> Breakdown by Rep
+              <Users className="w-3 h-3" /> {byLabel}
             </div>
             <h2 className="display-text text-2xl font-medium leading-tight text-stone-900">{title}</h2>
             {subtitle && <p className="text-sm text-stone-600 mt-1">{subtitle}</p>}
@@ -110,6 +110,9 @@ function BreakdownRow({ row, maxCount, showSplit, splitMode }) {
             <div className="mono-text text-[10px] text-stone-400 mt-1">
               {row.paid || 0} ad-driven · {row.organic || 0} organic
             </div>
+          )}
+          {row.subLabel && (
+            <div className="mono-text text-[10px] text-stone-400 mt-1">{row.subLabel}</div>
           )}
         </div>
       </div>

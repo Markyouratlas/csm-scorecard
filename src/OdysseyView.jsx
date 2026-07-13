@@ -25,6 +25,7 @@ import SourceInspectorModal from './SourceInspectorModal.jsx'
 import RocketLoader from './RocketLoader.jsx'
 import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
+import { useDailyFunnelByRep } from './hooks/useDailyFunnelByRep.js'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 import WeeklyMrrModal from './WeeklyMrrModal.jsx'
 import DailyUpdateModal from './DailyUpdateModal.jsx'
@@ -383,6 +384,25 @@ function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onC
   )
 }
 
+// Per-rep breakdown for the Sales funnel tiles (Show-Up %, Close %, Closes,
+// Demos Completed). Reuses BreakdownModal via useDailyFunnelByRep.
+function FunnelBreakdownModal({ weekKey, metric, onClose }) {
+  const { rows, loading } = useDailyFunnelByRep(weekKey)
+  const pct = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—')
+  const held = (r) => (r.demosCompleted || 0) - (r.demosUnqualified || 0)
+  const cfg = {
+    closes:        { title: 'Closes · This Week',          subtitle: 'Closed Won by AE (bucketed by close week)', pick: r => r.trialSignups,   sub: r => `of ${held(r)} closeable held` },
+    completed:     { title: 'Demos Completed · This Week',  subtitle: 'Attended demos by AE',                       pick: r => r.demosCompleted, sub: r => `of ${r.demosBooked} booked` },
+    showup:        { title: 'Show-Up Rate · This Week',     subtitle: 'Completed ÷ booked, by AE',                  pick: r => r.demosCompleted, sub: r => `${pct(r.demosCompleted, r.demosBooked)} · ${r.demosBooked} booked` },
+    'close-rate':  { title: 'Close Rate · This Week',       subtitle: 'Closes ÷ closeable held, by AE',             pick: r => r.trialSignups,   sub: r => `${pct(r.trialSignups, held(r))} · ${held(r)} held` },
+  }[metric] || { title: 'Breakdown', subtitle: '', pick: () => 0, sub: () => '' }
+  const mapped = rows
+    .map(r => ({ name: r.name, count: cfg.pick(r), subLabel: cfg.sub(r) }))
+    .sort((a, b) => b.count - a.count)
+  const total = mapped.reduce((s, r) => s + r.count, 0)
+  return <BreakdownModal title={cfg.title} subtitle={cfg.subtitle} rows={mapped} total={total} loading={loading} onClose={onClose} />
+}
+
 function WeeklyView({ data, targets, canEdit, openModal, userId }) {
   const w = data.thisWeek || {}
   const t = data.trends || {}
@@ -583,6 +603,7 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
           color={DEPTS.sales.color}
           trend={t.showRate}
           openModal={openModal}
+          onBreakdownClick={() => setBreakdownOpen('funnel:showup')}
           tooltip={`Demos Completed ÷ Demos Booked = ${w.demosCompletedWeek} ÷ ${w.demosBookedWeek} this week. Booked = every meeting on the calendar except Rescheduled; Completed = anyone who showed (incl. Unqualified). Target 75%.`}
         />
         <GaugeCard
@@ -594,6 +615,7 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
           color={DEPTS.sales.color}
           trend={t.closeRate}
           openModal={openModal}
+          onBreakdownClick={() => setBreakdownOpen('funnel:close-rate')}
           tooltip={`Closes ÷ closeable demos held = ${w.trialSignupsWeek} ÷ ${closeableHeld(w.demosCompletedWeek, w.demosUnqualifiedWeek)} this week. Closeable backs out ${w.demosUnqualifiedWeek} Unqualified from Demos Completed (${w.demosCompletedWeek}), so non-fits don't drag the rate down. Target 30%.`}
         />
         <NumberBlock
@@ -603,6 +625,7 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
           color={DEPTS.sales.color}
           trend={t.trialsStarted}
           openModal={openModal}
+          onBreakdownClick={() => setBreakdownOpen('funnel:closes')}
         />
         <NumberBlock
           metricKey="net-new-mrr"
@@ -768,6 +791,9 @@ function WeeklyView({ data, targets, canEdit, openModal, userId }) {
 
       {breakdownOpen === 'manual' && (
         <DemosBreakdownModal weekKey={weekKey} onClose={() => setBreakdownOpen(null)} />
+      )}
+      {breakdownOpen?.startsWith('funnel:') && (
+        <FunnelBreakdownModal weekKey={weekKey} metric={breakdownOpen.split(':')[1]} onClose={() => setBreakdownOpen(null)} />
       )}
       {breakdownOpen?.startsWith('cal:') && (
         <CalBreakdownModal
@@ -1725,19 +1751,32 @@ function GaugeLabel({ label, tooltip, mb = 'mb-1' }) {
   )
 }
 
-function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting, metricKey, openModal, tooltip }) {
-  const clickable = metricKey && openModal
-  const handleClick = () => clickable && openModal(metricKey, value)
-  const Wrapper = clickable ? 'button' : 'div'
+function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, awaiting, metricKey, openModal, tooltip, onBreakdownClick }) {
+  const editable = metricKey && openModal
+  const breakdownable = !!onBreakdownClick
+  const bodyClickable = breakdownable || editable
+  // Body click prefers the per-rep breakdown; target-edit moves to a corner button.
+  const handleClick = () => { if (breakdownable) onBreakdownClick(); else if (editable) openModal(metricKey, value) }
+  const handleKeyDown = (e) => { if (bodyClickable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); handleClick() } }
+  const Wrapper = breakdownable ? 'div' : (editable ? 'button' : 'div')
   const wrapperBaseClass = 'card p-4 flex flex-col items-center relative'
-  const wrapperProps = clickable
-    ? { onClick: handleClick, type: 'button', className: `${wrapperBaseClass} text-left w-full hover:shadow-md hover:border-stone-400 transition-all group`, style: { minHeight: 170 } }
-    : { className: wrapperBaseClass, style: { minHeight: 170 } }
+  const wrapperProps = breakdownable
+    ? { onClick: handleClick, role: 'button', tabIndex: 0, onKeyDown: handleKeyDown, className: `${wrapperBaseClass} text-left w-full hover:shadow-md hover:border-stone-400 transition-all group`, style: { minHeight: 170 } }
+    : editable
+      ? { onClick: handleClick, type: 'button', className: `${wrapperBaseClass} text-left w-full hover:shadow-md hover:border-stone-400 transition-all group`, style: { minHeight: 170 } }
+      : { className: wrapperBaseClass, style: { minHeight: 170 } }
+  const cornerEdit = breakdownable && editable
+    ? <button type="button" onClick={(e) => { e.stopPropagation(); openModal(metricKey, value) }}
+        className="absolute top-3 right-3 w-5 h-5 rounded flex items-center justify-center hover:bg-stone-100 text-stone-300 hover:text-stone-600 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        title="Edit target" aria-label="Edit target"><Edit3 className="w-3 h-3" /></button>
+    : editable
+      ? <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+      : null
 
   if (awaiting) {
     return (
       <Wrapper {...wrapperProps}>
-        {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+        {cornerEdit}
         <GaugeLabel label={label} tooltip={tooltip} mb="mb-3" />
         <div className="flex-1 flex items-center self-start">
           <AwaitingBadge provider={awaiting} />
@@ -1748,7 +1787,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
   if (value == null) {
     return (
       <Wrapper {...wrapperProps}>
-        {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+        {cornerEdit}
         <GaugeLabel label={label} tooltip={tooltip} mb="mb-3" />
         <div className="flex-1 flex items-center justify-center">
           <span className="text-stone-300 text-sm">No data yet</span>
