@@ -1816,7 +1816,7 @@ function GaugeCard({ label, value, target, suffix = '%', color = BRAND, trend, a
 
   return (
     <Wrapper {...wrapperProps}>
-      {clickable && <Edit3 className="absolute top-3 right-3 w-3 h-3 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+      {cornerEdit}
       <GaugeLabel label={label} tooltip={tooltip} mb="mb-1" />
       <svg width={size} height={size * 0.72} viewBox={`0 0 ${size} ${size * 0.72}`} className="overflow-visible">
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${cx + r * Math.cos(toRad(0))} ${cy + r * Math.sin(toRad(0))}`}
