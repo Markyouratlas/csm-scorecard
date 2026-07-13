@@ -118,10 +118,9 @@ const blankGrowthDay = () => ({
   demosCompleted: 0,
   trialSignups: 0,
   newCustomers: 0,       // NEW: customers acquired (for CAC calc)
-  // Atlas Blue funnel — only Visitors is manual now. Ad Spend (Meta), Test Drives
-  // (atlas_blue_test_drives rpc) and the rest (booked/completed/new customers/cash/
-  // deal value, via atlas_blue_deals) are all live — not stored here.
-  abVisitors: 0,         // Atlas Blue landing visitors
+  // Atlas Blue funnel has NO manual inputs — Ad Spend + Visitors (Meta), Test Drives
+  // (atlas_blue_test_drives rpc) and booked/completed/cash/deal value (atlas_blue_deals)
+  // are all live. Nothing stored here.
 })
 const blankChannelTotals = () => ({
   spend: 0,

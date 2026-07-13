@@ -7,9 +7,8 @@ import { stepWeek } from '../dateUtils.js'
 // =============================================================================
 //  useAtlasBlueFunnel
 //
-//  Powers Nick's "Atlas Blue" funnel tab in GrowthView. Everything except the
-//  two manual top-of-funnel inputs (Visitors, Test Drives — typed by Nick and
-//  read straight from weekData in GrowthView) is derived here:
+//  Powers Nick's "Atlas Blue" funnel tab in GrowthView. The whole top of funnel
+//  is now live — nothing is typed by Nick. This hook derives every column:
 //
 //  • Booked / Completed / New Customers / Cash / Deal Value — from ad-driven
 //    ae_deals via the SECURITY DEFINER rpc `atlas_blue_deals`
@@ -23,11 +22,12 @@ import { stepWeek } from '../dateUtils.js'
 //      cash        = Σ one_time of Closed Won              (Stripe-matched actual cash)
 //      dealValue   = Σ mrr of Closed Won                   (Stripe-matched contracted MRR)
 //
-//  • Ad Spend — auto-pulled from Meta (`meta_ads_daily.spend`, daily rows summed
-//    per day/week). NOTE: this is total Meta spend across all campaigns; it equals
-//    "Atlas Blue" spend only if every Meta campaign is Atlas Blue. Add a
-//    campaign_name filter here if non-Blue campaigns ever run. meta_ads_daily only
-//    covers ~90 days, so weeks older than that show $0 spend.
+//  • Ad Spend + Visitors — auto-pulled from Meta (`meta_ads_daily`, daily rows
+//    summed per day/week). Ad Spend = `spend`; Visitors = the `landing_page_view`
+//    action out of the raw `actions` jsonb. NOTE: this is total Meta activity across
+//    all campaigns; it equals "Atlas Blue" only if every Meta campaign is Atlas Blue.
+//    Add a campaign_name filter here if non-Blue campaigns ever run. meta_ads_daily
+//    only covers ~90 days, so weeks older than that show $0 / 0.
 //
 //  Args:
 //    userId  — the Growth Manager's profile id (kept for RLS/query-key symmetry)
@@ -42,9 +42,19 @@ import { stepWeek } from '../dateUtils.js'
 // =============================================================================
 
 const blankDay = () => ({
-  adSpend: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
+  adSpend: 0, visitors: 0, demosBooked: 0, demosCompleted: 0, demosUnqualified: 0,
   newCustomers: 0, cashCollected: 0, dealValue: 0, testDrives: 0,
 })
+
+// Sum a Meta action_type out of the raw `actions` jsonb array on a meta_ads_daily
+// row. Visitors = 'landing_page_view' (someone clicked the ad AND the page loaded —
+// Meta's closest thing to a real visitor).
+const metaAction = (actions, type) => {
+  if (!Array.isArray(actions)) return 0
+  let n = 0
+  for (const a of actions) if (a?.action_type === type) n += Number(a.value) || 0
+  return n
+}
 
 export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
   const chartStart = stepWeek(weekKey, -(weeks - 1)) // oldest week in the chart window
@@ -62,7 +72,7 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
         supabase.rpc('atlas_blue_deals', { p_since: since.toISOString() }),
         supabase
           .from('meta_ads_daily')
-          .select('date_start, spend')
+          .select('date_start, spend, actions')
           .gte('date_start', chartStart),
         // Distinct customers who chatted with the Atlas Blue paid-ads campaign,
         // dated by their first conversation (the client buckets by week/day).
@@ -99,10 +109,13 @@ export function useAtlasBlueFunnel(userId, weekKey, weeks = 8) {
       cell.dealValue += Number(d.mrr) || 0
     }
   }
-  // Meta ad spend for the viewed week, placed on the matching weekday.
+  // Meta ad spend + landing-page-view "visitors" for the viewed week, on the
+  // matching weekday.
   for (const r of metaRows) {
     if (!r.date_start || mondayOfYMD(r.date_start) !== weekKey) continue
-    viewedWeekDays[dayIdxOfYMD(r.date_start)].adSpend += Number(r.spend) || 0
+    const cell = viewedWeekDays[dayIdxOfYMD(r.date_start)]
+    cell.adSpend += Number(r.spend) || 0
+    cell.visitors += metaAction(r.actions, 'landing_page_view')
   }
   // Test Drives — distinct campaign customers, counted in the week/day of their
   // FIRST conversation (first_at from the rpc).
