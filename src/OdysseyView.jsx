@@ -25,7 +25,7 @@ import SourceInspectorModal from './SourceInspectorModal.jsx'
 import RocketLoader from './RocketLoader.jsx'
 import { useManualDemosByRep } from './hooks/useManualDemosByRep.js'
 import { useCalBookingsByRep } from './hooks/useCalBookingsByRep.js'
-import { useDailyFunnelByRep } from './hooks/useDailyFunnelByRep.js'
+import FunnelBreakdownModal from './FunnelBreakdownModal.jsx'
 import MrrHistoryModal from './MrrHistoryModal.jsx'
 import WeeklyMrrModal from './WeeklyMrrModal.jsx'
 import DailyUpdateModal from './DailyUpdateModal.jsx'
@@ -382,25 +382,6 @@ function CalBreakdownModal({ weekKey, filter = 'all', dateField = 'created', onC
       onClose={onClose}
     />
   )
-}
-
-// Per-rep breakdown for the Sales funnel tiles (Show-Up %, Close %, Closes,
-// Demos Completed). Reuses BreakdownModal via useDailyFunnelByRep.
-function FunnelBreakdownModal({ weekKey, metric, onClose }) {
-  const { rows, loading } = useDailyFunnelByRep(weekKey)
-  const pct = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—')
-  const held = (r) => (r.demosCompleted || 0) - (r.demosUnqualified || 0)
-  const cfg = {
-    closes:        { title: 'Closes · This Week',          subtitle: 'Closed Won by AE (bucketed by close week)', pick: r => r.trialSignups,   sub: r => `of ${held(r)} closeable held` },
-    completed:     { title: 'Demos Completed · This Week',  subtitle: 'Attended demos by AE',                       pick: r => r.demosCompleted, sub: r => `of ${r.demosBooked} booked` },
-    showup:        { title: 'Show-Up Rate · This Week',     subtitle: 'Completed ÷ booked, by AE',                  pick: r => r.demosCompleted, sub: r => `${pct(r.demosCompleted, r.demosBooked)} · ${r.demosBooked} booked` },
-    'close-rate':  { title: 'Close Rate · This Week',       subtitle: 'Closes ÷ closeable held, by AE',             pick: r => r.trialSignups,   sub: r => `${pct(r.trialSignups, held(r))} · ${held(r)} held` },
-  }[metric] || { title: 'Breakdown', subtitle: '', pick: () => 0, sub: () => '' }
-  const mapped = rows
-    .map(r => ({ name: r.name, count: cfg.pick(r), subLabel: cfg.sub(r) }))
-    .sort((a, b) => b.count - a.count)
-  const total = mapped.reduce((s, r) => s + r.count, 0)
-  return <BreakdownModal title={cfg.title} subtitle={cfg.subtitle} rows={mapped} total={total} loading={loading} onClose={onClose} />
 }
 
 function WeeklyView({ data, targets, canEdit, openModal, userId }) {
