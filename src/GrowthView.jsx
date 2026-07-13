@@ -439,10 +439,9 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
 
   // Totals across the user's work days for the viewed week.
   const t = workDayIdxs.reduce((acc, di) => {
-    const m = weekData.daily[di] || {}
     const a = viewedWeekDays[di] || {}
     acc.adSpend += Number(a.adSpend) || 0
-    acc.visitors += Number(m.abVisitors) || 0
+    acc.visitors += Number(a.visitors) || 0
     acc.testDrives += Number(a.testDrives) || 0
     acc.booked += a.demosBooked || 0
     acc.completed += a.demosCompleted || 0
@@ -477,8 +476,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           <div className="display-font text-2xl font-medium text-stone-900">Top of funnel</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          Atlas Blue (ad-driven) only. Ad Spend (Meta), Test Drives (Atlas Blue conversations) and
-          Booked Calls (ad-driven bookings) are pulled live; only Visitors is entered manually.
+          Atlas Blue (ad-driven) only. Every column is pulled live — Ad Spend + Visitors from Meta,
+          Test Drives from Atlas Blue conversations, and Booked Calls from ad-driven bookings.
         </p>
         <table className="w-full text-sm min-w-[920px]">
           <thead>
@@ -486,8 +485,8 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
               <AbHeadCell label="Ad Spend" tone="live"
                 tip="Live from Meta Ads (meta_ads_daily.spend). Total Meta ad spend for the day — note this is ALL Meta campaigns, so it equals Atlas Blue spend only if every campaign is Atlas Blue." />
-              <AbHeadCell label="Visitors" tone="manual"
-                tip="Manual entry. Atlas Blue landing-page visitors — Meta has no true visitor count, so this is typed in until a web-analytics source is decided." />
+              <AbHeadCell label="Visitors" tone="live"
+                tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded). Total across all Meta campaigns, so it equals Atlas Blue only if every campaign is Atlas Blue." />
               <AbHeadCell label="Test Drives" tone="live"
                 tip="Live — distinct customers who had a conversation with the 'Atlas Blue Paid Ads Funnel Agent' campaign, counted on the day of their first conversation." />
               <AbHeadCell label="Booked Calls" tone="live"
@@ -502,17 +501,16 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
           </thead>
           <tbody>
             {workDayIdxs.map(dayIdx => {
-              const m = weekData.daily[dayIdx] || {}
               const a = viewedWeekDays[dayIdx] || {}
               const booked = a.demosBooked || 0
               return (
                 <tr key={dayIdx} className="border-b border-stone-100">
                   <td className="py-2 px-3"><div className="font-medium text-stone-800 text-xs">{DAY_NAMES[dayIdx]}</div></td>
                   <ReadCell value={a.adSpend} money />
-                  <NumCell value={m.abVisitors} onChange={(v) => setCell(dayIdx, 'abVisitors', v)} />
+                  <ReadCell value={a.visitors} />
                   <ReadCell value={a.testDrives} />
                   <ReadCell value={booked} />
-                  <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + booked, m.abVisitors)} format="pct" />
+                  <DerivedCell value={safeDiv((Number(a.testDrives) || 0) + booked, a.visitors)} format="pct" />
                   <DerivedCell value={safeDiv(a.adSpend, a.testDrives)} format="money" />
                   <DerivedCell value={cpbc(a.adSpend, booked)} format="money" />
                 </tr>
