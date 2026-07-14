@@ -51,6 +51,22 @@ async function attioPut(path: string, body: unknown, token: string, tries = 0): 
   return res.json();
 }
 
+// One-time: create the unique `external_id` text attribute on the deals object using
+// the server-side token (so no one has to paste the 64-char key into a shell).
+// Idempotent — treats "already exists" as success.
+async function ensureExternalIdAttribute(token: string): Promise<any> {
+  const res = await fetch(`${ATTIO_BASE}/objects/deals/attributes`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ data: { title: "External ID", api_slug: "external_id", type: "text", is_required: false, is_unique: true, is_multiselect: false } }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) return { ok: true, created: true, slug: body?.data?.api_slug || "external_id" };
+  const msg = JSON.stringify(body);
+  if (res.status === 409 || /already exist|slug|conflict|duplicate/i.test(msg)) return { ok: true, created: false, exists: true, detail: msg.slice(0, 200) };
+  throw new Error(`create external_id attribute ${res.status}: ${msg.slice(0, 300)}`);
+}
+
 const parseNum = (v: any): number | null => {
   if (v == null) return null;
   const n = Number(String(v).replace(/[^0-9.]/g, ""));
@@ -138,8 +154,15 @@ serve(async (req: Request) => {
     const token = Deno.env.get("ATTIO_API_KEY");
     if (!token) return json({ ok: false, error: "ATTIO_API_KEY not set" }, 500);
 
-    // ---- Which rows? DB-webhook single row, else all portal rows (backfill) ----
     const body = await req.json().catch(() => ({}));
+
+    // ---- One-time setup: create the unique external_id attribute in Attio ----
+    if (body?.setup === true) {
+      const result = await ensureExternalIdAttribute(token);
+      return json(result, 200);
+    }
+
+    // ---- Which rows? DB-webhook single row, else all portal rows (backfill) ----
     let rows: any[] = [];
     if (body?.record) {
       if (body.record.origin === "portal") rows = [body.record]; // ignore Pipe-1 (attio) writes
