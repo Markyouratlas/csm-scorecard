@@ -2,14 +2,18 @@
 // Supabase Edge Function: attio-push  (Pipe 2 — Scorecard → Attio)
 // ============================================================
 // Pushes PORTAL-registered channel deals (channel_deals.origin='portal') UP into Attio.
-// Assert order (Attio never auto-creates referenced records): person → deal. Company is
-// skipped (portal rows carry no domain to match on). The deal is asserted on external_id
-// (= the portal deal id = channel_deals.id), so re-pushing updates rather than duplicates.
+// Assert order (Attio never auto-creates referenced records): company → person → deal.
+// Company is matched/created by the contact's email domain (personal-email domains skipped);
+// person by email (with E.164 phone). The deal is asserted on external_id (= the portal deal
+// id = channel_deals.id), so re-pushing updates rather than duplicates.
 //
-// We write ONLY identity/registration fields (external_id, name, value, associated_people).
-// We deliberately DON'T write stage/owner — Attio owns those after creation, so a re-push
-// never clobbers Heather's pipeline edits. Loop-safe: the pushed deal has an external_id,
-// so Pipe 1 (attio-sync/attio-webhook) skips it and never pulls it back.
+// Written fields: external_id, name, value, associated_company, associated_people, plus the
+// portal's channel context in custom attributes (partner_company, tsd, call_volume, pain_point,
+// crm) + deal_registered date. stage + owner are set ONLY on create (Attio requires them) and
+// omitted on update, so a re-push never clobbers Heather's Attio pipeline/owner edits. Loop-safe:
+// the pushed deal has an external_id, so Pipe 1 (attio-sync/attio-webhook) skips it.
+//
+// {setup:true} provisions the custom attributes (incl. unique external_id) via the server token.
 //
 // Invoked two ways:
 //   • Supabase Database Webhook on channel_deals insert/update  → body { record: {...} }
@@ -51,26 +55,63 @@ async function attioPut(path: string, body: unknown, token: string, tries = 0): 
   return res.json();
 }
 
-// One-time: create the unique `external_id` text attribute on the deals object using
-// the server-side token (so no one has to paste the 64-char key into a shell).
-// Idempotent — treats "already exists" as success.
-async function ensureExternalIdAttribute(token: string): Promise<any> {
+// Attributes the sync provisions on the Attio deals object (via {setup:true}), using
+// the server-side token so no one pastes the 64-char key into a shell. external_id is
+// the unique sync key; the rest hold the portal's channel context (no native Attio field).
+const SYNC_ATTRS: Array<{ title: string; slug: string; type: string; unique?: boolean; description: string }> = [
+  { title: "External ID",     slug: "external_id",     type: "text", unique: true, description: "Portal deal id — Scorecard sync key (do not edit)" },
+  { title: "Partner Company", slug: "partner_company", type: "text", description: "Channel partner company (from the Deals Portal)" },
+  { title: "TSD",             slug: "tsd",             type: "text", description: "Technology Services Distributor (from the Deals Portal)" },
+  { title: "Call Volume",     slug: "call_volume",     type: "text", description: "Prospect call volume (from the Deals Portal)" },
+  { title: "Pain Point",      slug: "pain_point",      type: "text", description: "Prospect pain point (from the Deals Portal)" },
+  { title: "CRM",             slug: "crm",             type: "text", description: "Prospect's CRM (from the Deals Portal)" },
+];
+
+// Create one attribute; idempotent (treats "already exists" as success).
+async function createAttr(token: string, def: typeof SYNC_ATTRS[number]): Promise<any> {
   const res = await fetch(`${ATTIO_BASE}/objects/deals/attributes`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ data: { title: "External ID", description: "Portal deal id — Scorecard sync key (do not edit)", api_slug: "external_id", type: "text", is_required: false, is_unique: true, is_multiselect: false, config: {} } }),
+    body: JSON.stringify({ data: { title: def.title, description: def.description, api_slug: def.slug, type: def.type, is_required: false, is_unique: !!def.unique, is_multiselect: false, config: {} } }),
   });
   const body = await res.json().catch(() => ({}));
-  if (res.ok) return { ok: true, created: true, slug: body?.data?.api_slug || "external_id" };
+  if (res.ok) return { slug: def.slug, created: true };
   const msg = JSON.stringify(body);
-  if (res.status === 409 || /already exist|slug|conflict|duplicate/i.test(msg)) return { ok: true, created: false, exists: true, detail: msg.slice(0, 200) };
-  throw new Error(`create external_id attribute ${res.status}: ${msg.slice(0, 300)}`);
+  if (res.status === 409 || /already exist|slug|conflict|duplicate|unique/i.test(msg)) return { slug: def.slug, exists: true };
+  throw new Error(`create ${def.slug} ${res.status}: ${msg.slice(0, 200)}`);
+}
+
+async function ensureAttributes(token: string): Promise<any[]> {
+  const out: any[] = [];
+  for (const def of SYNC_ATTRS) out.push(await createAttr(token, def));
+  return out;
 }
 
 const parseNum = (v: any): number | null => {
   if (v == null) return null;
   const n = Number(String(v).replace(/[^0-9.]/g, ""));
   return isNaN(n) || n === 0 ? null : n;
+};
+
+// Normalize a phone to E.164 (+1XXXXXXXXXX). Returns null if we can't confidently
+// normalize — Attio rejects numbers without country info, so we skip rather than fail.
+const e164 = (raw: any): string | null => {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  if (s.startsWith("+")) return s.replace(/[^\d+]/g, "");
+  const d = s.replace(/\D/g, "");
+  if (d.length === 10) return "+1" + d;
+  if (d.length === 11 && d.startsWith("1")) return "+" + d;
+  return null;
+};
+
+// Company domain from a contact email — but not personal-email providers (those aren't
+// the company). Attio matches/creates companies by domain, so no domain → no company.
+const PERSONAL_DOMAINS = new Set(["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com", "proton.me", "protonmail.com", "live.com", "msn.com"]);
+const domainFromEmail = (email: any): string | null => {
+  const m = /@([^@\s]+)$/.exec(String(email || "").trim().toLowerCase());
+  const d = m?.[1];
+  return d && !PERSONAL_DOMAINS.has(d) ? d : null;
 };
 
 async function sha256(s: string): Promise<string> {
@@ -87,10 +128,16 @@ function pushFields(row: any) {
     contact_email: row.contact_email || null,
     contact_name: row.contact_name || null,
     contact_phone: row.contact_phone || null,
+    partner_company: row.partner_company || null,
+    tsd: row.tsd_name || null,
+    call_volume: row.call_volume || null,
+    pain_point: row.pain_point || null,
+    crm: row.crm || null,
+    deal_registered: row.portal_created_at || null,
   };
 }
 
-// Assert the contact person (best-effort; non-fatal if it fails) → returns record_id or null.
+// Assert the contact person (best-effort; non-fatal) → returns record_id or null.
 async function assertPerson(f: any, token: string): Promise<string | null> {
   if (!f.contact_email) return null;
   const values: any = { email_addresses: [{ email_address: f.contact_email }] };
@@ -98,8 +145,19 @@ async function assertPerson(f: any, token: string): Promise<string | null> {
     const parts = String(f.contact_name).trim().split(/\s+/);
     values.name = [{ first_name: parts[0] || f.contact_name, last_name: parts.slice(1).join(" ") || "", full_name: f.contact_name }];
   }
-  // (phone omitted — Attio rejects numbers without country info; enrich later)
+  const phone = e164(f.contact_phone);
+  if (phone) values.phone_numbers = [{ original_phone_number: phone }];
   const r = await attioPut(`/objects/people/records?matching_attribute=email_addresses`, { data: { values } }, token);
+  return r?.data?.id?.record_id || null;
+}
+
+// Assert the company from the contact's email domain (best-effort; non-fatal) → record_id
+// or null. Attio matches/creates companies by domain; personal-email domains are skipped.
+async function assertCompany(f: any, token: string): Promise<string | null> {
+  const domain = domainFromEmail(f.contact_email);
+  if (!domain) return null;
+  const values: any = { domains: [{ domain }], name: [{ value: f.name }] };
+  const r = await attioPut(`/objects/companies/records?matching_attribute=domains`, { data: { values } }, token);
   return r?.data?.id?.record_id || null;
 }
 
@@ -117,7 +175,7 @@ async function findDealByExternalId(extId: string, token: string): Promise<strin
 }
 
 // Assert the deal on external_id → returns the deal record_id.
-async function assertDeal(f: any, personId: string | null, token: string): Promise<string> {
+async function assertDeal(f: any, personId: string | null, companyId: string | null, token: string): Promise<string> {
   const existingId = await findDealByExternalId(f.external_id, token);
   const values: any = {
     external_id: [{ value: f.external_id }],
@@ -125,6 +183,14 @@ async function assertDeal(f: any, personId: string | null, token: string): Promi
   };
   if (f.value != null) values.value = [{ currency_value: f.value }];
   if (personId) values.associated_people = [{ target_object: "people", target_record_id: personId }];
+  if (companyId) values.associated_company = [{ target_object: "companies", target_record_id: companyId }];
+  // Portal-owned channel context (the portal is the source → always written).
+  if (f.partner_company) values.partner_company = [{ value: f.partner_company }];
+  if (f.tsd) values.tsd = [{ value: f.tsd }];
+  if (f.call_volume) values.call_volume = [{ value: f.call_volume }];
+  if (f.pain_point) values.pain_point = [{ value: f.pain_point }];
+  if (f.crm) values.crm = [{ value: f.crm }];
+  if (f.deal_registered) values.deal_registered = [{ value: String(f.deal_registered).slice(0, 10) }];
   if (!existingId) {
     // CREATE — Attio requires stage + owner on new deals. Entry stage + default owner;
     // omitted on UPDATE so Heather's Attio pipeline/owner edits are preserved.
@@ -143,11 +209,13 @@ async function pushRow(admin: any, row: any, token: string): Promise<"pushed" | 
   const hash = await sha256(JSON.stringify(f));
   if (row.attio_record_id && row.content_hash === hash) return "skipped"; // no-op
 
-  let personId: string | null = null;
+  let companyId: string | null = null, personId: string | null = null;
+  try { companyId = await assertCompany(f, token); }
+  catch (e: any) { await admin.from("sync_dead_letter").insert({ source: "attio-push", op: "push-company", ref: String(row.id), error: String(e?.message || e), payload: { email: f.contact_email } }); }
   try { personId = await assertPerson(f, token); }
   catch (e: any) { await admin.from("sync_dead_letter").insert({ source: "attio-push", op: "push-person", ref: String(row.id), error: String(e?.message || e), payload: { email: f.contact_email } }); }
 
-  const dealId = await assertDeal(f, personId, token);
+  const dealId = await assertDeal(f, personId, companyId, token);
   await admin.from("channel_deals").update({
     attio_record_id: dealId, external_id: f.external_id, content_hash: hash, synced_at: new Date().toISOString(),
   }).eq("id", row.id);
@@ -177,10 +245,10 @@ serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
 
-    // ---- One-time setup: create the unique external_id attribute in Attio ----
+    // ---- One-time setup: provision the sync attributes on the Attio deals object ----
     if (body?.setup === true) {
-      const result = await ensureExternalIdAttribute(token);
-      return json(result, 200);
+      const attributes = await ensureAttributes(token);
+      return json({ ok: true, attributes }, 200);
     }
 
     // ---- Diagnostic: list the deals object's attributes (which are required?) ----

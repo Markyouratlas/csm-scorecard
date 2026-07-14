@@ -1207,6 +1207,17 @@ function ChannelStatusBadge({ status }) {
   return <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
 }
 
+// Where the deal came from: Attio-originated (synced in) vs the Deals Portal.
+function OriginBadge({ origin }) {
+  const attio = origin === 'attio'
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded mono-font text-[9px] uppercase tracking-wide font-semibold ${attio ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}
+      title={attio ? 'Originated in Attio (synced into the Scorecard)' : 'Registered in the Deals Portal'}>
+      {attio ? 'Attio' : 'Portal'}
+    </span>
+  )
+}
+
 function FlagDot({ flag }) {
   if (flag !== 'green' && flag !== 'red') return null
   return <span className={`inline-block w-2 h-2 rounded-full ${flag === 'green' ? 'bg-emerald-500' : 'bg-red-500'}`} title={flag === 'green' ? 'Great fit' : 'Needs review'} />
@@ -1312,7 +1323,10 @@ function ChannelPartnerDeals({ profile }) {
                         <div className="flex items-center gap-1.5">
                           {expanded ? <ChevronDown className="w-3.5 h-3.5 text-stone-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />}
                           <div>
-                            <div className="font-medium text-stone-800">{deal.business_name}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-stone-800">{deal.business_name}</span>
+                              <OriginBadge origin={deal.origin} />
+                            </div>
                             {deal.contact_name && <div className="text-[11px] text-stone-500">{deal.contact_name}</div>}
                           </div>
                         </div>
