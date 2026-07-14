@@ -58,7 +58,7 @@ async function ensureExternalIdAttribute(token: string): Promise<any> {
   const res = await fetch(`${ATTIO_BASE}/objects/deals/attributes`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ data: { title: "External ID", api_slug: "external_id", type: "text", is_required: false, is_unique: true, is_multiselect: false } }),
+    body: JSON.stringify({ data: { title: "External ID", description: "Portal deal id — Scorecard sync key (do not edit)", api_slug: "external_id", type: "text", is_required: false, is_unique: true, is_multiselect: false, config: {} } }),
   });
   const body = await res.json().catch(() => ({}));
   if (res.ok) return { ok: true, created: true, slug: body?.data?.api_slug || "external_id" };
