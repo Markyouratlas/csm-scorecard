@@ -98,7 +98,7 @@ async function assertPerson(f: any, token: string): Promise<string | null> {
     const parts = String(f.contact_name).trim().split(/\s+/);
     values.name = [{ first_name: parts[0] || f.contact_name, last_name: parts.slice(1).join(" ") || "", full_name: f.contact_name }];
   }
-  if (f.contact_phone) values.phone_numbers = [{ original_phone_number: f.contact_phone }];
+  // (phone omitted — Attio rejects numbers without country info; enrich later)
   const r = await attioPut(`/objects/people/records?matching_attribute=email_addresses`, { data: { values } }, token);
   return r?.data?.id?.record_id || null;
 }
@@ -160,6 +160,14 @@ serve(async (req: Request) => {
     if (body?.setup === true) {
       const result = await ensureExternalIdAttribute(token);
       return json(result, 200);
+    }
+
+    // ---- Diagnostic: list the deals object's attributes (which are required?) ----
+    if (body?.diag === true) {
+      const res = await fetch(`${ATTIO_BASE}/objects/deals/attributes`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      const attrs = (j?.data || []).map((a: any) => ({ id: a?.id?.attribute_id, slug: a?.api_slug, title: a?.title, type: a?.type, required: a?.is_required }));
+      return json({ ok: true, required: attrs.filter((a: any) => a.required), all: attrs }, 200);
     }
 
     // ---- Which rows? DB-webhook single row, else all portal rows (backfill) ----
