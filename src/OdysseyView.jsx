@@ -1237,16 +1237,33 @@ function TrackingGuide() {
       },
     },
     {
+      title: 'Attio — Channel Partner Deals (live)',
+      provider: 'Supabase · channel_deals (origin=attio)',
+      status: 'connected',
+      metrics: [
+        'Native Attio channel-partner deals, pulled in real time (webhook + nightly reconcile)',
+        'Deal stage / value / contact — shown in Heather’s Channel Partner Deals view',
+        'Portal-registered deals pushed UP to Attio (person → deal, on external_id)',
+        'Two populations kept disjoint by external_id — no loop, no duplicates',
+      ],
+      inspect: {
+        mode: 'sample-row',
+        tables: [
+          { table: 'channel_deals', label: 'Channel deals', order: 'synced_at' },
+        ],
+      },
+    },
+    {
       title: 'Amplitude (or product analytics)',
       provider: 'Awaiting setup',
       status: 'awaiting',
       metrics: ['Trial → Paid conversion %', 'User activation rate', 'User adoption rate', 'Daily activation events']
     },
     {
-      title: 'GHL + Attio (CRM)',
+      title: 'GoHighLevel (CRM)',
       provider: 'Awaiting integration',
       status: 'awaiting',
-      metrics: ['Partner pipeline value', 'Partner-sourced opportunities', 'Partner-driven calls', 'Contacts + deal stages']
+      metrics: ['CRM contacts + deal stages', 'Partner-sourced opportunities not tracked in Attio']
     },
     {
       title: 'OKR system',
