@@ -83,13 +83,13 @@ export const externalIdOf = (rec: any): string | null => {
   return v && String(v).trim() ? String(v).trim() : null;
 };
 
-// Map Attio deal stage → the channel_deals qualified/pending model. CONFIRM against
-// Heather's real Attio stages; unmapped stages fall to 'pending'.
-function mapStatus(stage: string | null): string {
-  const s = (stage || "").toLowerCase();
-  if (/won|qualif|closed won|active|live|signed/.test(s)) return "qualified";
-  return "pending";
-}
+// Numeric value from a currency (currency_value) or number (value) attribute.
+const currencyOf = (rec: any, slug: string): number | null => {
+  const v = firstVal(rec, slug);
+  if (!v) return null;
+  const n = v.currency_value ?? v.value;
+  return n != null ? Number(n) : null;
+};
 
 async function sha256(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -104,17 +104,17 @@ export async function mapDeal(rec: any): Promise<any | null> {
   if (!recordId) return null;
 
   const name = textOf(rec, "name");
-  const stage = textOf(rec, "stage");
-  const valueNum = firstVal(rec, "value")?.currency_value;
-  const status = mapStatus(stage);
+  // Keep the REAL Attio stage title (Heather's view is pipeline-aware). value falls
+  // back to mrc → projected_arr when the deal has no `value` set.
+  const value = currencyOf(rec, "value") ?? currencyOf(rec, "mrc") ?? currencyOf(rec, "projected_arr");
 
   const fields = {
     attio_record_id: recordId,
     origin: "attio",
     external_id: null,
     business_name: name || "Untitled deal",   // channel_deals.business_name is NOT NULL
-    avg_value: valueNum != null ? String(valueNum) : null,
-    status,
+    avg_value: value != null ? String(value) : null,
+    status: textOf(rec, "stage") || "pending",
     portal_created_at: rec?.created_at || null,
     attio_updated_at: rec?.created_at || null, // no reliable per-record updated ts; informational
   };
