@@ -1238,13 +1238,14 @@ function TrackingGuide() {
     },
     {
       title: 'Attio — Channel Partner Deals (live)',
-      provider: 'Supabase · channel_deals (origin=attio)',
+      provider: 'Supabase · channel_deals ⇄ Attio deals',
       status: 'connected',
       metrics: [
-        'Native Attio channel-partner deals, pulled in real time (webhook + nightly reconcile)',
-        'Deal stage / value / contact — shown in Heather’s Channel Partner Deals view',
-        'Portal-registered deals pushed UP to Attio (person → deal, on external_id)',
-        'Two populations kept disjoint by external_id — no loop, no duplicates',
+        'Native Attio channel deals pulled in real time (webhook + nightly reconcile)',
+        'Shown in Heather’s Channel Partner Deals view with a Portal / Attio origin badge',
+        'Portal deals pushed UP to Attio: company (email domain) + contact with phone',
+        'Channel context synced to custom Attio fields — Partner, TSD, Call Volume, Pain Point, CRM',
+        'Deal stage/owner set on create only; disjoint by external_id — loop-safe + idempotent',
       ],
       inspect: {
         mode: 'sample-row',
