@@ -239,8 +239,11 @@ Only plan against the full, confirmed column list.
   `stage='Intro Call / Pre-Demo'` + `owner` = `ATTIO_DEAL_OWNER_EMAIL` secret (heather@youratlas.com);
   on UPDATE it omits them so Heather's Attio edits aren't clobbered. Triggered by a Supabase Database
   Webhook on `channel_deals` insert/update (passes `X-Cron-Secret`); `content_hash` skips no-ops;
-  `{setup:true}`/`{diag:true}` bodies self-provision the unique `external_id` attribute + list deal
-  attributes. Company/phone are skipped (no domain; phone needs country info) — enrichment TODO.
+  `{setup:true}` self-provisions the unique `external_id` + the channel-context attributes;
+  `{diag:true}` lists deal attributes. Enriched: E.164 phone, company matched by the contact's email
+  domain (`associated_company`), and the portal's channel fields (`partner_company`, `tsd`,
+  `call_volume`, `pain_point`, `crm`, `deal_registered`) pushed into custom Attio attributes. Owner =
+  `ATTIO_DEAL_OWNER_EMAIL`. Heather's channel-deals view shows an `OriginBadge` (Portal vs Attio).
 - **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
   meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
   `Scheduled`, THEN recomputes the AE Daily Funnel from those `ae_deals` statuses
