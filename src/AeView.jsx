@@ -1184,12 +1184,22 @@ function PipelineSection({ weekData, update, profile, canEdit }) {
   )
 }
 
-// Status badge styling for portal-sourced deals.
+// Status badge styling. Portal-sourced deals use qualified/pending/etc.; Attio-synced
+// deals carry their real pipeline stage title. Unknown statuses fall back to a neutral
+// badge (see ChannelStatusBadge), so new Attio stages still render.
 const CHANNEL_STATUS = {
   pending:     { label: 'Pending Review', cls: 'bg-amber-100 text-amber-700' },
   qualified:   { label: 'Qualified',      cls: 'bg-emerald-100 text-emerald-700' },
   declined:    { label: 'Declined',       cls: 'bg-red-100 text-red-700' },
   demo_booked: { label: 'Demo Booked',    cls: 'bg-violet-100 text-violet-700' },
+  // Attio deal pipeline stages (keyed by the exact Attio stage title)
+  'Intro Call / Pre-Demo': { label: 'Intro / Pre-Demo',  cls: 'bg-stone-100 text-stone-600' },
+  'Demo scheduled':        { label: 'Demo Scheduled',    cls: 'bg-blue-100 text-blue-700' },
+  'Demo complete':         { label: 'Demo Complete',     cls: 'bg-indigo-100 text-indigo-700' },
+  'POC proposal sent':     { label: 'POC Proposal Sent', cls: 'bg-violet-100 text-violet-700' },
+  'Closed won':            { label: 'Closed Won',        cls: 'bg-emerald-100 text-emerald-700' },
+  'Closed lost':           { label: 'Closed Lost',       cls: 'bg-red-100 text-red-700' },
+  'Closed - Churned':      { label: 'Closed – Churned',  cls: 'bg-red-100 text-red-700' },
 }
 
 function ChannelStatusBadge({ status }) {
@@ -1235,10 +1245,14 @@ function ChannelPartnerDeals({ profile }) {
   if (!enabled) return null
   if (loading || deals.length === 0) return null
 
-  const qualified = deals.filter(d => d.status === 'qualified')
-  const pending = deals.filter(d => d.status === 'pending')
-  const qualifiedValues = qualified.map(d => parseValue(d.avg_value)).filter(n => n > 0)
-  const avgValue = qualifiedValues.length ? qualifiedValues.reduce((a, b) => a + b, 0) / qualifiedValues.length : null
+  // Pipeline buckets that work across both portal (qualified/pending) and Attio
+  // (real stage) statuses. Won = Closed won; Lost = Closed lost/Churned/declined;
+  // Open = everything still in flight.
+  const isWon = (s) => s === 'Closed won'
+  const isLost = (s) => s === 'Closed lost' || s === 'Closed - Churned' || s === 'declined'
+  const won = deals.filter(d => isWon(d.status))
+  const lost = deals.filter(d => isLost(d.status))
+  const open = deals.filter(d => !isWon(d.status) && !isLost(d.status))
 
   return (
     <div className="space-y-6">
@@ -1249,16 +1263,16 @@ function ChannelPartnerDeals({ profile }) {
           <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{deals.length}</div>
         </div>
         <div className="border border-stone-200 bg-white p-4">
-          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Qualified</div>
-          <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{qualified.length}</div>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Open</div>
+          <div className="display-font text-2xl font-medium text-blue-700 num-tabular">{open.length}</div>
         </div>
         <div className="border border-stone-200 bg-white p-4">
-          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Pending Review</div>
-          <div className="display-font text-2xl font-medium text-amber-600 num-tabular">{pending.length}</div>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Won</div>
+          <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{won.length}</div>
         </div>
         <div className="border border-stone-200 bg-white p-4">
-          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Avg Value (Qualified)</div>
-          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{avgValue !== null ? `$${Math.round(avgValue).toLocaleString()}` : '—'}</div>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Lost / Churned</div>
+          <div className="display-font text-2xl font-medium text-red-600 num-tabular">{lost.length}</div>
         </div>
       </div>
 
