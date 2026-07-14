@@ -223,6 +223,19 @@ Only plan against the full, confirmed column list.
   `GA4_SA_KEY_B64`. Schema `src/18-ga4-metrics.sql`. Read by `src/hooks/useGa4Metrics.js` →
   the GrowthView "Website (GA4)" tab (`Ga4Section`).
 - **ProfitWell** → `profitwell-sync`.
+- **Attio (CRM)** → **Pipe 1 (read, LIVE):** `attio-sync` (nightly cron `supabase-attio-cron.sql`
+  + manual backfill) pages the Attio Data API (`POST /v2/objects/deals/records/query`, Bearer
+  `ATTIO_API_KEY`) and `attio-webhook` (public, `--no-verify-jwt`, verifies `Attio-Signature`
+  HMAC-SHA256 over the raw body with `ATTIO_WEBHOOK_SECRET`) upsert native Attio channel-partner
+  deals into the existing **`channel_deals`** table (Heather's Channel Partner Deals view in
+  `AeView.jsx`). Rows are tagged `origin='attio'` (vs `'portal'`); the real Attio **stage** is
+  stored in `channel_deals.status` (the view is pipeline-aware: Open/Won/Lost + per-stage badges);
+  `avg_value` ← Attio `value`→`mrc`→`projected_arr`; full record kept in `attio_raw`. Loop-safe:
+  only deals with an EMPTY `external_id` are ingested (guard is in our code, not an Attio filter).
+  Schema `src/19-attio-channel-deals.sql` (extends `channel_deals` + `sync_dead_letter`). **Pipe 2
+  (write, NOT built yet — documented fast-follow):** push `origin='portal'` rows UP to Attio
+  (assert company→person→deal, `PUT …?matching_attribute=external_id`); needs the unique
+  `external_id` attribute created on the Attio deals object + record read-write scope.
 - **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
   meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
   `Scheduled`, THEN recomputes the AE Daily Funnel from those `ae_deals` statuses
