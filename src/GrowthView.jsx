@@ -856,10 +856,21 @@ function Ga4Tile({ label, value, sub, loading }) {
 
 function Ga4Section() {
   const [days, setDays] = useState(30)
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncErr, setSyncErr] = useState(null)
-  const { channelRows, dailyTrend, totals, optIns, hasData, loading, error, refresh } = useGa4Metrics(days, refreshKey)
+
+  // Range = the 7/30/90 preset, unless a full custom From→To is set (then it wins).
+  const todayStr = new Date().toISOString().split('T')[0]
+  const useCustom = !!(customFrom && customTo)
+  const presetFrom = new Date(); presetFrom.setDate(presetFrom.getDate() - days)
+  const from = useCustom ? customFrom : presetFrom.toISOString().split('T')[0]
+  const to = useCustom ? customTo : todayStr
+  const rangeLabel = useCustom ? `${customFrom} → ${customTo}` : `Last ${days} days`
+
+  const { channelRows, dailyTrend, totals, optIns, hasData, loading, error, refresh } = useGa4Metrics({ from, to }, refreshKey)
 
   const fmtNum = (v) => v == null ? '—' : Number(v).toLocaleString()
   const fmtPct = (v) => v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`
@@ -887,16 +898,26 @@ function Ga4Section() {
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {[7, 30, 90].map(d => (
-              <button key={d} onClick={() => setDays(d)}
+              <button key={d} onClick={() => { setDays(d); setCustomFrom(''); setCustomTo('') }}
                 className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
                 style={{
-                  background: days === d ? GA4_ORANGE : 'rgba(232,113,10,0.08)',
-                  color: days === d ? 'white' : GA4_ORANGE,
+                  background: (!useCustom && days === d) ? GA4_ORANGE : 'rgba(232,113,10,0.08)',
+                  color: (!useCustom && days === d) ? 'white' : GA4_ORANGE,
                   border: '1px solid rgba(232,113,10,0.25)',
                 }}>
                 {d} Days
               </button>
             ))}
+            {/* Custom date range — takes over from the pills once both dates are set */}
+            <input type="date" value={customFrom} max={customTo || todayStr}
+              onChange={e => setCustomFrom(e.target.value)} title="Custom range — from"
+              className="px-2 py-1 text-xs rounded-full border outline-none transition-all"
+              style={{ borderColor: useCustom ? GA4_ORANGE : '#e7e5e4', color: '#57534e' }} />
+            <span className="text-stone-400 text-xs">–</span>
+            <input type="date" value={customTo} min={customFrom} max={todayStr}
+              onChange={e => setCustomTo(e.target.value)} title="Custom range — to"
+              className="px-2 py-1 text-xs rounded-full border outline-none transition-all"
+              style={{ borderColor: useCustom ? GA4_ORANGE : '#e7e5e4', color: '#57534e' }} />
             <button onClick={runRefresh} disabled={syncing} title="Pull the latest from GA4"
               className="ml-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-stone-200 text-stone-600 hover:border-stone-400 transition-all disabled:opacity-50">
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Refresh
@@ -911,7 +932,7 @@ function Ga4Section() {
           </div>
         ) : (
           <>
-            <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-6 mb-3">Last {days} days</div>
+            <div className="mono-font text-[10px] uppercase tracking-[0.16em] font-semibold text-stone-400 mt-6 mb-3">{rangeLabel}</div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <Ga4Tile label="Sessions" value={fmtNum(totals?.sessions)} sub="Total sessions" loading={loading} />
               <Ga4Tile label="Active Users" value={fmtNum(totals?.activeUsers)} sub="Sum of daily active users" loading={loading} />
@@ -956,7 +977,7 @@ function Ga4Section() {
           {/* Traffic by channel */}
           <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
             <div className="display-font text-xl font-medium text-stone-900 mb-1">Traffic by Channel</div>
-            <p className="text-sm text-stone-600 mb-4">Sessions, users, and key events by default channel group (last {days} days).</p>
+            <p className="text-sm text-stone-600 mb-4">Sessions, users, and key events by default channel group ({rangeLabel.toLowerCase()}).</p>
             <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="border-b border-stone-200">

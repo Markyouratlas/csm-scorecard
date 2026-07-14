@@ -6,7 +6,9 @@ import { supabase } from '../supabase.js'
 //  written by the ga4-sync edge function, for Nick's "Website (GA4)" tab. Reads the
 //  tables directly (RLS lets exec/growth_manager read); never hits GA4 live.
 //
-//  window `days` (default 30) = how far back to read; aggregates client-side.
+//  window { from, to } ('YYYY-MM-DD'; `to` optional = today) = the date range to read;
+//  aggregates client-side. The Growth tab derives it from the 7/30/90 pills OR a
+//  custom date-range picker.
 //
 //  Returns:
 //    channelRows — [{ channel, sessions, activeUsers, keyEvents, rate }] desc by sessions
@@ -24,19 +26,18 @@ import { supabase } from '../supabase.js'
 
 const OPT_IN_EVENTS = ['voice_clone_optin', 'imessage_clone_optin', 'demo_booked']
 
-async function fetchGa4(days) {
-  const since = new Date()
-  since.setDate(since.getDate() - days)
-  const sinceStr = since.toISOString().split('T')[0]
+async function fetchGa4(from, to) {
+  let metricsQ = supabase.from('ga4_daily_metrics')
+    .select('date, channel, sessions, active_users, key_events, session_key_event_rate')
+    .gte('date', from)
+  let eventsQ = supabase.from('ga4_daily_events')
+    .select('date, event_name, event_count')
+    .gte('date', from)
+  if (to) { metricsQ = metricsQ.lte('date', to); eventsQ = eventsQ.lte('date', to) }
+  metricsQ = metricsQ.order('date', { ascending: true })
+  eventsQ = eventsQ.order('date', { ascending: true })
 
-  const [{ data: metrics, error: mErr }, { data: events, error: eErr }] = await Promise.all([
-    supabase.from('ga4_daily_metrics')
-      .select('date, channel, sessions, active_users, key_events, session_key_event_rate')
-      .gte('date', sinceStr).order('date', { ascending: true }),
-    supabase.from('ga4_daily_events')
-      .select('date, event_name, event_count')
-      .gte('date', sinceStr).order('date', { ascending: true }),
-  ])
+  const [{ data: metrics, error: mErr }, { data: events, error: eErr }] = await Promise.all([metricsQ, eventsQ])
   if (mErr) throw mErr
   if (eErr) throw eErr
 
@@ -83,10 +84,12 @@ async function fetchGa4(days) {
   return { channelRows, dailyTrend, totals, optIns, hasData: (metrics || []).length > 0 }
 }
 
-export function useGa4Metrics(days = 30, refreshKey = 0) {
+// Accepts an explicit date window { from, to } ('YYYY-MM-DD'; `to` optional = today).
+export function useGa4Metrics({ from, to } = {}, refreshKey = 0) {
   const { data, isPending, error, refetch } = useQuery({
-    queryKey: ['ga4-metrics', days, refreshKey],
-    queryFn: () => fetchGa4(days),
+    queryKey: ['ga4-metrics', from, to, refreshKey],
+    enabled: !!from,
+    queryFn: () => fetchGa4(from, to),
   })
   return {
     channelRows: data?.channelRows ?? [],
