@@ -233,9 +233,14 @@ Only plan against the full, confirmed column list.
   `avg_value` ← Attio `value`→`mrc`→`projected_arr`; full record kept in `attio_raw`. Loop-safe:
   only deals with an EMPTY `external_id` are ingested (guard is in our code, not an Attio filter).
   Schema `src/19-attio-channel-deals.sql` (extends `channel_deals` + `sync_dead_letter`). **Pipe 2
-  (write, NOT built yet — documented fast-follow):** push `origin='portal'` rows UP to Attio
-  (assert company→person→deal, `PUT …?matching_attribute=external_id`); needs the unique
-  `external_id` attribute created on the Attio deals object + record read-write scope.
+  (write, LIVE):** `attio-push` pushes `origin='portal'` rows UP to Attio — assert person (by email)
+  → assert deal (`PUT /v2/objects/deals/records?matching_attribute=external_id`, external_id = the
+  channel_deals uuid). Attio requires name+stage+owner on a deal, so on CREATE only it sets
+  `stage='Intro Call / Pre-Demo'` + `owner` = `ATTIO_DEAL_OWNER_EMAIL` secret (heather@youratlas.com);
+  on UPDATE it omits them so Heather's Attio edits aren't clobbered. Triggered by a Supabase Database
+  Webhook on `channel_deals` insert/update (passes `X-Cron-Secret`); `content_hash` skips no-ops;
+  `{setup:true}`/`{diag:true}` bodies self-provision the unique `external_id` attribute + list deal
+  attributes. Company/phone are skipped (no domain; phone needs country info) — enrichment TODO.
 - **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
   meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
   `Scheduled`, THEN recomputes the AE Daily Funnel from those `ae_deals` statuses
