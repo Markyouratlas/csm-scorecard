@@ -103,14 +103,35 @@ async function assertPerson(f: any, token: string): Promise<string | null> {
   return r?.data?.id?.record_id || null;
 }
 
+// Does a deal already exist for this external_id? Lets us set the required stage +
+// owner ONLY on create, so a re-push never clobbers Heather's Attio pipeline edits.
+async function findDealByExternalId(extId: string, token: string): Promise<string | null> {
+  const res = await fetch(`${ATTIO_BASE}/objects/deals/records/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ filter: { external_id: extId }, limit: 1 }),
+  });
+  if (!res.ok) return null;
+  const j = await res.json();
+  return j?.data?.[0]?.id?.record_id || null;
+}
+
 // Assert the deal on external_id → returns the deal record_id.
 async function assertDeal(f: any, personId: string | null, token: string): Promise<string> {
+  const existingId = await findDealByExternalId(f.external_id, token);
   const values: any = {
     external_id: [{ value: f.external_id }],
     name: [{ value: f.name }],
   };
   if (f.value != null) values.value = [{ currency_value: f.value }];
   if (personId) values.associated_people = [{ target_object: "people", target_record_id: personId }];
+  if (!existingId) {
+    // CREATE — Attio requires stage + owner on new deals. Entry stage + default owner;
+    // omitted on UPDATE so Heather's Attio pipeline/owner edits are preserved.
+    values.stage = [{ status: "Intro Call / Pre-Demo" }];
+    const owner = Deno.env.get("ATTIO_DEAL_OWNER_EMAIL");
+    if (owner) values.owner = [{ workspace_member_email_address: owner }];
+  }
   const r = await attioPut(`/objects/deals/records?matching_attribute=external_id`, { data: { values } }, token);
   const id = r?.data?.id?.record_id;
   if (!id) throw new Error("Attio deal assert returned no record_id");
