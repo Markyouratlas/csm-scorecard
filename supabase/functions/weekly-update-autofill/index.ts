@@ -97,7 +97,7 @@ serve(async (req) => {
 
     const { data: existing } = await admin
       .from("atlas_weekly_updates")
-      .select("week_key, total_mrr, total_customers, pipeline_amount, pipeline_count")
+      .select("week_key, total_mrr, total_customers, pipeline_amount, pipeline_count, partner_pipeline_amount")
       .eq("week_key", weekKey).maybeSingle();
 
     const live = await liveMrrAndCustomers(admin);
@@ -119,11 +119,22 @@ serve(async (req) => {
       }
     }
 
+    // Open partner pipeline — the single server-side definition (open channel_deals via
+    // the open_partner_pipeline() rpc). Always refreshed: it's a derived snapshot, not a
+    // fill-only-blank exec-editable field. The channel_deals trigger keeps it live between
+    // cron runs; this seeds it for weeks with no deal activity.
+    let partnerPipeline = 0;
+    {
+      const { data: pp } = await admin.rpc("open_partner_pipeline");
+      partnerPipeline = num(pp);
+    }
+
     const patch: Record<string, any> = { week_key: weekKey };
     if (!existing || existing.total_mrr == null) patch.total_mrr = live.mrr;
     if (!existing || existing.total_customers == null) patch.total_customers = live.customers;
     if (!existing || existing.pipeline_amount == null) patch.pipeline_amount = Math.round(pipelineAmount);
     if (!existing || existing.pipeline_count == null) patch.pipeline_count = pipelineCount;
+    patch.partner_pipeline_amount = Math.round(partnerPipeline);
 
     // Always upsert so the row exists (creates the week; fills only blank snapshot fields).
     const { error: upErr } = await admin
