@@ -287,6 +287,18 @@ Only plan against the full, confirmed column list.
   `weekly_scorecards` (AE `data.daily[]` funnel fields are now derived from
   `ae_deals`, not hand-typed), `atlas_targets`, `weekly_mrr`, `ae_deals`,
   `atlas_daily_updates`, `atlas_weekly_targets`, `atlas_weekly_updates`.
+- **Open partner pipeline** (sum of open channel-partner deal values) → the single
+  server definition is `open_partner_pipeline()` (SQL, `src/20-open-partner-pipeline.sql`);
+  a statement-level trigger on `channel_deals` recomputes it near-live into
+  `atlas_weekly_updates.partner_pipeline_amount` (investor-readable), also seeded by
+  `weekly-update-autofill`. **Open = not `Closed won` / `Closed lost` / `Closed - Churned`
+  / `declined`.** The client mirror is `src/channelDeals.js` (`isOpen/Won/LostChannelDeal`,
+  `openPartnerPipeline`) — drives Heather's Channel Partner Deals tiles + the "Open Partner
+  Pipeline" stat (`AeView.jsx`) and MUST stay string-identical to the SQL (same footgun as
+  `aeFunnel.js` ↔ server). Investor surface: the Channel Partnerships strategic card in
+  `InvestorView.jsx` reads it via `useOpenPartnerPipeline`. **Status strings are matched
+  literally** — the Deals Portal must write closed deals as those exact strings or they stay
+  in the pipeline.
 
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
