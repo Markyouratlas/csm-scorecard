@@ -8,6 +8,7 @@ import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
+import { isWonChannelDeal, isLostChannelDeal, isOpenChannelDeal, openPartnerPipeline } from './channelDeals'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
@@ -1223,11 +1224,6 @@ function FlagDot({ flag }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${flag === 'green' ? 'bg-emerald-500' : 'bg-red-500'}`} title={flag === 'green' ? 'Great fit' : 'Needs review'} />
 }
 
-const parseValue = (v) => {
-  const n = Number(String(v ?? '').replace(/[^0-9.]/g, ''))
-  return isNaN(n) ? 0 : n
-}
-
 const fmtChannelDate = (d) => {
   if (!d) return '—'
   const date = new Date(d)
@@ -1256,17 +1252,25 @@ function ChannelPartnerDeals({ profile }) {
   if (!enabled) return null
   if (loading || deals.length === 0) return null
 
-  // Pipeline buckets that work across both portal (qualified/pending) and Attio
-  // (real stage) statuses. Won = Closed won; Lost = Closed lost/Churned/declined;
-  // Open = everything still in flight.
-  const isWon = (s) => s === 'Closed won'
-  const isLost = (s) => s === 'Closed lost' || s === 'Closed - Churned' || s === 'declined'
-  const won = deals.filter(d => isWon(d.status))
-  const lost = deals.filter(d => isLost(d.status))
-  const open = deals.filter(d => !isWon(d.status) && !isLost(d.status))
+  // Pipeline buckets — shared open/won/lost predicate (channelDeals.js, mirrored by
+  // open_partner_pipeline() in SQL). Won = Closed won; Lost = Closed lost/Churned/
+  // declined; Open = everything still in flight.
+  const won = deals.filter(d => isWonChannelDeal(d.status))
+  const lost = deals.filter(d => isLostChannelDeal(d.status))
+  const open = deals.filter(d => isOpenChannelDeal(d.status))
+  const openPipeline = openPartnerPipeline(deals)
 
   return (
     <div className="space-y-6">
+      {/* Open partner pipeline — the single computed metric (full precision). */}
+      <div className="border border-violet-200 bg-violet-50/40 p-5 flex items-center justify-between gap-4">
+        <div>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-violet-700 mb-1">Open Partner Pipeline</div>
+          <div className="text-xs text-stone-500">Sum of open partner-sourced deal values currently in pipeline</div>
+        </div>
+        <div className="display-font text-3xl font-medium text-violet-900 num-tabular">${Math.round(openPipeline).toLocaleString()}</div>
+      </div>
+
       {/* Channel summary */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="border border-stone-200 bg-white p-4">

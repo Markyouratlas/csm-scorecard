@@ -3,6 +3,7 @@ import { useExecutiveStats } from './hooks/useExecutiveStats.js';
 import { useDailyUpdates } from './hooks/useDailyUpdates.js';
 import { useWeeklyUpdate } from './hooks/useWeeklyUpdate.js';
 import { useInvestorWeeklyTrends } from './hooks/useInvestorWeeklyTrends.js';
+import { useOpenPartnerPipeline } from './hooks/useOpenPartnerPipeline.js';
 import ComingSoonBanner from './ComingSoonBanner.jsx';
 import { useInvestorVisibility } from './hooks/useInvestorVisibility.js';
 import { VisibilityProvider, useVis, GateTile, GateSection, ComingSoonInline } from './investorAccess.jsx';
@@ -1310,10 +1311,17 @@ function ExecutiveView() {
       led: { status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' } },
   ];
 
+  // Open partner pipeline — live from channel_deals via atlas_weekly_updates (the one
+  // server-computed value every surface reads; see src/20-open-partner-pipeline.sql).
+  const partnerPipeline = useOpenPartnerPipeline();
+  const partnerLive = partnerPipeline.value != null;
+
   const INITIATIVE_LED = {
     'Paid Acquisition':     { status: 'red',    reason: 'Needs structured sales & marketing cost (salaries + ad spend) to compute CAC.' },
     'Customer Activation':  { status: 'yellow', reason: 'Comes from CSM scorecards; partial until activation tracking is formalized.' },
-    'Channel Partnerships': { status: 'red',    reason: 'Needs CRM (GHL / Attio) integration for partner pipeline.' },
+    'Channel Partnerships': partnerLive
+      ? { status: 'green', reason: 'Live from channel partner deals — sum of open partner pipeline.' }
+      : { status: 'red',   reason: 'Needs CRM (GHL / Attio) integration for partner pipeline.' },
     'Affiliates':           { status: 'red',    reason: 'Needs an affiliate / partner revenue source.' },
   };
 
@@ -1419,6 +1427,20 @@ function ExecutiveView() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {STRATEGIC_INITIATIVES.map((s) => {
             const D = DEPTS[s.deptKey];
+            // Channel Partnerships is now live from channel_deals (open pipeline); the
+            // other initiatives still show their illustrative sample values.
+            const live = s.name === 'Channel Partnerships' && partnerLive
+              ? {
+                  value: `$${fmt(partnerPipeline.value)}`,
+                  delta: partnerPipeline.deltaPct != null
+                    ? `${partnerPipeline.deltaPct >= 0 ? '+' : ''}${partnerPipeline.deltaPct.toFixed(1)}%`
+                    : null,
+                  status: 'on-track',
+                }
+              : null;
+            const value  = live?.value ?? s.value;
+            const delta  = live ? live.delta : s.delta;
+            const status = live?.status ?? s.status;
             return (
               <GateTile key={s.name} id={`exec.strategic.${s.deptKey}`} label={s.name}>
               <div className="card relative p-5">
@@ -1433,17 +1455,19 @@ function ExecutiveView() {
                   <span
                     className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-body font-semibold whitespace-nowrap"
                     style={{
-                      background: s.status === 'on-track' ? 'rgba(22,163,74,0.1)' : 'rgba(217,119,6,0.12)',
-                      color:      s.status === 'on-track' ? '#15803D'             : '#B45309',
+                      background: status === 'on-track' ? 'rgba(22,163,74,0.1)' : 'rgba(217,119,6,0.12)',
+                      color:      status === 'on-track' ? '#15803D'             : '#B45309',
                     }}
                   >
-                    {s.status}
+                    {status}
                   </span>
                 </div>
-                <div className="font-display text-4xl" style={{ color: 'var(--text)' }}>{s.value}</div>
+                <div className="font-display text-4xl" style={{ color: 'var(--text)' }}>{value}</div>
                 <div className="flex items-center justify-between mt-3 text-xs font-mono" style={{ color: 'var(--text-3)' }}>
                   <span>{s.metric}</span>
-                  <span style={{ color: s.delta.startsWith('+') ? '#15803D' : '#DC2626' }}>{s.delta} WoW</span>
+                  {delta != null && (
+                    <span style={{ color: delta.startsWith('+') ? '#15803D' : '#DC2626' }}>{delta} WoW</span>
+                  )}
                 </div>
               </div>
               </GateTile>
