@@ -259,6 +259,14 @@ serve(async (req: Request) => {
       return json({ ok: true, required: attrs.filter((a: any) => a.required), all: attrs }, 200);
     }
 
+    // ---- Diagnostic: list the deals `stage` pipeline (all configured statuses) ----
+    if (body?.stages === true) {
+      const res = await fetch(`${ATTIO_BASE}/objects/deals/attributes/stage/statuses`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      const stages = (j?.data || []).map((s: any) => ({ title: s?.title, archived: !!s?.is_archived }));
+      return json({ ok: true, stages }, 200);
+    }
+
     // ---- Which rows? DB-webhook single row, else all portal rows (backfill) ----
     let rows: any[] = [];
     if (body?.record) {
