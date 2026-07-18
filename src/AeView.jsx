@@ -1198,6 +1198,11 @@ const CHANNEL_STATUS = {
   closed_won:     { label: 'Closed Won',      cls: 'bg-emerald-100 text-emerald-700' },
   closed_lost:    { label: 'Closed Lost',     cls: 'bg-red-100 text-red-700' },
   closed_churned: { label: 'Closed – Churned', cls: 'bg-red-100 text-red-700' },
+  // Portal pipeline-stage slugs (Phase B — mirror the Attio stages below)
+  intro_call_pre_demo: { label: 'Intro / Pre-Demo',  cls: 'bg-stone-100 text-stone-600' },
+  demo_scheduled:      { label: 'Demo Scheduled',    cls: 'bg-blue-100 text-blue-700' },
+  demo_complete:       { label: 'Demo Complete',     cls: 'bg-indigo-100 text-indigo-700' },
+  poc_proposal_sent:   { label: 'POC Proposal Sent', cls: 'bg-violet-100 text-violet-700' },
   // Attio deal pipeline stages (keyed by the exact Attio stage title)
   'Intro Call / Pre-Demo': { label: 'Intro / Pre-Demo',  cls: 'bg-stone-100 text-stone-600' },
   'Demo scheduled':        { label: 'Demo Scheduled',    cls: 'bg-blue-100 text-blue-700' },

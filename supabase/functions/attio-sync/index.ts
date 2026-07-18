@@ -122,16 +122,44 @@ export async function mapDeal(rec: any): Promise<any | null> {
   return { ...fields, content_hash, attio_raw: rec, synced_at: new Date().toISOString() };
 }
 
+// Phase B — Attio stage → portal slug (write-back). KEEP IN SYNC with attio-webhook +
+// attio-push + docs/phase-b-integration.md. "Intro Call / Pre-Demo" is intentionally ABSENT
+// (entry-stage guard). status-only (v1); the `neq` is the write-if-changed loop guard.
+const STAGE_TO_SLUG: Record<string, string> = {
+  "Demo scheduled": "demo_scheduled",
+  "Demo complete": "demo_complete",
+  "POC proposal sent": "poc_proposal_sent",
+  "Closed won": "closed_won",
+  "Closed lost": "closed_lost",
+  "Closed - Churned": "closed_churned",
+};
+async function writeBackPortalDeal(admin: any, rec: any, extId: string): Promise<void> {
+  const stage = textOf(rec, "stage");
+  const slug = stage ? STAGE_TO_SLUG[stage] : null;
+  if (!slug) return;
+  const { error } = await admin.from("channel_deals")
+    .update({ status: slug, synced_at: new Date().toISOString() })
+    .eq("id", extId).eq("origin", "portal").neq("status", slug);
+  if (error) throw new Error(error.message);
+}
+
 async function runSync(admin: any, token: string) {
   const records = await queryAllDeals(token);
   const rows: any[] = [];
   const seen: string[] = [];
   const failures: any[] = [];
+  let writtenBack = 0;
 
   for (const rec of records) {
     try {
+      const extId = externalIdOf(rec);
+      if (extId) { // Portal-originated deal → write its Attio stage back to the portal row
+        await writeBackPortalDeal(admin, rec, extId);
+        writtenBack++;
+        continue;
+      }
       const row = await mapDeal(rec);
-      if (!row) continue; // Portal deal (has external_id) or malformed — skip
+      if (!row) continue; // malformed — skip
       rows.push(row);
       seen.push(row.attio_record_id);
     } catch (e: any) {
@@ -168,8 +196,8 @@ async function runSync(admin: any, token: string) {
 
   if (failures.length) await admin.from("sync_dead_letter").insert(failures);
 
-  console.log(`attio-sync: ${records.length} fetched · ${upserted} upserted · ${deleted} deleted · ${failures.length} failures`);
-  return { ok: true, fetched: records.length, ingested: rows.length, upserted, deleted, failures: failures.length };
+  console.log(`attio-sync: ${records.length} fetched · ${upserted} upserted · ${writtenBack} written-back · ${deleted} deleted · ${failures.length} failures`);
+  return { ok: true, fetched: records.length, ingested: rows.length, upserted, writtenBack, deleted, failures: failures.length };
 }
 
 serve(async (req: Request) => {
