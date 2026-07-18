@@ -80,6 +80,30 @@ async function mapDeal(rec: any): Promise<any | null> {
   return { ...fields, content_hash, attio_raw: rec, synced_at: new Date().toISOString() };
 }
 
+// Phase B — Attio stage → portal slug (write-back). Mirror of SLUG_TO_STAGE in attio-push +
+// docs/phase-b-integration.md. "Intro Call / Pre-Demo" is intentionally ABSENT (entry-stage
+// guard: never overwrite a portal review status with the auto entry stage).
+const STAGE_TO_SLUG: Record<string, string> = {
+  "Demo scheduled": "demo_scheduled",
+  "Demo complete": "demo_complete",
+  "POC proposal sent": "poc_proposal_sent",
+  "Closed won": "closed_won",
+  "Closed lost": "closed_lost",
+  "Closed - Churned": "closed_churned",
+};
+
+// Write Heather's Attio stage change BACK to the portal-originated channel_deals row
+// (status-only, v1). The `neq` is the write-if-changed loop guard (no-op → no trigger).
+async function writeBackPortalDeal(admin: any, rec: any, extId: string): Promise<void> {
+  const stage = textOf(rec, "stage");
+  const slug = stage ? STAGE_TO_SLUG[stage] : null;
+  if (!slug) return; // entry stage / unknown / no stage → ignore
+  const { error } = await admin.from("channel_deals")
+    .update({ status: slug, synced_at: new Date().toISOString() })
+    .eq("id", extId).eq("origin", "portal").neq("status", slug);
+  if (error) throw new Error(error.message);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
   try {
@@ -110,10 +134,13 @@ serve(async (req) => {
         });
         if (!res.ok) throw new Error(`Attio get ${res.status}: ${(await res.text()).slice(0, 200)}`);
         const rec = (await res.json())?.data;
-        const row = await mapDeal(rec);
-        if (!row) { // Portal deal (has external_id) → ignore
+        const extId = externalIdOf(rec);
+        if (extId) { // Portal-originated deal → write Heather's stage change back to its row
+          await writeBackPortalDeal(admin, rec, extId);
           continue;
         }
+        const row = await mapDeal(rec);
+        if (!row) continue; // malformed / no record id
         const { error } = await admin.from("channel_deals").upsert(row, { onConflict: "attio_record_id" });
         if (error) throw new Error(error.message);
       } catch (e: any) {

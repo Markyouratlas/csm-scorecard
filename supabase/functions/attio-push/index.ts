@@ -134,8 +134,22 @@ function pushFields(row: any) {
     pain_point: row.pain_point || null,
     crm: row.crm || null,
     deal_registered: row.portal_created_at || null,
+    status: row.status || null,   // Phase B: in the hash so a portal status change pushes the stage up
   };
 }
+
+// Portal slug → Attio deal stage title (Phase B, mirror of STAGE_TO_SLUG in attio-webhook /
+// attio-sync + docs/phase-b-integration.md). Review statuses (pending/qualified/declined) are
+// absent → no stage pushed on update, so Heather's Attio stage isn't clobbered.
+const SLUG_TO_STAGE: Record<string, string> = {
+  intro_call_pre_demo: "Intro Call / Pre-Demo",
+  demo_scheduled: "Demo scheduled",
+  demo_complete: "Demo complete",
+  poc_proposal_sent: "POC proposal sent",
+  closed_won: "Closed won",
+  closed_lost: "Closed lost",
+  closed_churned: "Closed - Churned",
+};
 
 // Assert the contact person (best-effort; non-fatal) → returns record_id or null.
 async function assertPerson(f: any, token: string): Promise<string | null> {
@@ -191,12 +205,17 @@ async function assertDeal(f: any, personId: string | null, companyId: string | n
   if (f.pain_point) values.pain_point = [{ value: f.pain_point }];
   if (f.crm) values.crm = [{ value: f.crm }];
   if (f.deal_registered) values.deal_registered = [{ value: String(f.deal_registered).slice(0, 10) }];
+  const stageTitle = f.status ? SLUG_TO_STAGE[f.status] : null;
   if (!existingId) {
-    // CREATE — Attio requires stage + owner on new deals. Entry stage + default owner;
-    // omitted on UPDATE so Heather's Attio pipeline/owner edits are preserved.
-    values.stage = [{ status: "Intro Call / Pre-Demo" }];
+    // CREATE — Attio requires stage + owner on new deals. Use the portal status's stage if it
+    // maps to a pipeline slug, else the entry stage. Owner default (create only).
+    values.stage = [{ status: stageTitle || "Intro Call / Pre-Demo" }];
     const owner = Deno.env.get("ATTIO_DEAL_OWNER_EMAIL");
     if (owner) values.owner = [{ workspace_member_email_address: owner }];
+  } else if (stageTitle) {
+    // UPDATE — push the portal status change up as the Attio stage. Omitted for review
+    // statuses (pending/qualified/declined → no mapping) so Heather's Attio stage stands.
+    values.stage = [{ status: stageTitle }];
   }
   const r = await attioPut(`/objects/deals/records?matching_attribute=external_id`, { data: { values } }, token);
   const id = r?.data?.id?.record_id;
