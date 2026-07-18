@@ -1,7 +1,9 @@
 # Phase B — Attio ⇄ Deals Portal ⇄ Scorecard sync contract
 
-**Status:** finalized, not yet built. This is the shared contract between the **Deals Portal** repo
-(`atlas-deal-portal`) and the **Scorecard** repo (`csm-scorecard`). Keep an identical copy in both.
+**Status:** ✅ shipped & verified end-to-end 2026-07-18. Both sides (portal + scorecard) are deployed
+and the full ring is live: a stage change in Attio propagates to `channel_deals` and the portal
+`deals`, and back. This is the shared contract between the **Deals Portal** repo (`atlas-deal-portal`)
+and the **Scorecard** repo (`csm-scorecard`). Keep an identical copy in both.
 
 ## What we're building
 
@@ -106,10 +108,10 @@ overwriting a fresh `pending`/`qualified` deal back to `intro_call_pre_demo`, th
 **ignores the bare `Intro Call / Pre-Demo` entry stage** and only propagates `Demo scheduled` and
 later. (Alternative not taken: only push deals to Attio once `qualified`.)
 
-## Build order
+## Build order — all shipped ✅ (2026-07-18)
 
-1. Portal: expand vocabulary (add the 7 pipeline slugs + relax `deals_status_check`, migrate `demo_booked`), add tooltips.
-2. Portal: build `deal-sync-inbound` (write-if-changed, `X-Sync-Secret`, `source=sync` email suppression).
-3. Scorecard: Pipe 1 write-back (map + write-if-changed, ignore entry stage); `attio-push` stage-on-update + status in change-hash.
-4. Scorecard: DB webhook `channel_deals` → `deal-sync-inbound` (with `X-Sync-Secret`).
-5. Test end-to-end: move a deal in Attio → scorecard + portal update, pipeline metric adjusts, value stabilizes (no loop). Repeat from portal, and from scorecard.
+1. ✅ Portal: expand vocabulary (add the 7 pipeline slugs + relax `deals_status_check`, migrate `demo_booked`), add tooltips.
+2. ✅ Portal: build `deal-sync-inbound` (write-if-changed, `X-Sync-Secret`, `source=sync` email suppression).
+3. ✅ Scorecard: Pipe 1 write-back (map + write-if-changed, ignore entry stage); `attio-push` stage-on-update + status in change-hash.
+4. ✅ Scorecard: DB webhook `channel_deals` → `deal-sync-inbound` (with `X-Sync-Secret`).
+5. ✅ Verified end-to-end: an Attio stage change on a portal-originated deal (Phillips Corporation) propagated Attio → `channel_deals` → portal `deals`, and converged (no loop).
