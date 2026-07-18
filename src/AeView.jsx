@@ -1249,8 +1249,8 @@ export function ChannelPartnerDeals({ profile }) {
   const [showAll, setShowAll] = useState(false)
   const { openDialer, openMessages } = useDialer()
 
-  // Channel-partner reps (Heather, via the flag) + the dedicated Channel Sales role (Omer).
-  const enabled = !!profile?.channel_partner_enabled || profile?.role_type === 'channel_sales'
+  // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
+  const enabled = !!profile?.channel_partner_enabled
 
   const load = useCallback(async () => {
     if (!enabled) { setLoading(false); return }

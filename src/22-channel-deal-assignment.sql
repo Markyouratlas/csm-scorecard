@@ -15,8 +15,6 @@ alter table public.channel_deals add column if not exists assigned_to text;
 -- Attio-native deals). The portal populates assigned_to for new deals going forward.
 update public.channel_deals set assigned_to = 'heather@youratlas.com' where assigned_to is null;
 
--- RLS check (run separately, don't need to change unless it's role-gated):
---   select policyname, cmd, qual from pg_policies where tablename = 'channel_deals';
--- The channel_sales role needs plain SELECT on channel_deals (filtering is client-side +
--- the Super-Admin toggle reads all). If the SELECT policy is broad authenticated-read, no
--- change; if it's role-gated, add channel_sales to it.
+-- RLS: Omer (CEO / executive tier) and Heather (AE) both already read channel_deals today,
+-- so no policy change is needed. Filtering is client-side by assigned_to (the Super-Admin
+-- toggle reads all). If you ever add a non-exec channel rep, confirm they have SELECT here.

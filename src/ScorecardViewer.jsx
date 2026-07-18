@@ -10,6 +10,8 @@ import AdStrategistView from './AdStrategistView'
 import EngineerView from './EngineerView'
 import FdeView from './FdeView'
 import ComingSoonView from './ComingSoonView'
+import ChannelSalesView from './ChannelSalesView'
+import { isLeadershipRole } from './teams'
 import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 
 // Renders the appropriate scorecard for a target user, with a week-navigator
@@ -29,8 +31,8 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
 
   const isViewingSelf = targetProfile.id === viewer.id
 
-  // Pick the right scorecard component based on target's role
-  const ScorecardComponent = pickComponent(targetProfile.role_type)
+  // Pick the right scorecard component based on target's role (+ channel-partner flag)
+  const ScorecardComponent = pickComponent(targetProfile)
 
   return (
     <div className="min-h-screen">
@@ -117,8 +119,12 @@ export default function ScorecardViewer({ targetProfile, viewer, onSignOut, onBa
 
 // Picks the correct scorecard component for a given role_type.
 // Mirrors the logic in App.jsx's PersonalScorecard router.
-function pickComponent(roleType) {
-  switch (roleType) {
+function pickComponent(profile) {
+  // A leadership member with the channel-partner flag (e.g. the CEO who also runs a
+  // channel-partner book, like Omer's Sandler deals) gets the Channel Sales view as
+  // their scorecard — even though their landing stays the leadership dashboard.
+  if (profile?.channel_partner_enabled && isLeadershipRole(profile?.role_type)) return ChannelSalesView
+  switch (profile?.role_type) {
     case 'csm':                return CsmView
     case 'implementation':     return ImplementationView
     case 'support':            return SupportView

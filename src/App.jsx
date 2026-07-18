@@ -6,7 +6,6 @@ import CsmView from './CsmView'
 import ImplementationView from './ImplementationView'
 import SupportView from './SupportView'
 import AeView from './AeView'
-import ChannelSalesView from './ChannelSalesView'
 import GrowthView from './GrowthView'
 import AdStrategistView from './AdStrategistView'
 import EngineerView from './EngineerView'
@@ -476,8 +475,6 @@ function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFe
       return <SupportView {...props} />
     case 'account_executive':
       return <AeView {...props} />
-    case 'channel_sales':
-      return <ChannelSalesView {...props} />
     case 'growth_manager':
       return <GrowthView {...props} />
     case 'ad_strategist':

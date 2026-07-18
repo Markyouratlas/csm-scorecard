@@ -34,7 +34,7 @@ const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 // Roles allowed to use the dialer.
-const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead", "channel_sales"]);
+const DIALER_ROLES = new Set(["account_executive", "csm", "executive", "forward_deployed_engineer", "forward_deployed_engineer_lead"]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -48,8 +48,8 @@ serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
     const { data: prof } = await userClient
-      .from("profiles").select("id, role, role_type").eq("id", user.id).single();
-    const allowed = prof && (DIALER_ROLES.has(prof.role_type) || prof.role === "executive");
+      .from("profiles").select("id, role, role_type, channel_partner_enabled").eq("id", user.id).single();
+    const allowed = prof && (DIALER_ROLES.has(prof.role_type) || prof.role === "executive" || prof.channel_partner_enabled);
     if (!allowed) return json({ error: "Forbidden — dialer access required" }, 403);
 
     // ---- Twilio config ----
