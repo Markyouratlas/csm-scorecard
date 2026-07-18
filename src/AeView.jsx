@@ -1245,7 +1245,6 @@ export function ChannelPartnerDeals({ profile }) {
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
-  const [userEmail, setUserEmail] = useState(null)
   const [showAll, setShowAll] = useState(false)
   const { openDialer, openMessages } = useDialer()
 
@@ -1260,15 +1259,16 @@ export function ChannelPartnerDeals({ profile }) {
   }, [enabled])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserEmail((data?.user?.email || '').toLowerCase() || null)) }, [])
 
   if (!enabled) return null
   if (loading) return null
 
   // Each person sees only the deals ASSIGNED to them (channel_deals.assigned_to = their Atlas
-  // email); the Super-Admin toggle shows everyone's. Tiles + pipeline compute over the visible
-  // set, so each headline is THEIR slice (the investor card keeps the global stored value).
-  const mine = userEmail ? deals.filter(d => (d.assigned_to || '').toLowerCase() === userEmail) : deals
+  // email). We key off the TARGET profile's email (not the auth session) so an exec drilling
+  // into someone else's scorecard sees THAT person's deals, not their own. The Super-Admin
+  // toggle shows everyone's. Tiles + pipeline compute over the visible set.
+  const myEmail = (profile?.email || '').toLowerCase()
+  const mine = myEmail ? deals.filter(d => (d.assigned_to || '').toLowerCase() === myEmail) : deals
   const visible = showAll ? deals : mine
 
   const won = visible.filter(d => isWonChannelDeal(d.status))
