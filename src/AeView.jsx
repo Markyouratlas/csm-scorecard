@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X, Handshake } from 'lucide-react'
 import AeFunnelDrilldownModal from './AeFunnelDrilldownModal'
 import { supabase } from './supabase'
@@ -1249,6 +1250,7 @@ export function ChannelPartnerDeals({ profile }) {
   const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all | custom
   const [statusPicks, setStatusPicks] = useState(() => new Set()) // specific status labels (custom mode)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const statusBtnRef = useRef(null)
   const { openDialer, openMessages } = useDialer()
 
   // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
@@ -1299,6 +1301,28 @@ export function ChannelPartnerDeals({ profile }) {
 
   return (
     <div className="space-y-6">
+      {/* Status filter menu — portaled to body so it never shifts the table headers or gets
+          clipped by the table's overflow; anchored to the Status button's screen position. */}
+      {statusMenuOpen && statusBtnRef.current && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setStatusMenuOpen(false)} />
+          <div className="fixed z-50 bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] max-h-72 overflow-auto"
+            style={{ top: statusBtnRef.current.getBoundingClientRect().bottom + 4, left: statusBtnRef.current.getBoundingClientRect().left }}>
+            <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
+              <span className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
+              <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
+            </div>
+            {statusLabels.length === 0 && <div className="px-1 py-1 text-xs text-stone-400">No statuses</div>}
+            {statusLabels.map(label => (
+              <label key={label} className="flex items-center gap-2 px-1 py-1 hover:bg-stone-50 cursor-pointer text-sm text-stone-700">
+                <input type="checkbox" checked={statusPicks.has(label)} onChange={() => toggleStatusPick(label)} style={{ accentColor: '#6639A6' }} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
       {/* Open partner pipeline — the single computed metric (full precision). */}
       <div className="border border-violet-200 bg-violet-50/40 p-5 flex items-center justify-between gap-4">
         <div>
@@ -1367,28 +1391,10 @@ export function ChannelPartnerDeals({ profile }) {
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">TSD</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
-                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium relative">
-                  <button onClick={() => setStatusMenuOpen(v => !v)} className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">
+                  <button ref={statusBtnRef} onClick={() => setStatusMenuOpen(v => !v)} className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
                     Status <ChevronDown className="w-3 h-3" />
                   </button>
-                  {statusMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setStatusMenuOpen(false)} />
-                      <div className="absolute z-20 mt-1 left-3 top-full bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] normal-case tracking-normal font-normal max-h-72 overflow-auto">
-                        <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
-                          <span className="text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
-                          <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
-                        </div>
-                        {statusLabels.length === 0 && <div className="px-1 py-1 text-xs text-stone-400">No statuses</div>}
-                        {statusLabels.map(label => (
-                          <label key={label} className="flex items-center gap-2 px-1 py-1 hover:bg-stone-50 cursor-pointer text-sm text-stone-700">
-                            <input type="checkbox" checked={statusPicks.has(label)} onChange={() => toggleStatusPick(label)} style={{ accentColor: '#6639A6' }} />
-                            {label}
-                          </label>
-                        ))}
-                      </div>
-                    </>
-                  )}
                 </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Date</th>
               </tr>
