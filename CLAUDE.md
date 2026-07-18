@@ -244,6 +244,23 @@ Only plan against the full, confirmed column list.
   domain (`associated_company`), and the portal's channel fields (`partner_company`, `tsd`,
   `call_volume`, `pain_point`, `crm`, `deal_registered`) pushed into custom Attio attributes. Owner =
   `ATTIO_DEAL_OWNER_EMAIL`. Heather's channel-deals view shows an `OriginBadge` (Portal vs Attio).
+- **Attio ⇄ Deals Portal ⇄ Scorecard bidirectional status sync (Phase B, LIVE):** a status change in
+  any of the three propagates to the other two, keyed by `external_id = channel_deals.id = deals.id`
+  (the Deals Portal is a SEPARATE Supabase project `hkpglfdslglrjcgzbqpx`). Hops: (1) portal `deals` →
+  scorecard `channel_deals` (pre-existing dashboard webhook, status verbatim); (2) `channel_deals`
+  (portal rows) → Attio via `attio-push` — now pushes **status→stage on UPDATE** (`SLUG_TO_STAGE`) with
+  `status` in its change-hash; (3) Attio → `channel_deals` write-back: `attio-webhook`/`attio-sync` now
+  UPDATE the matching portal row (`STAGE_TO_SLUG`, write-if-changed via `.neq`) for deals WITH an
+  `external_id` instead of skipping — the entry stage `Intro Call / Pre-Demo` is IGNORED so it can't
+  wipe a `pending`/`qualified` review status; (4) `channel_deals` → portal `deal-sync-inbound` edge fn
+  via a scorecard Database Webhook (`channel_deals_to_portal_sync`, header `X-Sync-Secret`). Status-only
+  (v1). **Native Attio deals never reach the portal** (write-back only fires with an `external_id`;
+  `deal-sync-inbound` is UPDATE-by-id gated to `origin='portal'`). Loop-safe: every writer is
+  write-if-changed, converges after ≤1 redundant round-trip. Portal statuses are 1:1 slugs
+  (`intro_call_pre_demo`/`demo_scheduled`/`demo_complete`/`poc_proposal_sent`/`closed_*`) + portal-only
+  review states `pending`/`qualified`/`declined`; no sync-driven emails. Contract:
+  `docs/phase-b-integration.md`. **The `STAGE_TO_SLUG`/`SLUG_TO_STAGE` maps live in FOUR places
+  (attio-webhook, attio-sync, attio-push + AeView's `CHANNEL_STATUS` badges) — keep them in sync.**
 - **AE meetings** → `ae-meetings-sync` (cron, every 3h) imports each AE's Cal.com
   meetings (`cal_bookings`, matched by `host_name`) into `ae_deals` as status
   `Scheduled`, THEN recomputes the AE Daily Funnel from those `ae_deals` statuses
@@ -302,8 +319,9 @@ Only plan against the full, confirmed column list.
   `InvestorView.jsx` and Heather's "Open Partner Pipeline" stat in `AeView.jsx` both use
   `useOpenPartnerPipeline` (Heather falls back to client `openPartnerPipeline(deals)` only if
   the stored value isn't loaded). The client mirror still drives Heather's Open/Won/Lost
-  count tiles. Bidirectional Attio↔portal sync (Heather's Attio edits → portal + scorecard;
-  portal status → Attio stage) is planned but NOT built.
+  count tiles. Bidirectional Attio↔portal status sync (Heather's Attio edits → portal + scorecard;
+  portal status → Attio stage) is **LIVE** — see the Attio bidirectional-sync bullet above +
+  `docs/phase-b-integration.md`.
 
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
