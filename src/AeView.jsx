@@ -1250,7 +1250,7 @@ export function ChannelPartnerDeals({ profile }) {
   const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all | custom
   const [statusPicks, setStatusPicks] = useState(() => new Set()) // specific status labels (custom mode)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
-  const statusBtnRef = useRef(null)
+  const [menuPos, setMenuPos] = useState(null) // {top,left} captured at click time
   const { openDialer, openMessages } = useDialer()
 
   // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
@@ -1303,11 +1303,11 @@ export function ChannelPartnerDeals({ profile }) {
     <div className="space-y-6">
       {/* Status filter menu — portaled to body so it never shifts the table headers or gets
           clipped by the table's overflow; anchored to the Status button's screen position. */}
-      {statusMenuOpen && statusBtnRef.current && createPortal(
+      {statusMenuOpen && menuPos && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setStatusMenuOpen(false)} />
           <div className="fixed z-50 bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] max-h-72 overflow-auto"
-            style={{ top: statusBtnRef.current.getBoundingClientRect().bottom + 4, left: statusBtnRef.current.getBoundingClientRect().left }}>
+            style={{ top: menuPos.top, left: menuPos.left }}>
             <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
               <span className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
               <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
@@ -1392,7 +1392,8 @@ export function ChannelPartnerDeals({ profile }) {
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">
-                  <button ref={statusBtnRef} onClick={() => setStatusMenuOpen(v => !v)} className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
+                  <button onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ top: r.bottom + 4, left: r.left }); setStatusMenuOpen(v => !v) }}
+                    className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
                     Status <ChevronDown className="w-3 h-3" />
                   </button>
                 </th>
