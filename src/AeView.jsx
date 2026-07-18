@@ -1246,7 +1246,9 @@ export function ChannelPartnerDeals({ profile }) {
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [showAll, setShowAll] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all
+  const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all | custom
+  const [statusPicks, setStatusPicks] = useState(() => new Set()) // specific status labels (custom mode)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const { openDialer, openMessages } = useDialer()
 
   // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
@@ -1277,9 +1279,23 @@ export function ChannelPartnerDeals({ profile }) {
   const open = scoped.filter(d => isOpenChannelDeal(d.status))
   const openPipeline = openPartnerPipeline(scoped)
 
-  // The tiles double as a status filter for the table — default Open, so a rep sees their
-  // active pipeline without closed deals cluttering the list.
-  const visible = statusFilter === 'all' ? scoped : statusFilter === 'won' ? won : statusFilter === 'lost' ? lost : open
+  // The tiles are quick status buckets (default Open); the Status column header opens a finer
+  // per-status multi-select. Both drive `visible`; picking specific statuses switches to
+  // 'custom' mode. `labelOf` dedupes portal-slug vs Attio-display variants of the same status.
+  const labelOf = (s) => CHANNEL_STATUS[s]?.label || s || '—'
+  const statusLabels = [...new Set(scoped.map(d => labelOf(d.status)))].sort()
+  const toggleStatusPick = (label) => {
+    const next = new Set(statusPicks)
+    next.has(label) ? next.delete(label) : next.add(label)
+    setStatusPicks(next)
+    setStatusFilter(next.size ? 'custom' : 'all')
+  }
+  const pickBucket = (b) => { setStatusFilter(b); setStatusPicks(new Set()) }
+  const visible = statusFilter === 'custom' ? scoped.filter(d => statusPicks.has(labelOf(d.status)))
+    : statusFilter === 'won' ? won
+    : statusFilter === 'lost' ? lost
+    : statusFilter === 'all' ? scoped
+    : open
 
   return (
     <div className="space-y-6">
@@ -1295,22 +1311,22 @@ export function ChannelPartnerDeals({ profile }) {
       {/* Channel summary */}
       {/* Tiles double as the status filter — click to scope the table below. */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <button onClick={() => setStatusFilter('all')}
+        <button onClick={() => pickBucket('all')}
           className={`border p-4 text-left transition-all ${statusFilter === 'all' ? 'border-stone-900 ring-1 ring-stone-900 bg-stone-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">All Deals</div>
           <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{scoped.length}</div>
         </button>
-        <button onClick={() => setStatusFilter('open')}
+        <button onClick={() => pickBucket('open')}
           className={`border p-4 text-left transition-all ${statusFilter === 'open' ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Open</div>
           <div className="display-font text-2xl font-medium text-blue-700 num-tabular">{open.length}</div>
         </button>
-        <button onClick={() => setStatusFilter('won')}
+        <button onClick={() => pickBucket('won')}
           className={`border p-4 text-left transition-all ${statusFilter === 'won' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Won</div>
           <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{won.length}</div>
         </button>
-        <button onClick={() => setStatusFilter('lost')}
+        <button onClick={() => pickBucket('lost')}
           className={`border p-4 text-left transition-all ${statusFilter === 'lost' ? 'border-red-500 ring-1 ring-red-500 bg-red-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Lost / Churned</div>
           <div className="display-font text-2xl font-medium text-red-600 num-tabular">{lost.length}</div>
@@ -1351,7 +1367,29 @@ export function ChannelPartnerDeals({ profile }) {
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">TSD</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
-                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium relative">
+                  <button onClick={() => setStatusMenuOpen(v => !v)} className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
+                    Status <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {statusMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setStatusMenuOpen(false)} />
+                      <div className="absolute z-20 mt-1 left-3 top-full bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] normal-case tracking-normal font-normal max-h-72 overflow-auto">
+                        <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
+                          <span className="text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
+                          <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
+                        </div>
+                        {statusLabels.length === 0 && <div className="px-1 py-1 text-xs text-stone-400">No statuses</div>}
+                        {statusLabels.map(label => (
+                          <label key={label} className="flex items-center gap-2 px-1 py-1 hover:bg-stone-50 cursor-pointer text-sm text-stone-700">
+                            <input type="checkbox" checked={statusPicks.has(label)} onChange={() => toggleStatusPick(label)} style={{ accentColor: '#6639A6' }} />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Date</th>
               </tr>
             </thead>
