@@ -1193,6 +1193,10 @@ const CHANNEL_STATUS = {
   qualified:   { label: 'Qualified',      cls: 'bg-emerald-100 text-emerald-700' },
   declined:    { label: 'Declined',       cls: 'bg-red-100 text-red-700' },
   demo_booked: { label: 'Demo Booked',    cls: 'bg-violet-100 text-violet-700' },
+  // Portal closing-status slugs (the matcher normalizes these to Won/Lost)
+  closed_won:     { label: 'Closed Won',      cls: 'bg-emerald-100 text-emerald-700' },
+  closed_lost:    { label: 'Closed Lost',     cls: 'bg-red-100 text-red-700' },
+  closed_churned: { label: 'Closed – Churned', cls: 'bg-red-100 text-red-700' },
   // Attio deal pipeline stages (keyed by the exact Attio stage title)
   'Intro Call / Pre-Demo': { label: 'Intro / Pre-Demo',  cls: 'bg-stone-100 text-stone-600' },
   'Demo scheduled':        { label: 'Demo Scheduled',    cls: 'bg-blue-100 text-blue-700' },
