@@ -288,17 +288,22 @@ Only plan against the full, confirmed column list.
   `ae_deals`, not hand-typed), `atlas_targets`, `weekly_mrr`, `ae_deals`,
   `atlas_daily_updates`, `atlas_weekly_targets`, `atlas_weekly_updates`.
 - **Open partner pipeline** (sum of open channel-partner deal values) → the single
-  server definition is `open_partner_pipeline()` (SQL, `src/20-open-partner-pipeline.sql`);
-  a statement-level trigger on `channel_deals` recomputes it near-live into
-  `atlas_weekly_updates.partner_pipeline_amount` (investor-readable), also seeded by
-  `weekly-update-autofill`. **Open = not `Closed won` / `Closed lost` / `Closed - Churned`
-  / `declined`.** The client mirror is `src/channelDeals.js` (`isOpen/Won/LostChannelDeal`,
-  `openPartnerPipeline`) — drives Heather's Channel Partner Deals tiles + the "Open Partner
-  Pipeline" stat (`AeView.jsx`) and MUST stay string-identical to the SQL (same footgun as
-  `aeFunnel.js` ↔ server). Investor surface: the Channel Partnerships strategic card in
-  `InvestorView.jsx` reads it via `useOpenPartnerPipeline`. **Status strings are matched
-  literally** — the Deals Portal must write closed deals as those exact strings or they stay
-  in the pipeline.
+  server definition is `open_partner_pipeline()` (SQL, `src/20-open-partner-pipeline.sql`,
+  tolerant matcher in `src/21-partner-pipeline-tolerant-status.sql`); a statement-level
+  trigger on `channel_deals` recomputes it near-live into
+  `atlas_weekly_updates.partner_pipeline_amount` (investor-readable, `select using(true)`),
+  also seeded by `weekly-update-autofill`. **Open = anything except (normalized) `closed won`
+  / `closed lost` / `closed churned` / `declined`.** Status is matched **normalized**
+  (lowercased, runs of space/underscore/hyphen/slash → one space) so Attio display strings
+  (`Closed won`) AND portal slugs (`closed_won`) both bucket correctly — the client mirror
+  `src/channelDeals.js` (`normStatus` + `isOpen/Won/LostChannelDeal`) MUST stay identical to
+  the SQL normalization (footgun, like `aeFunnel.js` ↔ server). **Both surfaces read the ONE
+  stored DB value** (no client/DB drift): the investor Channel Partnerships card in
+  `InvestorView.jsx` and Heather's "Open Partner Pipeline" stat in `AeView.jsx` both use
+  `useOpenPartnerPipeline` (Heather falls back to client `openPartnerPipeline(deals)` only if
+  the stored value isn't loaded). The client mirror still drives Heather's Open/Won/Lost
+  count tiles. Bidirectional Attio↔portal sync (Heather's Attio edits → portal + scorecard;
+  portal status → Attio stage) is planned but NOT built.
 
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
