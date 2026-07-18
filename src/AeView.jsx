@@ -1315,10 +1315,16 @@ export function ChannelPartnerDeals({ profile }) {
             <p className="text-sm text-stone-600 mt-1">{showAll ? 'All channel deals — Super Admin view' : 'Deals assigned to you'}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowAll(v => !v)} title="Toggle between your assigned deals and all channel deals"
-              className={`flex items-center gap-1.5 px-3 py-2 border transition-colors text-sm font-medium ${showAll ? 'border-violet-400 bg-violet-50 text-violet-800 hover:bg-violet-100' : 'border-stone-300 hover:bg-stone-100 text-stone-700'}`}>
-              {showAll ? 'All deals' : 'My deals'}
-            </button>
+            <div className="inline-flex border border-stone-300 overflow-hidden text-sm font-medium" role="group" aria-label="Deal scope">
+              <button onClick={() => setShowAll(false)} aria-pressed={!showAll}
+                className={`px-3 py-2 transition-colors ${!showAll ? 'bg-violet-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-100'}`}>
+                My deals
+              </button>
+              <button onClick={() => setShowAll(true)} aria-pressed={showAll}
+                className={`px-3 py-2 border-l border-stone-300 transition-colors ${showAll ? 'bg-violet-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-100'}`}>
+                All deals
+              </button>
+            </div>
             <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
               Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
