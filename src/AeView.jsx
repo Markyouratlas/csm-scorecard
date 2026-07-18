@@ -1246,6 +1246,7 @@ export function ChannelPartnerDeals({ profile }) {
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [showAll, setShowAll] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all
   const { openDialer, openMessages } = useDialer()
 
   // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
@@ -1269,12 +1270,16 @@ export function ChannelPartnerDeals({ profile }) {
   // toggle shows everyone's. Tiles + pipeline compute over the visible set.
   const myEmail = (profile?.email || '').toLowerCase()
   const mine = myEmail ? deals.filter(d => (d.assigned_to || '').toLowerCase() === myEmail) : deals
-  const visible = showAll ? deals : mine
+  const scoped = showAll ? deals : mine
 
-  const won = visible.filter(d => isWonChannelDeal(d.status))
-  const lost = visible.filter(d => isLostChannelDeal(d.status))
-  const open = visible.filter(d => isOpenChannelDeal(d.status))
-  const openPipeline = openPartnerPipeline(visible)
+  const won = scoped.filter(d => isWonChannelDeal(d.status))
+  const lost = scoped.filter(d => isLostChannelDeal(d.status))
+  const open = scoped.filter(d => isOpenChannelDeal(d.status))
+  const openPipeline = openPartnerPipeline(scoped)
+
+  // The tiles double as a status filter for the table — default Open, so a rep sees their
+  // active pipeline without closed deals cluttering the list.
+  const visible = statusFilter === 'all' ? scoped : statusFilter === 'won' ? won : statusFilter === 'lost' ? lost : open
 
   return (
     <div className="space-y-6">
@@ -1288,23 +1293,28 @@ export function ChannelPartnerDeals({ profile }) {
       </div>
 
       {/* Channel summary */}
+      {/* Tiles double as the status filter — click to scope the table below. */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="border border-stone-200 bg-white p-4">
-          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Total Channel Deals</div>
-          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{visible.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        <button onClick={() => setStatusFilter('all')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'all' ? 'border-stone-900 ring-1 ring-stone-900 bg-stone-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">All Deals</div>
+          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{scoped.length}</div>
+        </button>
+        <button onClick={() => setStatusFilter('open')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'open' ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Open</div>
           <div className="display-font text-2xl font-medium text-blue-700 num-tabular">{open.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        </button>
+        <button onClick={() => setStatusFilter('won')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'won' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Won</div>
           <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{won.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        </button>
+        <button onClick={() => setStatusFilter('lost')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'lost' ? 'border-red-500 ring-1 ring-red-500 bg-red-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Lost / Churned</div>
           <div className="display-font text-2xl font-medium text-red-600 num-tabular">{lost.length}</div>
-        </div>
+        </button>
       </div>
 
       {/* Channel deals table */}
@@ -1405,7 +1415,9 @@ export function ChannelPartnerDeals({ profile }) {
                 )
               })}
               {visible.length === 0 && (
-                <tr><td colSpan={7} className="py-8 text-center text-sm text-stone-500">{showAll ? 'No channel deals yet.' : 'No deals assigned to you yet.'}</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-stone-500">
+                  {scoped.length === 0 ? (showAll ? 'No channel deals yet.' : 'No deals assigned to you yet.') : 'No deals in this status.'}
+                </td></tr>
               )}
             </tbody>
           </table>
