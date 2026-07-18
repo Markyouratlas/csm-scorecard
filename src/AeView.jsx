@@ -9,6 +9,7 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
 import { isWonChannelDeal, isLostChannelDeal, isOpenChannelDeal, openPartnerPipeline } from './channelDeals'
+import { useOpenPartnerPipeline } from './hooks/useOpenPartnerPipeline'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
@@ -1252,6 +1253,11 @@ function ChannelPartnerDeals({ profile }) {
 
   useEffect(() => { load() }, [load])
 
+  // Headline $ reads the SAME stored value as the investor card (single source of
+  // truth — no client/DB drift); client compute is only a fallback if the stored
+  // value isn't ready yet. Count tiles below stay client-side (Heather-only).
+  const storedPipeline = useOpenPartnerPipeline()
+
   // Only for channel-partner-enabled reps, and only once there's something to show.
   if (!enabled) return null
   if (loading || deals.length === 0) return null
@@ -1262,7 +1268,7 @@ function ChannelPartnerDeals({ profile }) {
   const won = deals.filter(d => isWonChannelDeal(d.status))
   const lost = deals.filter(d => isLostChannelDeal(d.status))
   const open = deals.filter(d => isOpenChannelDeal(d.status))
-  const openPipeline = openPartnerPipeline(deals)
+  const openPipeline = storedPipeline.value ?? openPartnerPipeline(deals)
 
   return (
     <div className="space-y-6">
