@@ -55,7 +55,11 @@ Attio can only ever **update** portal-originated deals in the portal, never crea
 
 ## Emails
 
-- **No sync-driven change ever emails.** `deal-sync-inbound` suppresses email on `source=sync`.
+- **No sync-driven change ever emails — v1 relies on the mapping, no mechanism needed.** Sync only
+  writes `demo_scheduled`/`demo_complete`/`poc_proposal_sent`/`closed_*` (intro excluded by the
+  entry-stage guard), none of which hit an email branch. (Future guard, only if a mapping ever lands
+  on `qualified`/`declined`: `deal-sync-inbound` calls an RPC doing `SET LOCAL app.sync_source='sync'`
+  + the UPDATE, and the trigger checks `current_setting('app.sync_source', true)`.)
 - Portal-*initiated* emails unchanged: `deal_submitted` (registration), `deal_qualified` (→`qualified`), `deal_declined` (→`declined`). Closing-email flag (`app_settings.closed_deal_emails`) stays **OFF**.
 - (Attio only lands on pipeline/closed slugs, never `qualified`/`declined`, so sync can't hit those triggers anyway — suppression is belt-and-suspenders.)
 
@@ -72,6 +76,14 @@ Every writer is **write-only-if-changed**. Then a change travels the ring once a
 - Write-back (`attio-webhook`) compares before writing `channel_deals`.
 - `deal-sync-inbound` compares before writing `deals`.
 Value changes converge after one extra round-trip; status changes converge immediately.
+- **4th writer:** the portal→scorecard ingest (dashboard webhook) is a raw upsert, **not**
+  write-if-changed. A `deal-sync-inbound` write echoes back through it once, but the downstream writers
+  (`attio-push` content-hash, `deal-sync-inbound`) no-op, so it converges after one redundant round-trip
+  — one extra `updated_at` churn, not a loop. Accepted for v1; a hub-level no-op suppressor on
+  `channel_deals` can be added later if churn matters.
+- **`intro_call_pre_demo`** is a real admin-selectable portal status (admin can set it → pushes to
+  Attio); the entry-stage guard only affects the DOWN direction. The scorecard adds all pipeline slugs
+  to its `CHANNEL_STATUS` badge map so portal deals render with proper labels.
 
 ## Transport / secret contract
 
