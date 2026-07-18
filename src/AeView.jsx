@@ -9,7 +9,6 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
 import { isWonChannelDeal, isLostChannelDeal, isOpenChannelDeal, openPartnerPipeline } from './channelDeals'
-import { useOpenPartnerPipeline } from './hooks/useOpenPartnerPipeline'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
@@ -1242,12 +1241,16 @@ const fmtChannelDate = (d) => {
 
 const DEAL_PORTAL_URL = 'https://deals.youratlas.com'
 
-function ChannelPartnerDeals({ profile }) {
+export function ChannelPartnerDeals({ profile }) {
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
+  const [userEmail, setUserEmail] = useState(null)
+  const [showAll, setShowAll] = useState(false)
+  const { openDialer, openMessages } = useDialer()
 
-  const enabled = !!profile?.channel_partner_enabled
+  // Channel-partner reps (Heather, via the flag) + the dedicated Channel Sales role (Omer).
+  const enabled = !!profile?.channel_partner_enabled || profile?.role_type === 'channel_sales'
 
   const load = useCallback(async () => {
     if (!enabled) { setLoading(false); return }
@@ -1257,23 +1260,21 @@ function ChannelPartnerDeals({ profile }) {
   }, [enabled])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserEmail((data?.user?.email || '').toLowerCase() || null)) }, [])
 
-  // Headline $ reads the SAME stored value as the investor card (single source of
-  // truth — no client/DB drift); client compute is only a fallback if the stored
-  // value isn't ready yet. Count tiles below stay client-side (Heather-only).
-  const storedPipeline = useOpenPartnerPipeline()
-
-  // Only for channel-partner-enabled reps, and only once there's something to show.
   if (!enabled) return null
-  if (loading || deals.length === 0) return null
+  if (loading) return null
 
-  // Pipeline buckets — shared open/won/lost predicate (channelDeals.js, mirrored by
-  // open_partner_pipeline() in SQL). Won = Closed won; Lost = Closed lost/Churned/
-  // declined; Open = everything still in flight.
-  const won = deals.filter(d => isWonChannelDeal(d.status))
-  const lost = deals.filter(d => isLostChannelDeal(d.status))
-  const open = deals.filter(d => isOpenChannelDeal(d.status))
-  const openPipeline = storedPipeline.value ?? openPartnerPipeline(deals)
+  // Each person sees only the deals ASSIGNED to them (channel_deals.assigned_to = their Atlas
+  // email); the Super-Admin toggle shows everyone's. Tiles + pipeline compute over the visible
+  // set, so each headline is THEIR slice (the investor card keeps the global stored value).
+  const mine = userEmail ? deals.filter(d => (d.assigned_to || '').toLowerCase() === userEmail) : deals
+  const visible = showAll ? deals : mine
+
+  const won = visible.filter(d => isWonChannelDeal(d.status))
+  const lost = visible.filter(d => isLostChannelDeal(d.status))
+  const open = visible.filter(d => isOpenChannelDeal(d.status))
+  const openPipeline = openPartnerPipeline(visible)
 
   return (
     <div className="space-y-6">
@@ -1290,7 +1291,7 @@ function ChannelPartnerDeals({ profile }) {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="border border-stone-200 bg-white p-4">
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Total Channel Deals</div>
-          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{deals.length}</div>
+          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{visible.length}</div>
         </div>
         <div className="border border-stone-200 bg-white p-4">
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Open</div>
@@ -1311,12 +1312,18 @@ function ChannelPartnerDeals({ profile }) {
         <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
           <div>
             <div className="display-font text-2xl font-medium text-stone-900">Channel Partner Deals</div>
-            <p className="text-sm text-stone-600 mt-1">Deals registered through the Atlas Channel Partner Portal</p>
+            <p className="text-sm text-stone-600 mt-1">{showAll ? 'All channel deals — Super Admin view' : 'Deals assigned to you'}</p>
           </div>
-          <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
-            Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowAll(v => !v)} title="Toggle between your assigned deals and all channel deals"
+              className={`flex items-center gap-1.5 px-3 py-2 border transition-colors text-sm font-medium ${showAll ? 'border-violet-400 bg-violet-50 text-violet-800 hover:bg-violet-100' : 'border-stone-300 hover:bg-stone-100 text-stone-700'}`}>
+              {showAll ? 'All deals' : 'My deals'}
+            </button>
+            <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
+              Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -1333,7 +1340,7 @@ function ChannelPartnerDeals({ profile }) {
               </tr>
             </thead>
             <tbody>
-              {deals.map(deal => {
+              {visible.map(deal => {
                 const expanded = expandedId === deal.id
                 return (
                   <React.Fragment key={deal.id}>
@@ -1367,7 +1374,19 @@ function ChannelPartnerDeals({ profile }) {
                             <ChannelDetail label="Pain Point" value={deal.pain_point} wide />
                             <ChannelDetail label="Admin Notes" value={deal.notes} wide />
                           </div>
-                          <div className="pl-5 mt-3">
+                          <div className="pl-5 mt-3 flex items-center gap-2 flex-wrap">
+                            {deal.contact_phone && (
+                              <>
+                                <button onClick={() => openDialer(deal.contact_phone, { name: deal.contact_name || deal.business_name, dealId: deal.id })}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-stone-300 hover:border-violet-400 hover:bg-violet-50 transition-colors text-xs font-medium text-stone-700">
+                                  <Phone className="w-3 h-3" /> Call
+                                </button>
+                                <button onClick={() => openMessages(deal.contact_phone, { name: deal.contact_name || deal.business_name, dealId: deal.id })}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-stone-300 hover:border-violet-400 hover:bg-violet-50 transition-colors text-xs font-medium text-stone-700">
+                                  <MessageSquare className="w-3 h-3" /> Text
+                                </button>
+                              </>
+                            )}
                             <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 hover:text-violet-900 hover:underline">
                               Manage in Portal <ExternalLink className="w-3 h-3" />
@@ -1379,6 +1398,9 @@ function ChannelPartnerDeals({ profile }) {
                   </React.Fragment>
                 )
               })}
+              {visible.length === 0 && (
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-stone-500">{showAll ? 'No channel deals yet.' : 'No deals assigned to you yet.'}</td></tr>
+              )}
             </tbody>
           </table>
         </div>

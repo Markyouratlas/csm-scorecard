@@ -33,6 +33,7 @@ export const TEAMS = [
     color: '#1E40AF',
     roles: [
       { key: 'account_executive',    label: 'Account Executive',            status: 'live' },
+      { key: 'channel_sales',        label: 'Channel Sales',                status: 'live' },
     ],
   },
   {
