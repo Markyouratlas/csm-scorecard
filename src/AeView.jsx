@@ -1383,7 +1383,16 @@ export function ChannelPartnerDeals({ profile }) {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[860px] table-fixed">
+            <colgroup>
+              <col style={{ width: '28%' }} />{/* Business */}
+              <col style={{ width: '14%' }} />{/* Partner */}
+              <col style={{ width: '12%' }} />{/* TSD */}
+              <col style={{ width: '9%' }} />{/* Volume */}
+              <col style={{ width: '11%' }} />{/* Value */}
+              <col style={{ width: '14%' }} />{/* Status */}
+              <col style={{ width: '12%' }} />{/* Date */}
+            </colgroup>
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Business</th>
