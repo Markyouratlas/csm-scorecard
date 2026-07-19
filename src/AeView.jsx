@@ -16,7 +16,7 @@ import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from
 import CombinedDialsCard from './CombinedDialsCard'
 import { useDialer } from './DialerContext'
 import { sumDays, showUpRate, closeRate, fmtPct, safeDiv } from './metrics'
-import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
+import { DAY_NAMES } from './teams'
 import ScorecardShell, {
   NorthStarTile, SectionTabs, PageHeader, MoneyField, WeekNavigator
 } from './ScorecardShell'
@@ -69,13 +69,19 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
     return <RocketLoader className="min-h-screen" />
   }
 
-  const workDayIdxs = (profile.work_days && profile.work_days.length) ? profile.work_days : DEFAULT_WORK_DAYS
+  // The AE Daily Funnel spans the FULL Mon→Sun week, not just profile.work_days.
+  // Closes bucket by the Stripe cash-collected date (see aeFunnel.js), which can
+  // land on a Saturday or Sunday — those weekend sales must be visible AND counted
+  // in the weekly totals. Every downstream rollup (useOdysseyMetrics /
+  // useDailyFunnelByRep) already sums all 7 days of data.daily[], so spanning the
+  // whole week here makes the AE's own scorecard agree with the exec/team numbers.
+  const funnelDayIdxs = [1, 2, 3, 4, 5, 6, 0] // Mon..Sun
 
-  const totalBooked = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosBooked) || 0), 0)
-  const totalCompleted = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosCompleted) || 0), 0)
-  const totalUnqualified = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosUnqualified) || 0), 0)
-  const totalSignups = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].trialSignups) || 0), 0)
-  const totalIntros = workDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].intros) || 0), 0)
+  const totalBooked = funnelDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosBooked) || 0), 0)
+  const totalCompleted = funnelDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosCompleted) || 0), 0)
+  const totalUnqualified = funnelDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].demosUnqualified) || 0), 0)
+  const totalSignups = funnelDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].trialSignups) || 0), 0)
+  const totalIntros = funnelDayIdxs.reduce((s, di) => s + (Number(weekData.daily[di].intros) || 0), 0)
   const showUp = showUpRate(totalCompleted, totalBooked)
   // Close rate excludes unqualified demos from the denominator (showed, not a fit).
   const close = closeRate(totalSignups, closeableHeld(totalCompleted, totalUnqualified))
@@ -150,7 +156,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         {section === 'funnel' && (
           <div className="space-y-6">
             <CombinedDialsCard userId={profile.id} weekKey={weekKey} />
-            <FunnelSection weekData={weekData} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />
+            <FunnelSection weekData={weekData} workDayIdxs={funnelDayIdxs} weekKey={weekKey} profile={profile} canEdit={true} aeDeals={aeDeals} />
           </div>
         )}
         {section === 'pipeline' && <PipelineSection weekData={weekData} update={update} profile={profile} canEdit={true} />}
