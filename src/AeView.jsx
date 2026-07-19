@@ -825,6 +825,13 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
         <tr className="border-b border-stone-100 bg-stone-50/60">
           <td colSpan={7} className="py-4 px-3">
             <div className="grid sm:grid-cols-2 gap-4 pl-5">
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Customer name</div>
+                <input key={deal.customer_name || 'noname'} disabled={!canEdit} defaultValue={deal.customer_name || ''}
+                  placeholder="add the customer or company name"
+                  onBlur={(e) => setField({ customer_name: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+                <div className="text-[10px] text-stone-400 mt-1">Shown on the deal row. Auto-filled from the calendar booking or a Stripe match; type it here for manually-entered deals.</div>
+              </div>
               {deal.status === 'Closed Won' && (
                 <div>
                   <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Closed date <span className="normal-case tracking-normal text-stone-400">· cash-collected week</span></div>
