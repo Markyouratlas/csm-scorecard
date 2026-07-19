@@ -1250,7 +1250,8 @@ export function ChannelPartnerDeals({ profile }) {
   const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all | custom
   const [statusPicks, setStatusPicks] = useState(() => new Set()) // specific status labels (custom mode)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState(null) // {top,left} captured at click time
+  const [menuPos, setMenuPos] = useState(null) // {top,left} for the status menu
+  const btnRef = useRef(null)
   const { openDialer, openMessages } = useDialer()
 
   // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
@@ -1264,6 +1265,17 @@ export function ChannelPartnerDeals({ profile }) {
   }, [enabled])
 
   useEffect(() => { load() }, [load])
+
+  // Keep the Status filter menu pinned under its header button — reposition on any scroll
+  // (capture:true catches the table's own scroll container) or resize, so it never drifts.
+  useLayoutEffect(() => {
+    if (!statusMenuOpen) return
+    const place = () => { const el = btnRef.current; if (el) { const r = el.getBoundingClientRect(); setMenuPos({ top: r.bottom + 4, left: r.left }) } }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
+  }, [statusMenuOpen])
 
   if (!enabled) return null
   if (loading) return null
@@ -1401,7 +1413,7 @@ export function ChannelPartnerDeals({ profile }) {
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">
-                  <button onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ top: r.bottom + 4, left: r.left }); setStatusMenuOpen(v => !v) }}
+                  <button ref={btnRef} onClick={() => setStatusMenuOpen(v => !v)}
                     className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
                     Status <ChevronDown className="w-3 h-3" />
                   </button>
