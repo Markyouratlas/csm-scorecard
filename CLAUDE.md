@@ -314,14 +314,29 @@ Only plan against the full, confirmed column list.
   (lowercased, runs of space/underscore/hyphen/slash → one space) so Attio display strings
   (`Closed won`) AND portal slugs (`closed_won`) both bucket correctly — the client mirror
   `src/channelDeals.js` (`normStatus` + `isOpen/Won/LostChannelDeal`) MUST stay identical to
-  the SQL normalization (footgun, like `aeFunnel.js` ↔ server). **Both surfaces read the ONE
-  stored DB value** (no client/DB drift): the investor Channel Partnerships card in
-  `InvestorView.jsx` and Heather's "Open Partner Pipeline" stat in `AeView.jsx` both use
-  `useOpenPartnerPipeline` (Heather falls back to client `openPartnerPipeline(deals)` only if
-  the stored value isn't loaded). The client mirror still drives Heather's Open/Won/Lost
-  count tiles. Bidirectional Attio↔portal status sync (Heather's Attio edits → portal + scorecard;
-  portal status → Attio stage) is **LIVE** — see the Attio bidirectional-sync bullet above +
-  `docs/phase-b-integration.md`.
+  the SQL normalization (footgun, like `aeFunnel.js` ↔ server). The **investor** Channel
+  Partnerships card (`InvestorView.jsx`) reads the ONE stored global value via
+  `useOpenPartnerPipeline`. **The Channel Partner Deals view's stat + tiles now compute client-side
+  over the viewing PERSON's assigned+scoped deals** (per-person slice, not the global) — see the
+  channel-deal assignment note below. Bidirectional Attio↔portal status sync (Heather's Attio edits
+  → portal + scorecard; portal status → Attio stage) is **LIVE** — see the Attio bidirectional-sync
+  bullet above + `docs/phase-b-integration.md`.
+- **Channel-deal assignment / per-person channel-sales views** (`src/22-channel-deal-assignment.sql`,
+  `src/23-profiles-email.sql`): `channel_deals.assigned_to` = the assignee's **Atlas email**. Portal
+  deals are assigned in the Deals Portal (auto by TSD — Sandler→Omer, else Heather — + manual override,
+  synced into `channel_deals`; see `DEALS-PORTAL-ASSIGNMENT-HANDOFF.md`); **native Attio deals default to
+  their Attio OWNER's email** (resolved via `GET /v2/workspace_members` id→email in attio-sync/webhook,
+  fallback `heather@youratlas.com`). The **`ChannelPartnerDeals`** view (exported from `AeView.jsx`)
+  filters to deals assigned to the **TARGET `profile.email`** (NOT the auth session — so an exec drilling
+  into someone sees THAT person's deals; ⚠️ never revert to `supabase.auth.getUser()`), with a Super-Admin
+  "All deals" toggle + clickable status-bucket tiles + a portaled, button-tracking per-status multi-select
+  menu + click-to-call/text dialer. **`profiles.email`** was added (mirror of `auth.users.email`, kept in
+  sync by a before-insert trigger) so a profile can be matched to `assigned_to` without reading
+  `auth.users` (RLS-blocked for other users). **Omer is a CEO** — his channel scorecard is **flag-based,
+  NOT a role**: `channel_partner_enabled` + a leadership `role_type` → `ScorecardViewer.pickComponent`
+  renders `ChannelSalesView` (focused channel-only view) when you drill into him via Manager view; his
+  landing stays the leadership dashboard. The **dialer is gated on `channel_partner_enabled`** too
+  (`dialer-token`).
 
 When you add a new integration, add its sync function + table(s) + schema file(s) to
 this list so the next session knows where to look.
