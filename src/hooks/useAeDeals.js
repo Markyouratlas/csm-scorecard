@@ -145,9 +145,16 @@ export function useAeDeals(aeId) {
       one_time: data?.one_time ?? null,
       matched_stripe_customer_id: data?.stripe_customer_id ?? null,
     }
+    const deal = deals.find(d => d.id === id)
+    // On a successful match, backfill the customer's name + email from Stripe when
+    // the deal has none — e.g. manually-added deals or ad/phoneless bookings that
+    // arrived without an attendee name. Never overwrite a value the AE already set.
+    if (data?.stripe_customer_id) {
+      if (data.name && !((deal?.customer_name || '').trim())) patch.customer_name = data.name
+      if (!((deal?.customer_email || '').trim())) patch.customer_email = e
+    }
     // Default the close/cash date to Stripe's cash-collected date — but never
     // overwrite a date the AE set by hand (closed_at_source === 'manual').
-    const deal = deals.find(d => d.id === id)
     if (data?.cash_collected_at && deal?.closed_at_source !== 'manual') {
       patch.closed_at = data.cash_collected_at
       patch.closed_at_source = 'stripe'
