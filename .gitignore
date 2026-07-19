@@ -14,3 +14,6 @@ supabase/.temp/
 # Script outputs — contain customer IDs + financial figures
 *-scan-*.json
 *-preview-*.json
+
+# Claude Code local settings (personal permission rules — not shared)
+.claude/settings.local.json
