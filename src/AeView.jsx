@@ -1318,8 +1318,8 @@ export function ChannelPartnerDeals({ profile }) {
       {statusMenuOpen && menuPos && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setStatusMenuOpen(false)} />
-          <div className="fixed z-50 bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] max-h-72 overflow-auto"
-            style={{ top: menuPos.top, left: menuPos.left }}>
+          <div className="fixed z-50 bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] overflow-auto"
+            style={{ top: menuPos.top, left: menuPos.left, maxHeight: `min(20rem, calc(100vh - ${menuPos.top + 12}px))` }}>
             <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
               <span className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
               <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
