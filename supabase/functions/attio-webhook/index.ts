@@ -62,7 +62,23 @@ async function sha256(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-async function mapDeal(rec: any): Promise<any | null> {
+// Owner resolution — native Attio deals → their Attio OWNER's email (workspace member,
+// matches the scorecard login); falls back to Heather if unresolved.
+const ownerIdOf = (rec: any): string | null => firstVal(rec, "owner")?.referenced_actor_id || null;
+async function fetchOwnerEmailMap(token: string): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${ATTIO_BASE}/workspace_members`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return {};
+    const j = await res.json();
+    const map: Record<string, string> = {};
+    for (const m of j?.data || []) {
+      const id = m?.id?.workspace_member_id; const email = (m?.email_address || "").toLowerCase();
+      if (id && email) map[id] = email;
+    }
+    return map;
+  } catch { return {}; }
+}
+async function mapDeal(rec: any, ownerMap: Record<string, string> = {}): Promise<any | null> {
   if (externalIdOf(rec)) return null;
   const recordId = rec?.id?.record_id;
   if (!recordId) return null;
@@ -75,6 +91,7 @@ async function mapDeal(rec: any): Promise<any | null> {
     status: textOf(rec, "stage") || "pending",
     portal_created_at: rec?.created_at || null,
     attio_updated_at: rec?.created_at || null,
+    assigned_to: ownerMap[ownerIdOf(rec) || ""] || "heather@youratlas.com", // Attio owner's email (else Heather)
   };
   const content_hash = await sha256(JSON.stringify(fields));
   return { ...fields, content_hash, attio_raw: rec, synced_at: new Date().toISOString() };
@@ -114,6 +131,7 @@ serve(async (req) => {
 
     const token = Deno.env.get("ATTIO_API_KEY") || "";
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const ownerMap = await fetchOwnerEmailMap(token);
 
     const body = JSON.parse(raw || "{}");
     const events: any[] = Array.isArray(body?.events) ? body.events : [body];
@@ -139,7 +157,7 @@ serve(async (req) => {
           await writeBackPortalDeal(admin, rec, extId);
           continue;
         }
-        const row = await mapDeal(rec);
+        const row = await mapDeal(rec, ownerMap);
         if (!row) continue; // malformed / no record id
         const { error } = await admin.from("channel_deals").upsert(row, { onConflict: "attio_record_id" });
         if (error) throw new Error(error.message);

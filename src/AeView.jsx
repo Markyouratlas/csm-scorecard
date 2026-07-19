@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Target, Briefcase, FileText, Award, Users, TrendingUp, Plus, Trash2, DollarSign, Calendar, ChevronRight, ChevronDown, ExternalLink, RefreshCw, Phone, Mail, MessageSquare, MessageCircle, Play, Loader2, Search, X, Handshake } from 'lucide-react'
 import AeFunnelDrilldownModal from './AeFunnelDrilldownModal'
 import { supabase } from './supabase'
@@ -9,7 +10,6 @@ import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
 import { formatWeekLabel } from './dateUtils'
 import { isWonChannelDeal, isLostChannelDeal, isOpenChannelDeal, openPartnerPipeline } from './channelDeals'
-import { useOpenPartnerPipeline } from './hooks/useOpenPartnerPipeline'
 import { BLANK_AE_WEEK, AE_DEAL_STAGES, AE_MEETING_STATUSES, AE_ATTENDED_STATUSES, AE_CLOSEABLE_STATUSES, AE_CLOSED_STATUSES, newId } from './roleConstants'
 import { useQuery } from '@tanstack/react-query'
 import { deriveFunnelWeek, funnelMatches, closeableHeld, weekKeyOfMeeting } from './aeFunnel'
@@ -1242,11 +1242,19 @@ const fmtChannelDate = (d) => {
 
 const DEAL_PORTAL_URL = 'https://deals.youratlas.com'
 
-function ChannelPartnerDeals({ profile }) {
+export function ChannelPartnerDeals({ profile }) {
   const [deals, setDeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
+  const [showAll, setShowAll] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('open') // open | won | lost | all | custom
+  const [statusPicks, setStatusPicks] = useState(() => new Set()) // specific status labels (custom mode)
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState(null) // {top,left} for the status menu
+  const btnRef = useRef(null)
+  const { openDialer, openMessages } = useDialer()
 
+  // Channel-partner reps (Heather via her AE view, Omer via his CEO scorecard) — the flag.
   const enabled = !!profile?.channel_partner_enabled
 
   const load = useCallback(async () => {
@@ -1258,25 +1266,75 @@ function ChannelPartnerDeals({ profile }) {
 
   useEffect(() => { load() }, [load])
 
-  // Headline $ reads the SAME stored value as the investor card (single source of
-  // truth — no client/DB drift); client compute is only a fallback if the stored
-  // value isn't ready yet. Count tiles below stay client-side (Heather-only).
-  const storedPipeline = useOpenPartnerPipeline()
+  // Keep the Status filter menu pinned under its header button — reposition on any scroll
+  // (capture:true catches the table's own scroll container) or resize, so it never drifts.
+  useLayoutEffect(() => {
+    if (!statusMenuOpen) return
+    const place = () => { const el = btnRef.current; if (el) { const r = el.getBoundingClientRect(); setMenuPos({ top: r.bottom + 4, left: r.left }) } }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
+  }, [statusMenuOpen])
 
-  // Only for channel-partner-enabled reps, and only once there's something to show.
   if (!enabled) return null
-  if (loading || deals.length === 0) return null
+  if (loading) return null
 
-  // Pipeline buckets — shared open/won/lost predicate (channelDeals.js, mirrored by
-  // open_partner_pipeline() in SQL). Won = Closed won; Lost = Closed lost/Churned/
-  // declined; Open = everything still in flight.
-  const won = deals.filter(d => isWonChannelDeal(d.status))
-  const lost = deals.filter(d => isLostChannelDeal(d.status))
-  const open = deals.filter(d => isOpenChannelDeal(d.status))
-  const openPipeline = storedPipeline.value ?? openPartnerPipeline(deals)
+  // Each person sees only the deals ASSIGNED to them (channel_deals.assigned_to = their Atlas
+  // email). We key off the TARGET profile's email (not the auth session) so an exec drilling
+  // into someone else's scorecard sees THAT person's deals, not their own. The Super-Admin
+  // toggle shows everyone's. Tiles + pipeline compute over the visible set.
+  const myEmail = (profile?.email || '').toLowerCase()
+  const mine = myEmail ? deals.filter(d => (d.assigned_to || '').toLowerCase() === myEmail) : deals
+  const scoped = showAll ? deals : mine
+
+  const won = scoped.filter(d => isWonChannelDeal(d.status))
+  const lost = scoped.filter(d => isLostChannelDeal(d.status))
+  const open = scoped.filter(d => isOpenChannelDeal(d.status))
+  const openPipeline = openPartnerPipeline(scoped)
+
+  // The tiles are quick status buckets (default Open); the Status column header opens a finer
+  // per-status multi-select. Both drive `visible`; picking specific statuses switches to
+  // 'custom' mode. `labelOf` dedupes portal-slug vs Attio-display variants of the same status.
+  const labelOf = (s) => CHANNEL_STATUS[s]?.label || s || '—'
+  const statusLabels = [...new Set(scoped.map(d => labelOf(d.status)))].sort()
+  const toggleStatusPick = (label) => {
+    const next = new Set(statusPicks)
+    next.has(label) ? next.delete(label) : next.add(label)
+    setStatusPicks(next)
+    setStatusFilter(next.size ? 'custom' : 'all')
+  }
+  const pickBucket = (b) => { setStatusFilter(b); setStatusPicks(new Set()) }
+  const visible = statusFilter === 'custom' ? scoped.filter(d => statusPicks.has(labelOf(d.status)))
+    : statusFilter === 'won' ? won
+    : statusFilter === 'lost' ? lost
+    : statusFilter === 'all' ? scoped
+    : open
 
   return (
     <div className="space-y-6">
+      {/* Status filter menu — portaled to body so it never shifts the table headers or gets
+          clipped by the table's overflow; anchored to the Status button's screen position. */}
+      {statusMenuOpen && menuPos && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setStatusMenuOpen(false)} />
+          <div className="fixed z-50 bg-white border border-stone-300 shadow-lg p-2 min-w-[190px] overflow-auto"
+            style={{ top: menuPos.top, left: menuPos.left, maxHeight: `min(20rem, calc(100vh - ${menuPos.top + 12}px))` }}>
+            <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-stone-100">
+              <span className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Filter status</span>
+              <button onClick={() => pickBucket('all')} className="text-[11px] text-violet-700 hover:underline">Clear</button>
+            </div>
+            {statusLabels.length === 0 && <div className="px-1 py-1 text-xs text-stone-400">No statuses</div>}
+            {statusLabels.map(label => (
+              <label key={label} className="flex items-center gap-2 px-1 py-1 hover:bg-stone-50 cursor-pointer text-sm text-stone-700">
+                <input type="checkbox" checked={statusPicks.has(label)} onChange={() => toggleStatusPick(label)} style={{ accentColor: '#6639A6' }} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
       {/* Open partner pipeline — the single computed metric (full precision). */}
       <div className="border border-violet-200 bg-violet-50/40 p-5 flex items-center justify-between gap-4">
         <div>
@@ -1287,23 +1345,28 @@ function ChannelPartnerDeals({ profile }) {
       </div>
 
       {/* Channel summary */}
+      {/* Tiles double as the status filter — click to scope the table below. */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="border border-stone-200 bg-white p-4">
-          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Total Channel Deals</div>
-          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{deals.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        <button onClick={() => pickBucket('all')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'all' ? 'border-stone-900 ring-1 ring-stone-900 bg-stone-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
+          <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">All Deals</div>
+          <div className="display-font text-2xl font-medium text-stone-900 num-tabular">{scoped.length}</div>
+        </button>
+        <button onClick={() => pickBucket('open')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'open' ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Open</div>
           <div className="display-font text-2xl font-medium text-blue-700 num-tabular">{open.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        </button>
+        <button onClick={() => pickBucket('won')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'won' ? 'border-emerald-500 ring-1 ring-emerald-500 bg-emerald-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Won</div>
           <div className="display-font text-2xl font-medium text-emerald-700 num-tabular">{won.length}</div>
-        </div>
-        <div className="border border-stone-200 bg-white p-4">
+        </button>
+        <button onClick={() => pickBucket('lost')}
+          className={`border p-4 text-left transition-all ${statusFilter === 'lost' ? 'border-red-500 ring-1 ring-red-500 bg-red-50' : 'border-stone-200 bg-white hover:border-stone-400'}`}>
           <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Lost / Churned</div>
           <div className="display-font text-2xl font-medium text-red-600 num-tabular">{lost.length}</div>
-        </div>
+        </button>
       </div>
 
       {/* Channel deals table */}
@@ -1311,16 +1374,37 @@ function ChannelPartnerDeals({ profile }) {
         <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
           <div>
             <div className="display-font text-2xl font-medium text-stone-900">Channel Partner Deals</div>
-            <p className="text-sm text-stone-600 mt-1">Deals registered through the Atlas Channel Partner Portal</p>
+            <p className="text-sm text-stone-600 mt-1">{showAll ? 'All channel deals — Super Admin view' : 'Deals assigned to you'}</p>
           </div>
-          <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
-            Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex border border-stone-300 overflow-hidden text-sm font-medium" role="group" aria-label="Deal scope">
+              <button onClick={() => setShowAll(false)} aria-pressed={!showAll}
+                className={`px-3 py-2 transition-colors ${!showAll ? 'bg-violet-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-100'}`}>
+                My deals
+              </button>
+              <button onClick={() => setShowAll(true)} aria-pressed={showAll}
+                className={`px-3 py-2 border-l border-stone-300 transition-colors ${showAll ? 'bg-violet-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-100'}`}>
+                All deals
+              </button>
+            </div>
+            <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium text-stone-700">
+              Open Deal Portal <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[860px] table-fixed">
+            <colgroup>
+              <col style={{ width: '28%' }} />{/* Business */}
+              <col style={{ width: '14%' }} />{/* Partner */}
+              <col style={{ width: '12%' }} />{/* TSD */}
+              <col style={{ width: '9%' }} />{/* Volume */}
+              <col style={{ width: '11%' }} />{/* Value */}
+              <col style={{ width: '14%' }} />{/* Status */}
+              <col style={{ width: '12%' }} />{/* Date */}
+            </colgroup>
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Business</th>
@@ -1328,12 +1412,17 @@ function ChannelPartnerDeals({ profile }) {
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">TSD</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Volume</th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Value</th>
-                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Status</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">
+                  <button ref={btnRef} onClick={() => setStatusMenuOpen(v => !v)}
+                    className="inline-flex items-center gap-1 uppercase tracking-widest hover:text-stone-900">
+                    Status <ChevronDown className="w-3 h-3" />
+                  </button>
+                </th>
                 <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-600 font-medium">Date</th>
               </tr>
             </thead>
             <tbody>
-              {deals.map(deal => {
+              {visible.map(deal => {
                 const expanded = expandedId === deal.id
                 return (
                   <React.Fragment key={deal.id}>
@@ -1367,7 +1456,19 @@ function ChannelPartnerDeals({ profile }) {
                             <ChannelDetail label="Pain Point" value={deal.pain_point} wide />
                             <ChannelDetail label="Admin Notes" value={deal.notes} wide />
                           </div>
-                          <div className="pl-5 mt-3">
+                          <div className="pl-5 mt-3 flex items-center gap-2 flex-wrap">
+                            {deal.contact_phone && (
+                              <>
+                                <button onClick={() => openDialer(deal.contact_phone, { name: deal.contact_name || deal.business_name, dealId: deal.id })}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-stone-300 hover:border-violet-400 hover:bg-violet-50 transition-colors text-xs font-medium text-stone-700">
+                                  <Phone className="w-3 h-3" /> Call
+                                </button>
+                                <button onClick={() => openMessages(deal.contact_phone, { name: deal.contact_name || deal.business_name, dealId: deal.id })}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-stone-300 hover:border-violet-400 hover:bg-violet-50 transition-colors text-xs font-medium text-stone-700">
+                                  <MessageSquare className="w-3 h-3" /> Text
+                                </button>
+                              </>
+                            )}
                             <a href={DEAL_PORTAL_URL} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 hover:text-violet-900 hover:underline">
                               Manage in Portal <ExternalLink className="w-3 h-3" />
@@ -1379,6 +1480,11 @@ function ChannelPartnerDeals({ profile }) {
                   </React.Fragment>
                 )
               })}
+              {visible.length === 0 && (
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-stone-500">
+                  {scoped.length === 0 ? (showAll ? 'No channel deals yet.' : 'No deals assigned to you yet.') : 'No deals in this status.'}
+                </td></tr>
+              )}
             </tbody>
           </table>
         </div>

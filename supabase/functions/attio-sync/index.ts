@@ -96,9 +96,28 @@ async function sha256(s: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Owner resolution — native Attio deals are assigned to their Attio OWNER's email (a
+// workspace member; matches the scorecard login), so Heather's deals go to Heather and a
+// deal Omer owns in Attio would go to Omer. Falls back to Heather if the owner can't be
+// resolved (e.g. the token lacks user_management:read).
+const ownerIdOf = (rec: any): string | null => firstVal(rec, "owner")?.referenced_actor_id || null;
+async function fetchOwnerEmailMap(token: string): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${ATTIO_BASE}/workspace_members`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return {};
+    const j = await res.json();
+    const map: Record<string, string> = {};
+    for (const m of j?.data || []) {
+      const id = m?.id?.workspace_member_id; const email = (m?.email_address || "").toLowerCase();
+      if (id && email) map[id] = email;
+    }
+    return map;
+  } catch { return {}; }
+}
+
 // Attio deal record → channel_deals row (id omitted → DB default). Returns null for
 // records that carry an external_id (Portal deals — never ingested here).
-export async function mapDeal(rec: any): Promise<any | null> {
+export async function mapDeal(rec: any, ownerMap: Record<string, string> = {}): Promise<any | null> {
   if (externalIdOf(rec)) return null;
   const recordId = rec?.id?.record_id;
   if (!recordId) return null;
@@ -117,6 +136,7 @@ export async function mapDeal(rec: any): Promise<any | null> {
     status: textOf(rec, "stage") || "pending",
     portal_created_at: rec?.created_at || null,
     attio_updated_at: rec?.created_at || null, // no reliable per-record updated ts; informational
+    assigned_to: ownerMap[ownerIdOf(rec) || ""] || "heather@youratlas.com", // Attio owner's email (else Heather)
   };
   const content_hash = await sha256(JSON.stringify(fields));
   return { ...fields, content_hash, attio_raw: rec, synced_at: new Date().toISOString() };
@@ -145,6 +165,7 @@ async function writeBackPortalDeal(admin: any, rec: any, extId: string): Promise
 
 async function runSync(admin: any, token: string) {
   const records = await queryAllDeals(token);
+  const ownerMap = await fetchOwnerEmailMap(token);
   const rows: any[] = [];
   const seen: string[] = [];
   const failures: any[] = [];
@@ -158,7 +179,7 @@ async function runSync(admin: any, token: string) {
         writtenBack++;
         continue;
       }
-      const row = await mapDeal(rec);
+      const row = await mapDeal(rec, ownerMap);
       if (!row) continue; // malformed — skip
       rows.push(row);
       seen.push(row.attio_record_id);

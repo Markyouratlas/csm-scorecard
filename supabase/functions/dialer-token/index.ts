@@ -48,8 +48,8 @@ serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
     const { data: prof } = await userClient
-      .from("profiles").select("id, role, role_type").eq("id", user.id).single();
-    const allowed = prof && (DIALER_ROLES.has(prof.role_type) || prof.role === "executive");
+      .from("profiles").select("id, role, role_type, channel_partner_enabled").eq("id", user.id).single();
+    const allowed = prof && (DIALER_ROLES.has(prof.role_type) || prof.role === "executive" || prof.channel_partner_enabled);
     if (!allowed) return json({ error: "Forbidden — dialer access required" }, 403);
 
     // ---- Twilio config ----
