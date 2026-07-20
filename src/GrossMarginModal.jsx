@@ -65,7 +65,7 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
     laborSubtotal, totalCogsInfra, totalCogsLoaded,
     marginInfra, marginLoaded, grossProfitInfra, grossProfitLoaded,
     contractorLabor = 0, deliverySalaries = 0, totalSalaries = 0, otherOpex = 0,
-    deliverySalaryRows = [],
+    deliverySalaryRows = [], allSalaryRows = [],
     operatingCosts, operatingMargin, operatingProfit,
     headlineView,
     saveItem, addItem, removeItem, saveConfig,
@@ -196,6 +196,13 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
           <div className="rounded-xl border border-stone-200 overflow-hidden">
             <div className="px-4 py-2.5 mono-text text-[10px] uppercase tracking-[0.14em] text-stone-500 bg-stone-50 border-b border-stone-200">Summary</div>
             <table className="w-full text-sm">
+              <thead>
+                <tr className="mono-text text-[9px] uppercase tracking-[0.14em] text-stone-400 border-b border-stone-200">
+                  <th className="px-4 py-2 text-left font-medium">&nbsp;</th>
+                  <th className="px-4 py-2 text-right font-medium">Infra only</th>
+                  <th className="px-4 py-2 text-right font-medium">Fully loaded</th>
+                </tr>
+              </thead>
               <tbody>
                 <SummaryRow label="MRR" a={usd(mrr)} b={usd(mrr)} />
                 <SummaryRow label="Total COGS" a={usd(totalCogsInfra)} b={usd(totalCogsLoaded)} />
@@ -204,11 +211,6 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
                   <td className="px-4 py-2.5">Gross margin</td>
                   <td className="px-4 py-2.5 text-right num-tabular">{pct(marginInfra)}</td>
                   <td className="px-4 py-2.5 text-right num-tabular">{pct(marginLoaded)}</td>
-                </tr>
-                <tr className="mono-text text-[9px] uppercase tracking-[0.14em] text-stone-400">
-                  <td className="px-4 pb-2"></td>
-                  <td className="px-4 pb-2 text-right">Infra only</td>
-                  <td className="px-4 pb-2 text-right">Fully loaded</td>
                 </tr>
               </tbody>
             </table>
@@ -225,7 +227,17 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
                 <OpRow label="MRR" value={usd(mrr)} />
                 <OpRow label="Infrastructure" value={usd(infraSubtotal)} />
                 <OpRow label="Contractor labor" value={usd(contractorLabor)} />
-                <OpRow label="Employee salaries (all)" value={usd(totalSalaries)} />
+                {/* Every employee with a salary, listed as a line item. */}
+                {allSalaryRows.map(p => (
+                  <OpRow key={p.profile_id} label={p.counts_in_cogs ? `${p.name} · delivery` : p.name} value={usd(p.monthly)} />
+                ))}
+                {allSalaryRows.length === 0 && totalSalaries > 0 && (
+                  <OpRow label="Employee salaries" value={usd(totalSalaries)} />
+                )}
+                <tr className="border-b border-stone-100 font-medium text-stone-900">
+                  <td className="px-4 py-2 text-stone-700">Employee salaries subtotal</td>
+                  <td className="px-4 py-2 text-right num-tabular">{usd(totalSalaries)}</td>
+                </tr>
                 <tr className="border-b border-stone-100">
                   <td className="px-4 py-2.5 text-stone-700">Other operating costs</td>
                   <td className="px-4 py-2.5 text-right">

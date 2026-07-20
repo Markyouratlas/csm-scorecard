@@ -170,6 +170,7 @@ export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
     config,
     ...computed,
     deliverySalaryRows: comp.deliveryRows || [],
+    allSalaryRows: comp.allRows || [],
     saveItem, addItem, removeItem, saveConfig,
     refresh: refetch,
   }
