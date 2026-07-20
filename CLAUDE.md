@@ -34,15 +34,17 @@ The app deploys to Vercel; the same two env vars must be configured in the Verce
 
 ## User mental model (important context)
 
-The repo owner (Mark) is non-technical. Translate technical jargon into product terms when explaining. He works in PowerShell on Windows. When suggesting commands, use Windows-friendly paths (`C:\Users\markp\csm-scorecard\`) and assume he'll run things one at a time via the terminal, not in scripts.
+The repo owner (Mark) is non-technical. Translate technical jargon into product terms when explaining. He works in PowerShell on Windows. Use Windows-friendly paths (`C:\Users\markp\csm-scorecard\`).
 
-Workflow he is comfortable with:
-1. Download files Claude generates
-2. Drop them into `C:\Users\markp\csm-scorecard\src\` (or appropriate subfolder)
-3. `git status`, `git add .`, `git commit -m "..."`, `git push`
-4. Watch Vercel build, test on the deployed URL
+### Division of labor (current — updated 2026-07)
 
-He is NOT comfortable with: editing files directly via terminal, npm script changes, or anything that requires installing new global tooling. Stay within the existing toolchain.
+Claude does the hands-on work directly; Mark stays the reviewer + runs the few things that need his environment. Concretely:
+
+- **Claude runs directly:** all file edits; git (`checkout -b` / `add <paths>` / `commit` / `merge` / `push` — including merge+push to `main`, which surfaces a one-tap approval prompt); and `supabase functions deploy <name>` (the Supabase CLI is installed, authed, and linked to project `ckobnzvgjeaxxgvmexaz` on Mark's machine). **Stage specific paths, never `git add .`** — the repo root has standing scratch files.
+- **Mark runs (Claude hands him the exact command/steps):** pasting SQL migrations into the Supabase SQL editor (one labeled ```sql block at a time), `npm run build`, `supabase secrets set`, and any interactive login (`supabase login`, `vercel login`).
+- **Standard feature loop:** Claude builds on a branch → Mark pastes the one SQL block (if any) → Claude deploys any edge function + pushes → Mark eyeballs the Vercel preview → Claude merges to `main`.
+
+Public webhooks (dialer-*, attio-webhook, atlas-events-inbound, cal-booking-inbound, ghl-calls-inbound) must be deployed with `--no-verify-jwt` on **every** redeploy; signed-in-user functions (dialer-token, set-user-ban, atlas-handoff/send/start) deploy without it.
 
 ## Architecture
 
