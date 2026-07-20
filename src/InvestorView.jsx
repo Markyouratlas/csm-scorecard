@@ -1301,6 +1301,14 @@ function ExecutiveView() {
   const grossMarginVal = stats.econ.grossMargin?.actual ?? exec.grossMargin;
   const arpuVal = realArpu != null ? realArpu : exec.arpu;
 
+  // Gross margin is a real, wired figure once useCogs writes it to atlas_targets
+  // (computed from MRR minus infrastructure COGS). Flip its LED from the
+  // illustrative yellow to live green when that real value is present.
+  const grossMarginLive = stats.econ.grossMargin?.actual != null;
+  const grossMarginLed = grossMarginLive
+    ? { status: 'green', reason: 'Live — computed from MRR minus infrastructure COGS (editable in the Odyssey Gross Margin tile).' }
+    : { status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' };
+
   const subStats = [
     { label: 'Customers', k: 'exec.hero.customers', v: realCustomers != null ? Math.round(realCustomers).toLocaleString() : '—',
       t: stats.customersAnnualTarget ?? ANNUAL.totalCustomers.target,
@@ -1308,7 +1316,7 @@ function ExecutiveView() {
     { label: 'LTV : CAC', k: 'exec.hero.ltvcac', v: `${ltvCacVal.toFixed(1)}:1`, t: `${ANNUAL.ltvCac.target}:1`,
       led: { status: 'yellow', reason: 'Needs CAC (sales & marketing cost ÷ new customers). Showing a manually-entered figure until cost data is wired.' } },
     { label: 'Gross Margin', k: 'exec.hero.grossmargin', v: `${Math.round(grossMarginVal)}%`, t: `${ANNUAL.grossMargin.target}%`,
-      led: { status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' } },
+      led: grossMarginLed },
   ];
 
   // Open partner pipeline — live from channel_deals via atlas_weekly_updates (the one
@@ -1540,7 +1548,7 @@ function ExecutiveView() {
           </GateTile>
           <GateTile id="exec.unit.grossmargin" label="Gross Margin">
             <GaugeCard   label="Gross Margin"   value={Math.round(grossMarginVal)}  suffix="%" target={82} trend={[74,75,75,76,77,77,78, Math.round(grossMarginVal)]} color="#15803D"
-              led={{ status: 'yellow', reason: 'Needs cost of service (CS team + infra). Showing a manually-entered figure until cost data is wired.' }} />
+              led={grossMarginLed} />
           </GateTile>
           <GateTile id="exec.unit.costservice" label="Cost / Service">
             <MetricCard  label="Cost / Service" value={Math.round(exec.costPerService)} prefix="$" trend={[110,108,106,105,103,103,102, Math.round(exec.costPerService)]} color="#DC2649" invertDelta
