@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import {
   LayoutDashboard, Users, UserCircle2, Award, Clock, Quote,
   CalendarCheck, Loader2, Shield, ShieldOff, ShieldCheck, Trash2, Download,
@@ -1266,6 +1267,8 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
   const [editing, setEditing] = useState(null) // profile id being edited
   const [expanded, setExpanded] = useState(null) // profile id expanded to show controls
   const [showPreview, setShowPreview] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState(null) // profile pending permanent deletion
+  const [deleting, setDeleting] = useState(false)
 
   // Per-employee salaries (exec-only; empty for team leads via RLS). Salaries live
   // in employee_compensation, NOT on the world-readable profiles table.
@@ -1297,14 +1300,7 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
     await supabase.from('profiles').update({ archived_at: null }).eq('id', id)
     reload()
   }
-  const removeUser = async (id, name) => {
-    const msg = `Permanently delete ${name || 'this user'}?\n\n`
-      + `• ALL of their data will be deleted — scorecards, deals, call logs, and anything else tied to them.\n`
-      + `• This may affect reports and rollups that included their data.\n`
-      + `• This CANNOT be undone once deleted.\n\n`
-      + `Deleting is NOT recommended. Archiving already hides them while preserving their data. `
-      + `Only delete if you are absolutely certain.`
-    if (!confirm(msg)) return
+  const removeUser = async (id) => {
     await supabase.from('profiles').delete().eq('id', id)
     reload()
   }
@@ -1448,7 +1444,7 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
                       <ArchiveRestore className="w-3.5 h-3.5" /> Restore
                     </button>
-                    <button onClick={() => removeUser(p.id, p.name)}
+                    <button onClick={() => setPendingDelete(p)}
                       title="Permanently delete this user and all their data — cannot be undone"
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 transition-colors text-xs font-medium rounded-lg">
                       <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -1473,6 +1469,38 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
         </div>
       ))}
 
+      {/* Centered permanent-delete confirmation. */}
+      {pendingDelete && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(15,8,37,0.55)', backdropFilter: 'blur(6px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setPendingDelete(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" role="dialog" aria-modal="true">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0"><Trash2 className="w-5 h-5 text-red-600" /></div>
+                <h2 className="display-font text-xl font-medium text-stone-900">Delete {pendingDelete.name}?</h2>
+              </div>
+              <div className="text-sm text-stone-600 leading-relaxed space-y-2">
+                <p><strong className="text-stone-800">All of their data will be deleted</strong> — scorecards, deals, call logs, and anything else tied to them.</p>
+                <p>This <strong className="text-stone-800">may affect reports and rollups</strong> that included their data.</p>
+                <p>This <strong className="text-stone-800">cannot be undone.</strong></p>
+                <p className="text-stone-500">Deleting is not recommended — archiving already hides them while preserving their data.</p>
+              </div>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setPendingDelete(null)} disabled={deleting}
+                  className="flex-1 py-2 border border-stone-300 hover:bg-stone-100 transition-colors text-sm font-medium rounded-lg disabled:opacity-50">Cancel</button>
+                <button
+                  onClick={async () => { setDeleting(true); try { await removeUser(pendingDelete.id) } finally { setDeleting(false); setPendingDelete(null) } }}
+                  disabled={deleting}
+                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white transition-colors text-sm font-medium rounded-lg disabled:opacity-50 flex items-center justify-center gap-1.5">
+                  <Trash2 className="w-4 h-4" /> {deleting ? 'Deleting…' : 'Delete permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
