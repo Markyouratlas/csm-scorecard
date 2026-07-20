@@ -148,7 +148,8 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
 
 ### Data model (see `supabase-setup.sql` and migrations)
 
-- `profiles` — one row per `auth.users` row. Columns include `name`, `team`, `role_type`, `role`, `is_team_lead`, `work_days`, `color`.
+- `profiles` — one row per `auth.users` row. Columns include `name`, `team`, `role_type`, `role`, `is_team_lead`, `work_days`, `color`, `archived_at`, `banned`/`banned_at`/`banned_by`, `channel_partner_enabled`, `tracks_channel_intros`, `twilio_number`, `ghl_user_id`, `email`. **`profiles` is world-readable** (`select using(true)`), so anything sensitive (e.g. salaries) must live in a separate exec-only table, NOT a profiles column.
+  - **User ban (revoke sign-in)** — for departed staff. The real enforcement is the Supabase Auth ban (`banned_until` on `auth.users`), set by the **`set-user-ban`** edge function (JWT-on, exec-only) via `admin.auth.admin.updateUserById(id, { ban_duration })` (`'876000h'` ≈ permanent, `'none'` to unban). It also archives the profile + mirrors `profiles.banned` for the roster UI (badge + Revoke/Restore-access buttons; `src/26-user-ban.sql`). `App.jsx` signs out any `profile.banned` user on load as an instant client-side backstop (auth ban catches an active token within ~1h). Ban ≠ archive ≠ delete: archive hides (still can log in), ban blocks sign-in (data kept), delete wipes data.
 - `weekly_scorecards` — `(user_id, week_key)` unique. `week_key` is the Monday of the week as `YYYY-MM-DD` (see `getWeekKey` in `src/dateUtils.js`). `data` is jsonb shaped by the role's blank factory.
 - `monthly_scorecards` — month-level inputs (NRR, NPS, CAC) keyed by `month_key` `YYYY-MM`. Used by `useMtdData`.
 - `metric_targets` — role defaults (`user_id IS NULL`) plus per-user overrides. `useTargets` merges them with overrides winning. **Distinct from `atlas_targets`** — that's the Odyssey monthly targets table.

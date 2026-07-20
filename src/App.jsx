@@ -115,6 +115,16 @@ export default function App() {
         .single()
 
       if (data) {
+        // Access revoked (banned): sign out immediately as a client-side backstop.
+        // The real enforcement is the Supabase Auth ban (banned_until on auth.users);
+        // this makes the lockout instant instead of waiting for token expiry.
+        if (data.banned) {
+          alert('Your access to Atlas has been removed. Please contact an administrator if you believe this is a mistake.')
+          await supabase.auth.signOut()
+          setProfile(null)
+          setLoading(false)
+          return
+        }
         setProfile(data)
         const tier = accessTier(data)
         // Only auto-set viewMode if there's no saved preference — i.e. first

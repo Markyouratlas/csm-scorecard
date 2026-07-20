@@ -1269,6 +1269,8 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
   const [showPreview, setShowPreview] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null) // profile pending permanent deletion
   const [deleting, setDeleting] = useState(false)
+  const [pendingBan, setPendingBan] = useState(null) // profile pending access revocation
+  const [banning, setBanning] = useState(false)
 
   // Per-employee salaries (exec-only; empty for team leads via RLS). Salaries live
   // in employee_compensation, NOT on the world-readable profiles table.
@@ -1302,6 +1304,13 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
   }
   const removeUser = async (id) => {
     await supabase.from('profiles').delete().eq('id', id)
+    reload()
+  }
+  // Ban (revoke sign-in) / unban via the edge function — the ONLY path that can
+  // touch auth.users. Banning also archives; unbanning restores + unarchives.
+  const setBan = async (id, ban) => {
+    const { data, error } = await supabase.functions.invoke('set-user-ban', { body: { userId: id, ban } })
+    if (error || data?.error) { alert('Could not update access: ' + (data?.error || error?.message || 'unknown error')); return }
     reload()
   }
   const setChannelPartner = async (id, enabled) => {
@@ -1366,6 +1375,7 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
       onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
       comp={comp.byProfileId[c.id]}
       onSetComp={(patch) => setComp(c.id, patch)}
+      onRequestBan={() => setPendingBan(c)}
       expanded={expanded === c.id}
       onToggleExpand={() => { setEditing(null); setExpanded(expanded === c.id ? null : c.id) }}
     />
@@ -1436,14 +1446,25 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
                     {p.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium text-stone-800 truncate">{p.name}</div>
-                    <div className="text-xs text-stone-500 truncate">{getTeamLabel(p.team)} · {getRoleLabel(p.team, p.role_type)}</div>
+                    <div className="font-medium text-stone-800 truncate flex items-center gap-1.5">
+                      <span className="truncate">{p.name}</span>
+                      {p.banned && <span className="shrink-0 text-[9px] uppercase tracking-wide font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1 py-0.5">Banned</span>}
+                    </div>
+                    <div className="text-xs text-stone-500 truncate">{getTeamLabel(p.team)} · {getRoleLabel(p.team, p.role_type)}{p.banned ? ' · sign-in revoked' : ''}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => unarchiveUser(p.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
-                      <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-                    </button>
+                    {p.banned ? (
+                      <button onClick={() => setBan(p.id, false)}
+                        title="Restore this person's access — they can sign in again"
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
+                        <ShieldCheck className="w-3.5 h-3.5" /> Restore access
+                      </button>
+                    ) : (
+                      <button onClick={() => unarchiveUser(p.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
+                        <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                      </button>
+                    )}
                     <button onClick={() => setPendingDelete(p)}
                       title="Permanently delete this user and all their data — cannot be undone"
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 transition-colors text-xs font-medium rounded-lg">
@@ -1494,6 +1515,38 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
                   disabled={deleting}
                   className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white transition-colors text-sm font-medium rounded-lg disabled:opacity-50 flex items-center justify-center gap-1.5">
                   <Trash2 className="w-4 h-4" /> {deleting ? 'Deleting…' : 'Delete permanently'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Centered revoke-access (ban) confirmation. */}
+      {pendingBan && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(15,8,37,0.55)', backdropFilter: 'blur(6px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget && !banning) setPendingBan(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" role="dialog" aria-modal="true">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center shrink-0"><ShieldOff className="w-5 h-5 text-amber-700" /></div>
+                <h2 className="display-font text-xl font-medium text-stone-900">Revoke access for {pendingBan.name}?</h2>
+              </div>
+              <div className="text-sm text-stone-600 leading-relaxed space-y-2">
+                <p>They'll be <strong className="text-stone-800">signed out and blocked from signing in</strong> — use this when someone leaves the company.</p>
+                <p>All of their <strong className="text-stone-800">data is kept</strong>, and they'll move to the Archived panel.</p>
+                <p className="text-stone-500">This is reversible — restore their access anytime from Archived.</p>
+              </div>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setPendingBan(null)} disabled={banning}
+                  className="flex-1 py-2 border border-stone-300 hover:bg-stone-100 transition-colors text-sm font-medium rounded-lg disabled:opacity-50">Cancel</button>
+                <button
+                  onClick={async () => { setBanning(true); try { await setBan(pendingBan.id, true) } finally { setBanning(false); setPendingBan(null) } }}
+                  disabled={banning}
+                  className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white transition-colors text-sm font-medium rounded-lg disabled:opacity-50 flex items-center justify-center gap-1.5">
+                  <ShieldOff className="w-4 h-4" /> {banning ? 'Revoking…' : 'Revoke access'}
                 </button>
               </div>
             </div>
@@ -1650,7 +1703,7 @@ function TwilioSetupGuide() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
+function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp, onRequestBan }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1824,6 +1877,13 @@ function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, is
                   </button>
                 )}
               </div>
+            )}
+            {isExec && !isSelf && (
+              <button onClick={onRequestBan}
+                title="Revoke this person's access — signs them out and blocks sign-in (reversible)"
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition-colors text-xs">
+                <ShieldOff className="w-3 h-3" /> Revoke access (ban sign-in)
+              </button>
             )}
           </div>
         ))}
