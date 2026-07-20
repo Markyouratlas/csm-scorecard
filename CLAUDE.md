@@ -143,7 +143,8 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
 
 ### Manager / Leadership views (other than Odyssey)
 
-- `ManagerView.jsx` — exec or team-lead dashboard. Execs see all teams; leads see only `profile.team`. Drills into `ScorecardViewer` to read any user's week.
+- `ManagerView.jsx` — exec or team-lead dashboard. Execs see all teams; leads see only `profile.team`. Drills into `ScorecardViewer` to read any user's week. Also hosts the **Roster** tab (below).
+- **Roster (`RosterTab`/`RosterCard` in `ManagerView.jsx`)** — the team-management view (redesigned 2026-07). Access: **executives** (whole company) + **team leads** (own team only); members can't reach it. There's an access-explainer banner at the top. Members are a **compact single-column list grouped by team** (fixed order: Leadership → Sales → Marketing → FDE → CS → any other → **Investors last**), each row **click-to-expand** to reveal controls: edit role/team, make/remove lead, dialer number, make/demote exec, make investor, and an **exec-only Compensation field** (annual salary + "delivery labor" flag → `employee_compensation`; see the Gross/Operating Margin note). Controls row also has **Show scorecard previews** + **Show archived** (which opens an inline Archived panel). User lifecycle = **archive → ban → delete**, three distinct things: **Archive** (hide, keep data, can still sign in) from the card; **Revoke access / ban** (blocks sign-in via `set-user-ban`, auto-archives) from the card; and in the **Archived panel** each person has Restore (unarchive) *or* Restore-access (unban) + **Delete** (permanent). Delete + ban both use **centered portal confirmation modals** (not `window.confirm`). See the `profiles`/`employee_compensation` data-model notes.
 - `LeadershipDashboardView.jsx` — exec-only roll-up across the whole company (described above).
 - `SharedPagesView.jsx` — feature requests, integrations, cancellations pages (last is gated to executives + CS + FDE).
 - `ScorecardShell.jsx` — common header/footer chrome (logo, submit footer, view-switcher buttons) used by every personal scorecard.
@@ -195,7 +196,7 @@ Don't import or use Inter, Roboto, or system defaults. Fonts (Instrument Serif +
 Many metrics in Odyssey show "Awaiting [Provider]" badges instead of values. These are the planned integrations, in roughly the right order of business value:
 
 - **Stripe** → Total MRR, Total Customers, ARPU, Net New MRR/Sales, MRR Churned, daily cash collected
-- **ProfitWell** → LTV:CAC, CAC payback, Gross Margin, NRR, cohort churn
+- **ProfitWell** → LTV:CAC, CAC payback, NRR, cohort churn  *(Gross Margin is now LIVE — computed from editable COGS + salaries, not ProfitWell; see the `cogs_line_items`/`employee_compensation` notes)*
 - **Amplitude (or product analytics)** → Trial → Paid %, User Activation Rate, User Adoption Rate
 - **HubSpot / CRM** → Partner pipeline, partner-sourced opps, partner calls
 - **OKR system** (Asana goals / dedicated OKR tool / new table) → Quarterly OKR progress + ownership
