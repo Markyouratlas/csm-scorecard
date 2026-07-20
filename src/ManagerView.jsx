@@ -154,16 +154,6 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {archivedCount > 0 && (
-              <button
-                onClick={() => setShowArchived(s => !s)}
-                className={`flex items-center gap-1.5 text-xs px-3 py-2 transition-colors ${showArchived ? 'bg-stone-200 text-stone-900' : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100'}`}
-                title={showArchived ? 'Hide archived users' : `Show ${archivedCount} archived user${archivedCount === 1 ? '' : 's'}`}
-              >
-                <Archive className="w-3.5 h-3.5" />
-                {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
-              </button>
-            )}
             <HeaderNav
               currentPage="manager"
               onSwitchToLeadership={onSwitchToLeadership}
@@ -222,7 +212,7 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
           <ComingSoonRange range={timeRange} />
         )}
         {tab === 'testimonials' && <TestimonialsManagerTab profiles={visibleProfiles} />}
-        {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={reload} isExec={isExec} />}
+        {tab === 'roster' && <RosterTab profiles={visibleProfiles} currentUser={profile} reload={reload} isExec={isExec} showArchived={showArchived} setShowArchived={setShowArchived} archivedCount={archivedCount} />}
       </div>
 
       {showSettings && (
@@ -1272,7 +1262,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
 //  Roster — now shows team/role/lead with edit controls
 // ============================================================================
 
-function RosterTab({ profiles, currentUser, reload, isExec }) {
+function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setShowArchived, archivedCount }) {
   const [editing, setEditing] = useState(null) // profile id being edited
   const [expanded, setExpanded] = useState(null) // profile id expanded to show controls
   const [showPreview, setShowPreview] = useState(false)
@@ -1406,17 +1396,27 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
         </div>
       </div>
 
-      {isExec && (
-        <div className="fade-up" style={{ animationDelay: '40ms' }}>
-          <button
-            onClick={() => setShowPreview(s => !s)}
-            className="flex items-center gap-2 px-4 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium"
-          >
-            <Eye className="w-4 h-4" /> {showPreview ? 'Hide' : 'Show'} scorecard previews
-          </button>
-          {showPreview && <ScorecardPreviews />}
+      {(isExec || archivedCount > 0) && (
+        <div className="fade-up flex flex-wrap items-center gap-2" style={{ animationDelay: '40ms' }}>
+          {isExec && (
+            <button
+              onClick={() => setShowPreview(s => !s)}
+              className="flex items-center gap-2 px-4 py-2 border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-colors text-sm font-medium"
+            >
+              <Eye className="w-4 h-4" /> {showPreview ? 'Hide' : 'Show'} scorecard previews
+            </button>
+          )}
+          {archivedCount > 0 && (
+            <button
+              onClick={() => setShowArchived(s => !s)}
+              className={`flex items-center gap-2 px-4 py-2 border transition-colors text-sm font-medium ${showArchived ? 'border-stone-900 bg-stone-100 text-stone-900' : 'border-stone-300 hover:border-stone-900 hover:bg-stone-100'}`}
+            >
+              <Archive className="w-4 h-4" /> {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+            </button>
+          )}
         </div>
       )}
+      {isExec && showPreview && <ScorecardPreviews />}
 
       {teamGroups.map((g, i) => (
         <div key={g.key} className="fade-up" style={{ animationDelay: `${60 + i * 30}ms` }}>
