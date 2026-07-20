@@ -1266,7 +1266,6 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
   const [editing, setEditing] = useState(null) // profile id being edited
   const [expanded, setExpanded] = useState(null) // profile id expanded to show controls
   const [showPreview, setShowPreview] = useState(false)
-  const [archivedOpen, setArchivedOpen] = useState(true)
 
   // Per-employee salaries (exec-only; empty for team leads via RLS). Salaries live
   // in employee_compensation, NOT on the world-readable profiles table.
@@ -1418,6 +1417,38 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
       )}
       {isExec && showPreview && <ScorecardPreviews />}
 
+      {/* Archived panel — opens inline (like previews) with a one-click Restore. */}
+      {showArchived && (
+        <div className="fade-up rounded-xl border border-stone-200 bg-stone-50/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Archive className="w-4 h-4 text-stone-500" />
+            <span className="display-font text-lg font-medium text-stone-900">Archived</span>
+            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {archived.length} member{archived.length === 1 ? '' : 's'}</span>
+          </div>
+          {archived.length === 0 ? (
+            <div className="text-sm text-stone-500">No archived members.</div>
+          ) : (
+            <div className="space-y-2">
+              {archived.map(p => (
+                <div key={p.id} className="flex items-center gap-3 bg-white border border-stone-200 rounded-lg px-3 py-2">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0" style={{ background: p.color, fontFamily: "'Instrument Serif', serif" }}>
+                    {p.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-stone-800 truncate">{p.name}</div>
+                    <div className="text-xs text-stone-500 truncate">{getTeamLabel(p.team)} · {getRoleLabel(p.team, p.role_type)}</div>
+                  </div>
+                  <button onClick={() => unarchiveUser(p.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
+                    <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {teamGroups.map((g, i) => (
         <div key={g.key} className="fade-up" style={{ animationDelay: `${60 + i * 30}ms` }}>
           <div className="flex items-baseline flex-nowrap gap-2 mb-3 pl-3" style={{ borderLeft: `3px solid ${getTeamColor(g.key)}` }}>
@@ -1430,22 +1461,6 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
         </div>
       ))}
 
-      {archived.length > 0 && (
-        <div className="fade-up">
-          <button onClick={() => setArchivedOpen(o => !o)}
-            className="flex items-center gap-2 mb-3 text-stone-600 hover:text-stone-900 transition-colors">
-            {archivedOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            <Archive className="w-4 h-4" />
-            <h2 className="display-font text-xl font-medium">Archived</h2>
-            <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {archived.length} member{archived.length === 1 ? '' : 's'}</span>
-          </button>
-          {archivedOpen && (
-            <div className="space-y-2">
-              {archived.map(renderCard)}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
