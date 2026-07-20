@@ -153,6 +153,15 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
 - `monthly_scorecards` — month-level inputs (NRR, NPS, CAC) keyed by `month_key` `YYYY-MM`. Used by `useMtdData`.
 - `metric_targets` — role defaults (`user_id IS NULL`) plus per-user overrides. `useTargets` merges them with overrides winning. **Distinct from `atlas_targets`** — that's the Odyssey monthly targets table.
 - `atlas_targets` — described above. Powers OdysseyView + TargetEditModal.
+- `cogs_line_items` + `cogs_config` — editable COGS inputs behind the Odyssey **Gross Margin** tile
+  (`src/24-cogs-line-items.sql`). `cogs_line_items` = one row per infra vendor (`category='infra'`,
+  amounts filled as invoices arrive) or delivery-labor person (`category='labor'`, `annual_amount` +
+  derived `monthly_amount`). `cogs_config` = single row (`interim_infra_total` shown until all infra
+  items entered, `headline_view` 'infra'|'loaded'). **RLS executive-only** (salaries). `src/hooks/useCogs.js`
+  computes both margins vs the MRR single-source (`mrrStat.value`) and **writes the headline margin % into
+  `atlas_targets['gross-margin']` (source 'finance')** so the Investor gauge (`useExecutiveStats.econ.grossMargin`
+  → `InvestorView`) + both Odyssey tiles update with no extra wiring. UI: `src/GrossMarginModal.jsx`
+  (COGS breakdown, opened via the tiles' `onBreakdownClick` in `OdysseyView` ExecutiveView).
 - `cancellations` — customer cancellation log. Used by Odyssey monthly rollups.
 - `testimonial_candidates` + `testimonial-videos` storage bucket — added by `supabase-testimonials-migration.sql`.
 

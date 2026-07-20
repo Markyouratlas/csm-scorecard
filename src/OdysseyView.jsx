@@ -13,6 +13,8 @@ import { supabase } from './supabase.js'
 import { useAtlasTargets, formatMetricValue } from './hooks/useAtlasTargets.js'
 import { TEAMS, accessTier } from './teams.js'
 import TargetEditModal from './TargetEditModal.jsx'
+import GrossMarginModal from './GrossMarginModal.jsx'
+import { useCogs } from './hooks/useCogs.js'
 import RevenueBreakdownCard from './RevenueBreakdownCard.jsx'
 import { useRevenueBreakdown } from './hooks/useRevenueBreakdown'
 import { useMrrHistory } from './hooks/useMrrHistory.js'
@@ -88,7 +90,7 @@ export default function OdysseyView({ onSwitchToManagerTeam, profile }) {
       <OdysseyStyles />
       <ProtoTabs view={view} setView={setView} />
       <main className="relative max-w-[1400px] mx-auto px-2 sm:px-4 py-6 lg:py-10">
-        {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} />}
+        {view === 'executive' && <ExecutiveView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'weekly'    && <WeeklyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'daily'     && <DailyView data={data} targets={targets} canEdit={canEdit} openModal={openTargetModal} userId={profile?.id} />}
         {view === 'log'       && <QuickLogView onSwitchToManagerTeam={onSwitchToManagerTeam} />}
@@ -173,7 +175,7 @@ function ProtoTabs({ view, setView }) {
 //  Executive view — annual targets + quarterly OKRs + strategic initiatives
 // =============================================================================
 
-function ExecutiveView({ data, targets, canEdit, openModal }) {
+function ExecutiveView({ data, targets, canEdit, openModal, userId }) {
   // Pull actuals from atlas_targets (manual backfill) — falling back to live Supabase computed
   const mrrLatest = targets.getLatestActual('total-mrr')
   const customersLatest = targets.getLatestActual('total-customers')
@@ -210,6 +212,12 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
   const mrrStat = resolveStat('total-mrr', liveMrr)
   const customersStat = resolveStat('total-customers', liveCustomers)
   const arpuStat = resolveStat('arpu', liveArpu)
+
+  // Gross Margin — computed live from editable COGS inputs (cogs_line_items) and
+  // the MRR single source of truth. useCogs also writes the headline margin back
+  // to atlas_targets['gross-margin'] so the Investor gauge stays in sync.
+  const cogs = useCogs({ mrr: mrrStat.value, canEdit, userId })
+  const [grossMarginOpen, setGrossMarginOpen] = useState(false)
 
   // Stored monthly MRR snapshots + the live current month layered on top (live wins).
   const hist = useMrrHistory()
@@ -283,7 +291,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
       {/* Annual metrics that depend on ProfitWell */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <NumberBlock metricKey="ltv-cac" label="LTV : CAC" value={null} suffix=":1" awaiting="Attribution" openModal={openModal} />
-        <NumberBlock metricKey="gross-margin" label="Gross Margin" value={null} suffix="%" awaiting="Finance" openModal={openModal} />
+        <NumberBlock label="Gross Margin" value={cogs.headlineMargin} format="percent" hint="Click for COGS breakdown" onBreakdownClick={() => setGrossMarginOpen(true)} />
         <NumberBlock metricKey="net-rev-retention" label="Net Rev Retention" value={nrr?.actual} format="percent" awaiting={nrr?.actual == null ? 'ProfitWell' : undefined} source={nrr?.source} openModal={openModal} />
       </div>
 
@@ -317,7 +325,7 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
       />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} liveValue={liveArpu} openModal={openModal} />
-        <MetricCard metricKey="gross-margin" label="Gross Margin" awaiting="Finance" openModal={openModal} />
+        <MetricCard label="Gross Margin" value={cogs.headlineMargin} format="percent" onBreakdownClick={() => setGrossMarginOpen(true)} />
         <MetricCard metricKey="cac" label="CAC" awaiting="Attribution" openModal={openModal} />
         <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Attribution" openModal={openModal} />
         <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting="Attribution" openModal={openModal} />
@@ -331,6 +339,15 @@ function ExecutiveView({ data, targets, canEdit, openModal }) {
         onClose={() => setHistoryOpen(false)}
         series={weeklyMrr.series}
         onSaveWeek={weeklyMrr.saveWeek}
+      />
+
+      <GrossMarginModal
+        open={grossMarginOpen}
+        onClose={() => setGrossMarginOpen(false)}
+        cogs={cogs}
+        mrr={mrrStat.value}
+        mrrSource={mrrStat.source}
+        canEdit={canEdit}
       />
     </div>
   )
