@@ -162,6 +162,14 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
   `atlas_targets['gross-margin']` (source 'finance')** so the Investor gauge (`useExecutiveStats.econ.grossMargin`
   → `InvestorView`) + both Odyssey tiles update with no extra wiring. UI: `src/GrossMarginModal.jsx`
   (COGS breakdown, opened via the tiles' `onBreakdownClick` in `OdysseyView` ExecutiveView).
+- `employee_compensation` — per-employee salaries (`src/25-employee-compensation.sql`), **executive-only RLS**,
+  keyed by `profile_id` (NOT on `profiles`, which is world-readable `using(true)` — a salary column there would
+  leak). Entered on the **Roster** via an exec-only field on each `RosterCard` (`src/hooks/useEmployeeComp.js`
+  → `setComp`). `counts_in_cogs` = the per-person "delivery labor" flag. Feeds `useCogs`: delivery-flagged
+  salaries roll into **gross-margin** labor (still written to `atlas_targets['gross-margin']`); ALL salaries +
+  infra + contractors + `cogs_config.other_opex_monthly` drive a **new Operating Margin** tile. **Operating
+  margin is executive-only and is deliberately NOT written to `atlas_targets`** (that table is authenticated-read
+  → would leak to investors); it's computed live in the Odyssey ExecutiveView tile + `GrossMarginModal` only.
 - `cancellations` — customer cancellation log. Used by Odyssey monthly rollups.
 - `testimonial_candidates` + `testimonial-videos` storage bucket — added by `supabase-testimonials-migration.sql`.
 

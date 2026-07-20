@@ -64,6 +64,8 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
     allInfraEntered, infraSubtotal, infraVariance, interimInfraTotal,
     laborSubtotal, totalCogsInfra, totalCogsLoaded,
     marginInfra, marginLoaded, grossProfitInfra, grossProfitLoaded,
+    contractorLabor = 0, deliverySalaries = 0, totalSalaries = 0, otherOpex = 0,
+    operatingCosts, operatingMargin, operatingProfit,
     headlineView,
     saveItem, addItem, removeItem, saveConfig,
   } = cogs || {}
@@ -157,8 +159,16 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
           </Section>
 
           {/* Delivery labor */}
-          <Section title="Delivery labor" subtitle="FDE + CS — annual salary ÷ 12" onAdd={canEdit ? () => run(() => addItem('labor', { annual_amount: null })) : null} busy={busy}>
+          <Section title="Delivery labor" subtitle="Roster salaries flagged as delivery + manual contractors" onAdd={canEdit ? () => run(() => addItem('labor', { annual_amount: null })) : null} busy={busy}>
             <Table headers={['Annual', 'Monthly']}>
+              {deliverySalaries > 0 && (
+                <tr className="border-b border-stone-100">
+                  <td className="py-2 text-stone-800">Delivery salaries <span className="text-[10px] text-stone-400">· from roster</span></td>
+                  <td className="py-2 text-right text-stone-300">—</td>
+                  <td className="py-2 text-right num-tabular text-stone-800">{usd(deliverySalaries)}</td>
+                  <td />
+                </tr>
+              )}
               {laborItems.map(item => (
                 <Row key={item.id} name={item.name} canEdit={canEdit} onRemove={() => run(() => removeItem(item.id))}
                   extra={<AmountCell value={item.annual_amount} canEdit={canEdit}
@@ -168,6 +178,7 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
               ))}
               <SubtotalRow label="Delivery labor subtotal" value={laborSubtotal} span2 />
             </Table>
+            <div className="mt-1 text-[10px] text-stone-400">Per-person salaries are entered privately on the Roster (executives only). Contractors can be added here.</div>
           </Section>
 
           {/* Margins summary */}
@@ -187,6 +198,38 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
                   <td className="px-4 pb-2"></td>
                   <td className="px-4 pb-2 text-right">Infra only</td>
                   <td className="px-4 pb-2 text-right">Fully loaded</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Operating margin — executives only (never written to atlas_targets) */}
+          <div className="rounded-xl border border-stone-200 overflow-hidden">
+            <div className="px-4 py-2.5 mono-text text-[10px] uppercase tracking-[0.14em] text-stone-500 bg-stone-50 border-b border-stone-200 flex items-center justify-between gap-2">
+              <span>Operating margin</span>
+              <span className="normal-case tracking-normal text-stone-400">executives only · not shown to investors</span>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                <OpRow label="MRR" value={usd(mrr)} />
+                <OpRow label="Infrastructure" value={usd(infraSubtotal)} />
+                <OpRow label="Contractor labor" value={usd(contractorLabor)} />
+                <OpRow label="Employee salaries (all)" value={usd(totalSalaries)} />
+                <tr className="border-b border-stone-100">
+                  <td className="px-4 py-2.5 text-stone-700">Other operating costs</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {canEdit
+                      ? <AmountCell value={otherOpex} canEdit onSave={(v) => run(() => saveConfig({ other_opex_monthly: v ?? 0 }))} placeholder="0" />
+                      : <span className="num-tabular text-stone-800">{usd(otherOpex)}</span>}
+                  </td>
+                </tr>
+                <tr className="border-t border-stone-200 font-semibold text-stone-900">
+                  <td className="px-4 py-2.5">Operating costs</td>
+                  <td className="px-4 py-2.5 text-right num-tabular">{usd(operatingCosts)}</td>
+                </tr>
+                <tr className="border-t border-stone-200 font-semibold" style={{ color: BRAND }}>
+                  <td className="px-4 py-2.5">Operating margin</td>
+                  <td className="px-4 py-2.5 text-right num-tabular">{pct(operatingMargin)} · {usd(operatingProfit)}</td>
                 </tr>
               </tbody>
             </table>
@@ -260,6 +303,15 @@ function SubtotalRow({ label, value, span2 }) {
       {span2 && <td />}
       <td className="py-2.5 text-right num-tabular">{usd(value)}</td>
       <td />
+    </tr>
+  )
+}
+
+function OpRow({ label, value }) {
+  return (
+    <tr className="border-b border-stone-100">
+      <td className="px-4 py-2.5 text-stone-700">{label}</td>
+      <td className="px-4 py-2.5 text-right num-tabular text-stone-800">{value}</td>
     </tr>
   )
 }

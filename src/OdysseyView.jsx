@@ -326,6 +326,7 @@ function ExecutiveView({ data, targets, canEdit, openModal, userId }) {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricCard metricKey="arpu" label="ARPU" value={arpuStat.value} prefix="$" format="currency" source={arpuStat.source} liveValue={liveArpu} openModal={openModal} />
         <MetricCard label="Gross Margin" value={cogs.headlineMargin} format="percent" onBreakdownClick={() => setGrossMarginOpen(true)} />
+        <MetricCard label="Operating Margin" value={cogs.operatingMargin} format="percent" hint="Incl. all salaries · exec-only" onBreakdownClick={() => setGrossMarginOpen(true)} />
         <MetricCard metricKey="cac" label="CAC" awaiting="Attribution" openModal={openModal} />
         <MetricCard metricKey="cac-payback" label="CAC Payback" awaiting="Attribution" openModal={openModal} />
         <MetricCard metricKey="ltv-cac" label="LTV : CAC" awaiting="Attribution" openModal={openModal} />

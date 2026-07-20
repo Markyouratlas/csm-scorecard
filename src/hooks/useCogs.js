@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
+import { useEmployeeComp } from './useEmployeeComp.js'
 
 // =============================================================================
 //  useCogs({ mrr, canEdit, userId })
@@ -29,6 +30,9 @@ function currentMonthDate() {
 
 export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
   const queryClient = useQueryClient()
+  // Employee salaries (exec-only) — delivery-flagged salaries feed gross-margin
+  // labor; all salaries feed operating margin. Empty for non-execs (RLS).
+  const comp = useEmployeeComp()
 
   const { data, isPending, error, refetch } = useQuery({
     queryKey: COGS_KEY,
@@ -59,7 +63,13 @@ export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
     const infraSubtotal = allInfraEntered ? infraEnteredSum : interimInfraTotal
     const infraVariance = allInfraEntered ? infraEnteredSum - interimInfraTotal : null
 
-    const laborSubtotal = laborItems.reduce((s, i) => s + (num(i.monthly_amount) || 0), 0)
+    const contractorLabor = laborItems.reduce((s, i) => s + (num(i.monthly_amount) || 0), 0)
+    const deliverySalaries = comp.deliveryMonthlySalaries || 0  // roster salaries flagged delivery labor
+    const totalSalaries = comp.totalMonthlySalaries || 0
+    const otherOpex = num(config?.other_opex_monthly) || 0
+
+    // Gross-margin labor = manual contractor rows + delivery-flagged employee salaries.
+    const laborSubtotal = contractorLabor + deliverySalaries
 
     const totalCogsInfra = infraSubtotal
     const totalCogsLoaded = infraSubtotal + laborSubtotal
@@ -70,6 +80,13 @@ export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
     const grossProfitInfra = mrr != null ? mrr - totalCogsInfra : null
     const grossProfitLoaded = mrr != null ? mrr - totalCogsLoaded : null
 
+    // Operating margin (EXECUTIVE-ONLY): every cost — infra + contractor labor +
+    // ALL employee salaries + other opex. Deliberately NOT written to atlas_targets
+    // (that table is authenticated-read and would leak to investors).
+    const operatingCosts = infraSubtotal + contractorLabor + totalSalaries + otherOpex
+    const operatingMargin = hasMrr ? ((mrr - operatingCosts) / mrr) * 100 : null
+    const operatingProfit = mrr != null ? mrr - operatingCosts : null
+
     const headlineView = config?.headline_view === 'loaded' ? 'loaded' : 'infra'
     const headlineMargin = headlineView === 'loaded' ? marginLoaded : marginInfra
     const headlineProfit = headlineView === 'loaded' ? grossProfitLoaded : grossProfitInfra
@@ -78,11 +95,13 @@ export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
     return {
       infraItems, laborItems,
       allInfraEntered, infraEnteredSum, interimInfraTotal, infraSubtotal, infraVariance,
+      contractorLabor, deliverySalaries, totalSalaries, otherOpex,
       laborSubtotal, totalCogsInfra, totalCogsLoaded,
       marginInfra, marginLoaded, grossProfitInfra, grossProfitLoaded,
+      operatingCosts, operatingMargin, operatingProfit,
       headlineView, headlineMargin, headlineProfit, headlineCogs,
     }
-  }, [items, config, mrr])
+  }, [items, config, mrr, comp.deliveryMonthlySalaries, comp.totalMonthlySalaries])
 
   // ---- Mutations (executive-only; RLS also enforces) ----
   const saveItem = useCallback(async (id, patch) => {

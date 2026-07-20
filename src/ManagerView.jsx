@@ -15,6 +15,7 @@ import {
 import { sumDays, avgDays, cpl, ctr, cpm, bookingRate, showUpRate, closeRate } from './metrics'
 import { getWeekKey, formatWeekLabel, stepWeek } from './dateUtils'
 import { TEAMS, getTeam, getRoleLabel, getTeamLabel, getTeamColor, accessTier, leadTeamKeys, DEFAULT_WORK_DAYS, isLeadershipRole } from './teams'
+import { useEmployeeComp } from './hooks/useEmployeeComp.js'
 
 import ScorecardViewer from './ScorecardViewer'
 import RocketLoader from './RocketLoader'
@@ -1276,6 +1277,14 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
   const [showPreview, setShowPreview] = useState(false)
   const [archivedOpen, setArchivedOpen] = useState(true)
 
+  // Per-employee salaries (exec-only; empty for team leads via RLS). Salaries live
+  // in employee_compensation, NOT on the world-readable profiles table.
+  const comp = useEmployeeComp()
+  const setComp = async (id, patch) => {
+    try { await comp.setComp(id, patch, currentUser.id) }
+    catch (e) { alert('Could not save compensation: ' + (e.message || e)) }
+  }
+
   const setRole = async (id, newRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id)
     reload()
@@ -1360,6 +1369,8 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
       onUnarchive={() => unarchiveUser(c.id)}
       onRemove={() => removeUser(c.id)}
       onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
+      comp={comp.byProfileId[c.id]}
+      onSetComp={(patch) => setComp(c.id, patch)}
     />
   )
 
@@ -1566,7 +1577,7 @@ function TwilioSetupGuide() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber }) {
+function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1671,6 +1682,26 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
                   className="w-full py-1.5 px-2 border border-stone-300 focus:border-stone-900 transition-colors text-xs num-tabular" />
                 <div className="text-[10px] text-stone-400 mt-1">Their Twilio number — caller ID for outbound + rings them for inbound. Enter in E.164 (e.g. <span className="num-tabular">+13325550142</span>).</div>
                 <TwilioSetupGuide />
+              </div>
+            )}
+            {isExec && (
+              <div>
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Compensation <span className="normal-case tracking-normal text-stone-400">· execs only</span></div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-stone-400">$</span>
+                  <input key={comp?.annual_salary ?? 'none'} type="number" min="0" step="any"
+                    defaultValue={comp?.annual_salary ?? ''} placeholder="annual salary"
+                    onBlur={(e) => { const v = e.target.value.trim() === '' ? null : Number(e.target.value); if (v !== (comp?.annual_salary ?? null)) onSetComp({ annual_salary: v }) }}
+                    className="flex-1 py-1.5 px-2 border border-stone-300 focus:border-stone-900 transition-colors text-xs num-tabular" />
+                  <span className="text-[10px] text-stone-400">/yr</span>
+                </div>
+                <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={!!comp?.counts_in_cogs}
+                    onChange={(e) => onSetComp({ counts_in_cogs: e.target.checked })}
+                    style={{ accentColor: '#6639A6', width: 14, height: 14 }} />
+                  <span className="text-[10px] text-stone-600">Counts toward gross margin (delivery labor)</span>
+                </label>
+                <div className="text-[10px] text-stone-400 mt-1">Private to executives. Feeds Operating Margin (all salaries) + Gross Margin (if delivery). Stored off the profiles table.</div>
               </div>
             )}
             {isExec && !isSelf && profile.role !== 'executive' && (
