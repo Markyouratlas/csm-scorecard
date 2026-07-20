@@ -1297,8 +1297,14 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
     await supabase.from('profiles').update({ archived_at: null }).eq('id', id)
     reload()
   }
-  const removeUser = async (id) => {
-    if (!confirm("⚠️ PERMANENTLY DELETE this user?\n\nThis cannot be undone. All their scorecards and data will be lost forever.\n\nIf they just left the company, use 'Archive' instead — that preserves their data.\n\nAre you absolutely sure?")) return
+  const removeUser = async (id, name) => {
+    const msg = `Permanently delete ${name || 'this user'}?\n\n`
+      + `• ALL of their data will be deleted — scorecards, deals, call logs, and anything else tied to them.\n`
+      + `• This may affect reports and rollups that included their data.\n`
+      + `• This CANNOT be undone once deleted.\n\n`
+      + `Deleting is NOT recommended. Archiving already hides them while preserving their data. `
+      + `Only delete if you are absolutely certain.`
+    if (!confirm(msg)) return
     await supabase.from('profiles').delete().eq('id', id)
     reload()
   }
@@ -1361,7 +1367,6 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
       onSetInvestor={(makeInvestor) => setInvestor(c.id, makeInvestor, c.team)}
       onArchive={() => archiveUser(c.id)}
       onUnarchive={() => unarchiveUser(c.id)}
-      onRemove={() => removeUser(c.id)}
       onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
       comp={comp.byProfileId[c.id]}
       onSetComp={(patch) => setComp(c.id, patch)}
@@ -1438,10 +1443,17 @@ function RosterTab({ profiles, currentUser, reload, isExec, showArchived, setSho
                     <div className="font-medium text-stone-800 truncate">{p.name}</div>
                     <div className="text-xs text-stone-500 truncate">{getTeamLabel(p.team)} · {getRoleLabel(p.team, p.role_type)}</div>
                   </div>
-                  <button onClick={() => unarchiveUser(p.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
-                    <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => unarchiveUser(p.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 transition-colors text-xs font-medium rounded-lg">
+                      <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                    </button>
+                    <button onClick={() => removeUser(p.id, p.name)}
+                      title="Permanently delete this user and all their data — cannot be undone"
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 transition-colors text-xs font-medium rounded-lg">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1610,7 +1622,7 @@ function TwilioSetupGuide() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
+function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1778,16 +1790,11 @@ function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, is
                   </button>
                 ) : (
                   <button onClick={onArchive} disabled={isSelf}
-                    title="Archive this user — they're hidden but their data is preserved"
-                    className="flex items-center justify-center px-3 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
-                    <Archive className="w-3 h-3" />
+                    title="Archive this user — hidden from the roster but their data is preserved. Delete is available in the Archived panel."
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 border border-stone-300 hover:bg-stone-100 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                    <Archive className="w-3 h-3" /> Archive
                   </button>
                 )}
-                <button onClick={onRemove} disabled={isSelf}
-                  title="Permanently delete this user — cannot be undone"
-                  className="flex items-center justify-center px-3 py-1.5 border border-stone-300 hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed">
-                  <Trash2 className="w-3 h-3" />
-                </button>
               </div>
             )}
           </div>
