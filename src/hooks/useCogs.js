@@ -169,6 +169,7 @@ export function useCogs({ mrr = null, canEdit = false, userId = null } = {}) {
     error: error ?? null,
     config,
     ...computed,
+    deliverySalaryRows: comp.deliveryRows || [],
     saveItem, addItem, removeItem, saveConfig,
     refresh: refetch,
   }

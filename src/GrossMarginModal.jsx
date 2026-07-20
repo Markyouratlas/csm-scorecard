@@ -65,6 +65,7 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
     laborSubtotal, totalCogsInfra, totalCogsLoaded,
     marginInfra, marginLoaded, grossProfitInfra, grossProfitLoaded,
     contractorLabor = 0, deliverySalaries = 0, totalSalaries = 0, otherOpex = 0,
+    deliverySalaryRows = [],
     operatingCosts, operatingMargin, operatingProfit,
     headlineView,
     saveItem, addItem, removeItem, saveConfig,
@@ -161,7 +162,17 @@ export default function GrossMarginModal({ open, onClose, cogs, mrr, mrrSource, 
           {/* Delivery labor */}
           <Section title="Delivery labor" subtitle="Roster salaries flagged as delivery + manual contractors" onAdd={canEdit ? () => run(() => addItem('labor', { annual_amount: null })) : null} busy={busy}>
             <Table headers={['Annual', 'Monthly']}>
-              {deliverySalaries > 0 && (
+              {/* One row per person flagged as delivery labor on the Roster. */}
+              {deliverySalaryRows.map(p => (
+                <tr key={p.profile_id} className="border-b border-stone-100">
+                  <td className="py-2 text-stone-800">{p.name} <span className="text-[10px] text-stone-400">· roster</span></td>
+                  <td className="py-2 text-right text-stone-300">—</td>
+                  <td className="py-2 text-right num-tabular text-stone-800">{usd(p.monthly)}</td>
+                  <td />
+                </tr>
+              ))}
+              {/* Fallback if names couldn't be resolved but a total exists. */}
+              {deliverySalaryRows.length === 0 && deliverySalaries > 0 && (
                 <tr className="border-b border-stone-100">
                   <td className="py-2 text-stone-800">Delivery salaries <span className="text-[10px] text-stone-400">· from roster</span></td>
                   <td className="py-2 text-right text-stone-300">—</td>

@@ -25,7 +25,7 @@ export function useEmployeeComp() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('employee_compensation')
-        .select('profile_id, annual_salary, counts_in_cogs, notes')
+        .select('profile_id, annual_salary, counts_in_cogs, notes, profiles(name)')
       if (error) { console.warn('useEmployeeComp: unavailable (non-exec or migration not run) —', error.message); return [] }
       return data || []
     },
@@ -36,15 +36,20 @@ export function useEmployeeComp() {
 
   const derived = useMemo(() => {
     const byProfileId = {}
+    const deliveryRows = []           // per-person delivery-labor rows (for the GM modal)
     let totalMonthlySalaries = 0
     let deliveryMonthlySalaries = 0
     for (const r of rows) {
       byProfileId[r.profile_id] = { annual_salary: r.annual_salary, counts_in_cogs: !!r.counts_in_cogs, notes: r.notes }
       const monthly = r.annual_salary != null ? Number(r.annual_salary) / 12 : 0
       totalMonthlySalaries += monthly
-      if (r.counts_in_cogs) deliveryMonthlySalaries += monthly
+      if (r.counts_in_cogs) {
+        deliveryMonthlySalaries += monthly
+        deliveryRows.push({ profile_id: r.profile_id, name: r.profiles?.name || 'Unknown', monthly })
+      }
     }
-    return { byProfileId, totalMonthlySalaries, deliveryMonthlySalaries }
+    deliveryRows.sort((a, b) => b.monthly - a.monthly)
+    return { byProfileId, deliveryRows, totalMonthlySalaries, deliveryMonthlySalaries }
   }, [rows])
 
   // Upsert one employee's comp (executive-only; RLS also enforces).
