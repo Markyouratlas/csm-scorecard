@@ -1274,6 +1274,7 @@ function CandidateTable({ rows, csmById, onToggleQualified, onDownload, onRemove
 
 function RosterTab({ profiles, currentUser, reload, isExec }) {
   const [editing, setEditing] = useState(null) // profile id being edited
+  const [expanded, setExpanded] = useState(null) // profile id expanded to show controls
   const [showPreview, setShowPreview] = useState(false)
   const [archivedOpen, setArchivedOpen] = useState(true)
 
@@ -1371,6 +1372,8 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
       onToggleChannelPartner={(enabled) => setChannelPartner(c.id, enabled)}
       comp={comp.byProfileId[c.id]}
       onSetComp={(patch) => setComp(c.id, patch)}
+      expanded={expanded === c.id}
+      onToggleExpand={() => { setEditing(null); setExpanded(expanded === c.id ? null : c.id) }}
     />
   )
 
@@ -1386,6 +1389,17 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
             ? 'Promote leads, change teams, mark executives. Members appear automatically when they sign up.'
             : 'Manage members on your team.'}
         </p>
+      </div>
+
+      {/* Who can see this page */}
+      <div className="fade-up flex items-start gap-3 rounded-xl border border-stone-200 bg-stone-50/70 px-4 py-3" style={{ animationDelay: '20ms' }}>
+        <Shield className="w-4 h-4 text-stone-500 shrink-0 mt-0.5" />
+        <div className="text-sm text-stone-600 leading-relaxed">
+          <span className="font-semibold text-stone-800">Who can see this page:</span>{' '}
+          <span className="font-medium text-stone-700">Executives</span> see the entire company;{' '}
+          <span className="font-medium text-stone-700">team leads</span> see only their own team. Regular members can’t open the Roster.
+          {isExec && <> Salary figures are <span className="font-medium text-stone-700">executives-only</span> and never shown to team leads.</>}
+        </div>
       </div>
 
       {isExec && (
@@ -1406,7 +1420,7 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
             <h2 className="display-font text-2xl font-semibold text-stone-900">{getTeamLabel(g.key)}</h2>
             <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500 whitespace-nowrap">· {g.members.length} member{g.members.length === 1 ? '' : 's'}</span>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="space-y-2">
             {g.members.map(renderCard)}
           </div>
         </div>
@@ -1422,7 +1436,7 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
             <span className="mono-font text-[10px] uppercase tracking-widest text-stone-500">· {archived.length} member{archived.length === 1 ? '' : 's'}</span>
           </button>
           {archivedOpen && (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="space-y-2">
               {archived.map(renderCard)}
             </div>
           )}
@@ -1577,7 +1591,7 @@ function TwilioSetupGuide() {
   )
 }
 
-function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
+function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, isEditing, onStartEdit, onCancelEdit, onSetRole, onSetTeamRole, onSetTeamLead, onSetInvestor, onArchive, onUnarchive, onRemove, onToggleChannelPartner, onSetTwilioNumber, comp, onSetComp }) {
   const team = getTeam(profile.team)
   const roleLabel = getRoleLabel(profile.team, profile.role_type)
   const tier = accessTier(profile)
@@ -1594,23 +1608,27 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
   }
 
   return (
-    <div className={`bg-white border border-stone-200 overflow-hidden transition-opacity ${profile.archived_at ? 'opacity-60' : ''}`}>
-      <div className="h-2" style={{ background: profile.archived_at ? '#A8A29E' : profile.color }} />
+    <div className={`bg-white border ${expanded ? 'border-stone-300 shadow-sm' : 'border-stone-200'} overflow-hidden transition-all ${profile.archived_at ? 'opacity-60' : ''}`}>
+      <div className="h-1" style={{ background: profile.archived_at ? '#A8A29E' : profile.color }} />
       {profile.archived_at && (
         <div className="bg-stone-100 border-b border-stone-200 px-3 py-1.5 flex items-center gap-1.5">
           <Archive className="w-3 h-3 text-stone-500" />
           <span className="mono-font text-[10px] uppercase tracking-widest text-stone-600">Archived</span>
         </div>
       )}
-      <div className="p-5">
-        <div className="flex items-start gap-3 mb-4">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
+      <div className="p-4">
+        <div onClick={onToggleExpand} role="button" tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleExpand() } }}
+          className={`flex items-center gap-3 cursor-pointer select-none ${expanded ? 'mb-4' : ''}`}>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0" style={{ background: profile.color, fontFamily: "'Instrument Serif', serif" }}>
             {profile.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="display-font text-lg font-medium text-stone-900 truncate">{profile.name}</div>
-            <div className="text-xs text-stone-500 mt-0.5 truncate">{profile.title}</div>
-            <div className="mt-1.5 flex flex-wrap gap-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="display-font text-lg font-medium text-stone-900 truncate">{profile.name}</span>
+              {profile.title && <span className="text-xs text-stone-400 truncate hidden sm:inline">· {profile.title}</span>}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
               {tier === 'executive' && <Badge color="amber" icon={Crown}>Executive</Badge>}
               {tier === 'team_lead' && <Badge color="amber" icon={UserCheck}>Lead</Badge>}
               {(tier === 'investor' || tier === 'investor_pending') ? (
@@ -1624,9 +1642,10 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
               {profile.channel_partner_enabled && profile.team === 'sales' && <Badge color="violet" icon={Handshake}>Channel Partner</Badge>}
             </div>
           </div>
+          <ChevronDown className={`w-4 h-4 text-stone-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </div>
 
-        {isEditing ? (
+        {expanded && (isEditing ? (
           <div className="space-y-2 border-t border-stone-200 pt-3 mt-1">
             <div>
               <label className="mono-font text-[9px] uppercase tracking-widest text-stone-500 block mb-1">Team</label>
@@ -1753,7 +1772,7 @@ function RosterCard({ profile, currentUser, isExec, isEditing, onStartEdit, onCa
               </div>
             )}
           </div>
-        )}
+        ))}
       </div>
     </div>
   )
