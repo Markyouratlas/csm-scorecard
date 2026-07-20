@@ -1377,11 +1377,14 @@ function ExecutiveView() {
             <div className="grid grid-cols-3 gap-4 mt-8">
               {subStats.map((s) => (
                 <GateTile key={s.label} id={s.k} label={s.label}>
-                  <div className="relative pr-4">
-                    <LiveLED status={s.led.status} reason={s.led.reason} style={{ top: 0, right: 0 }} />
+                  <div>
+                    {/* LED sits inline with the label so it clearly belongs to THIS
+                        sub-stat (was absolute top-right, which drifted toward the
+                        next column). */}
                     <div className="flex items-center gap-1.5">
                       <div className="text-[10px] uppercase tracking-[0.14em] font-body font-semibold" style={{ color: 'var(--text-3)' }}>{s.label}</div>
                       <InfoTooltip content={FORMULAS[s.label]} label={s.label} />
+                      <LiveLED status={s.led.status} reason={s.led.reason} style={{ position: 'static' }} />
                     </div>
                     <div className="font-display text-2xl mt-1" style={{ color: 'var(--text)' }}>{s.v}</div>
                     <div className="text-[11px] font-mono" style={{ color: 'var(--text-4)' }}>target {s.t}</div>
