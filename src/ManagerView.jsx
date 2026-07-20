@@ -1343,10 +1343,14 @@ function RosterTab({ profiles, currentUser, reload, isExec }) {
   const active = profiles.filter(p => !p.archived_at)
   const archived = profiles.filter(p => p.archived_at).sort(byName)
 
-  // Group active members by team in TEAMS order, plus any unrecognized teams that still have members.
+  // Roster display order (Mark's preference): Leadership, Sales, Marketing, FDE,
+  // CS, then any other staff team, with external Investors always last.
+  const ROSTER_TEAM_ORDER = ['leadership', 'sales', 'marketing', 'forward_deployed', 'customer_success']
+  const presentKeys = [...new Set(active.map(p => p.team))]
   const teamKeys = [
-    ...TEAMS.map(t => t.key),
-    ...[...new Set(active.map(p => p.team))].filter(k => !TEAMS.some(t => t.key === k)),
+    ...ROSTER_TEAM_ORDER.filter(k => presentKeys.includes(k)),
+    ...presentKeys.filter(k => !ROSTER_TEAM_ORDER.includes(k) && k !== 'investor').sort(),
+    ...(presentKeys.includes('investor') ? ['investor'] : []),
   ]
   const teamGroups = teamKeys
     .map(key => ({ key, members: active.filter(p => p.team === key).sort(byName) }))
