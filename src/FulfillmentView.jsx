@@ -520,6 +520,9 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
   const [wlOpen, setWlOpen] = useState(c.subscription === 'White Label')
   const m = clientMetrics(c)
   const overdueTone = (v) => (v == null ? undefined : v > 0 ? 'bad' : 'good')
+  // Time to First Value: counts payment → today (live, updates daily) until the
+  // customer is launched (launch date set / moved to the Launch stage), then freezes.
+  const ttfvLive = c.dates.payment ? diffDays(c.dates.payment, c.dates.launch || todayISO()) : null
   return (
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-zinc-900/25 backdrop-blur-sm" onClick={onClose} />
@@ -594,7 +597,7 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
 
           <SectionTitle>Timeline metrics</SectionTitle>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <MetricTile label="Time to First Value" value={fmtDur(m.ttfv)} tone={m.ttfv == null ? undefined : m.ttfv <= 14 ? 'good' : 'bad'} />
+            <MetricTile label={c.dates.launch ? 'Time to First Value' : 'Time to First Value · live'} value={fmtDur(ttfvLive)} tone={ttfvLive == null ? undefined : ttfvLive <= 14 ? 'good' : 'bad'} />
             <MetricTile label="Time till KO" value={fmtDur(m.timeTillKO)} />
             <MetricTile label="KO vs Scheduling" value={fmtDur(m.koVsSched)} />
             <MetricTile label="KO Overdue" value={fmtDur(m.koOverdue)} tone={overdueTone(m.koOverdue)} />

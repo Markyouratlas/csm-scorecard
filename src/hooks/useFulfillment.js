@@ -19,6 +19,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10)
 // Fields auto-stamped when a client enters a stage (mirror of the prototype).
 export const STAGE_STAMP = {
   kickoff: 'obKsStart', obprog: 'obIpStart', imp: 'impStart', review: 'impReviewStart',
+  launch: 'launch',   // entering Launch stamps the launch date → stops the TTFV clock
   postlaunch: 'postLaunchStart', ongoing: 'ongoingStart', hold: 'holdStart',
 }
 
