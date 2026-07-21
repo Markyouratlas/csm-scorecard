@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Search, X, ChevronDown, ChevronRight, LayoutDashboard, Columns3,
   Table2, Trash2, GripVertical, AlertTriangle, TrendingUp, TrendingDown, Minus,
-  Phone, MessageSquare,
+  Phone, MessageSquare, Pencil,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -521,6 +521,41 @@ const MetricTile = ({ label, value, tone }) => (
     <div className="font-display mt-0.5 text-sm font-semibold" style={{ color: tone === 'bad' ? '#d6453a' : tone === 'good' ? '#1f9d5b' : '#27272f' }}>{value}</div>
   </div>
 )
+// Paste a Slack message URL → it becomes a clickable button; pencil to edit it.
+function SlackLink({ url, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(url || '')
+  useEffect(() => { setDraft(url || '') }, [url])
+  const commit = () => { onSave(draft.trim() || null); setEditing(false) }
+  if (url && !editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          className="flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          style={{ background: '#4A154B' }}>
+          <MessageSquare size={15} /> Open Sales → CS hand-off
+        </a>
+        <button type="button" onClick={() => setEditing(true)} title="Edit link"
+          className="shrink-0 rounded-lg border border-zinc-200 p-2 text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800">
+          <Pencil size={14} />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <input className="ainput" placeholder="Paste the Slack hand-off message link…" value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
+        onBlur={commit} autoFocus={editing} />
+      {url && (
+        <button type="button" onClick={() => { setDraft(url); setEditing(false) }} title="Cancel"
+          className="shrink-0 rounded-lg border border-zinc-200 p-2 text-zinc-500 hover:text-zinc-800"><X size={14} /></button>
+      )}
+    </div>
+  )
+}
+
 function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDates, onWL, onStage, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [wlOpen, setWlOpen] = useState(c.subscription === 'White Label')
@@ -541,6 +576,10 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
           <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 pb-10">
+          <div className="mb-4">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-zinc-500 mb-1">Sales → CS hand-off (Slack)</div>
+            <SlackLink url={c.slackHandoffUrl} onSave={(v) => onPatch({ slackHandoffUrl: v })} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Stage" full>
               <select className="ainput" value={c.stage} onChange={(e) => onStage(e.target.value)}>{STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select>
