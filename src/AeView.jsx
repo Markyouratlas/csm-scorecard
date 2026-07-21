@@ -60,6 +60,7 @@ export default function AeView({ profile, onSignOut, onSwitchToManager, onSwitch
         demosCompleted: derived[i].demosCompleted,
         demosUnqualified: derived[i].demosUnqualified,
         trialSignups: derived[i].trialSignups,
+        deposits: derived[i].deposits,
         intros: derived[i].intros,
       })),
     }))
@@ -235,9 +236,10 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
       demosCompleted: acc.demosCompleted + (Number(day.demosCompleted) || 0),
       demosUnqualified: acc.demosUnqualified + (Number(day.demosUnqualified) || 0),
       trialSignups: acc.trialSignups + (Number(day.trialSignups) || 0),
+      deposits: acc.deposits + (Number(day.deposits) || 0),
       intros: acc.intros + (Number(day.intros) || 0),
     }
-  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 })
+  }, { demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, deposits: 0, intros: 0 })
 
   return (
     <div className="space-y-6">
@@ -251,6 +253,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Demos Booked</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Demos Completed</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Closes</th>
+            <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: '#D97706' }}>Deposits</th>
             {tracksIntros && <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest font-medium" style={{ color: '#6639A6' }}>Intros</th>}
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Show-Up</th>
             <th className="text-center py-2 px-2 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Close</th>
@@ -271,6 +274,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.demosBooked} onClick={() => openDrill('booked', dayIdx, DAY_NAMES[dayIdx])} /></td>
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.demosCompleted} onClick={() => openDrill('completed', dayIdx, DAY_NAMES[dayIdx])} /></td>
                 <td className="py-2 px-2 text-center num-tabular text-sm text-stone-800"><DrillNum value={day.trialSignups} onClick={() => openDrill('closes', dayIdx, DAY_NAMES[dayIdx])} /></td>
+                <td className="py-2 px-2 text-center num-tabular text-sm" style={{ color: '#D97706' }}><DrillNum value={day.deposits} onClick={() => openDrill('deposits', dayIdx, DAY_NAMES[dayIdx])} /></td>
                 {tracksIntros && <td className="py-2 px-2 text-center num-tabular text-sm" style={{ color: '#6639A6' }}><DrillNum value={day.intros} onClick={() => openDrill('intros', dayIdx, DAY_NAMES[dayIdx])} /></td>}
                 <DerivedCell value={dayShowUp} target={0.75} comparator="gte" format="pct" />
                 <DerivedCell value={dayClose} target={0.30} comparator="gte" format="pct" />
@@ -282,6 +286,7 @@ function FunnelSection({ weekData, workDayIdxs, weekKey, profile, canEdit, aeDea
             <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.demosBooked} onClick={() => openDrill('booked', null, 'This week')} dark /></td>
             <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.demosCompleted} onClick={() => openDrill('completed', null, 'This week')} dark /></td>
             <td className="py-3 px-2 text-center num-tabular font-bold"><DrillNum value={totals.trialSignups} onClick={() => openDrill('closes', null, 'This week')} dark /></td>
+            <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#FBBF24' }}><DrillNum value={totals.deposits} onClick={() => openDrill('deposits', null, 'This week')} dark /></td>
             {tracksIntros && <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#C4B5FD' }}><DrillNum value={totals.intros} onClick={() => openDrill('intros', null, 'This week')} dark /></td>}
             <td className="py-3 px-2 text-center num-tabular font-bold" style={{ color: '#F59E0B' }}>
               {fmtPct(showUpRate(totals.demosCompleted, totals.demosBooked))}
@@ -743,6 +748,7 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
     finally { setMatching(false) }
   }
   const rowCls = deal.status === 'Closed Won' ? 'bg-emerald-50/40'
+    : deal.status === 'Deposit collected' ? 'bg-amber-50/50'
     : (deal.status === 'Closed Lost' || deal.status === 'Unqualified' || deal.status === 'Deleted') ? 'opacity-60' : ''
   const ctrl = 'py-1.5 px-2 border border-stone-200 focus:border-stone-900 transition-colors text-sm bg-white'
   // Prospect's email for click-to-email (booking email wins; payment email is a fallback).
@@ -917,6 +923,61 @@ function PipeTile({ label, value, emerald }) {
 // Deals-from-meetings pipeline, driven by ae_deals. A meeting only appears here
 // once the AE has ACTIONED it (status moved off 'Scheduled'); 'Deleted' meetings
 // are hidden entirely. Sortable by status via per-status tabs.
+// Dedicated "Deposits — awaiting full payment" section. Lists this AE's deals in
+// the 'Deposit collected' status (parked: not a close, not routed to fulfillment/
+// commission). "Mark fully paid" flips to Closed Won, which fires the closed_at
+// stamp + the fulfillment trigger + records commission.
+function DepositsSection({ profile, canEdit }) {
+  const { deals, save } = useAeDeals(profile.id)
+  const [busy, setBusy] = useState(null)
+  const deposits = deals.filter(d => d.status === 'Deposit collected')
+  if (deposits.length === 0) return null
+  const money = (v) => { const n = Number(v); return isFinite(n) && n ? `$${n.toLocaleString()}` : '—' }
+  const markPaid = async (deal) => {
+    if (!confirm(`Mark ${deal.customer_name || 'this customer'} as fully paid?\n\nThis closes the deal (Closed Won) — routing them into Fulfillment and the commission tracker.`)) return
+    setBusy(deal.id)
+    try {
+      await save(deal.id, { status: 'Closed Won' })
+      try { await recordCommissionDeal(profile, { ...deal, status: 'Closed Won' }) } catch (e) { console.warn('commission record failed', e) }
+    } finally { setBusy(null) }
+  }
+  return (
+    <div className="bg-white border border-amber-200 p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#D97706' }} />
+        <div className="display-font text-2xl font-medium text-stone-900">Deposits — awaiting full payment</div>
+      </div>
+      <p className="text-sm text-stone-600 mb-5">Customers who paid a deposit. They're <strong>not</strong> counted as a close or routed to Fulfillment yet — mark them fully paid once payment completes.</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {deposits.map(d => (
+          <div key={d.id} className="border border-stone-200 rounded-lg p-4 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-stone-900 truncate">{d.customer_name || <span className="text-stone-400">(no name)</span>}</div>
+                <div className="text-xs text-stone-500 truncate">{d.customer_email || d.payment_email || ''}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] uppercase tracking-widest text-stone-400 mono-font">Deposit</div>
+                <div className="num-tabular font-semibold text-amber-700">{money(d.one_time)}</div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
+              <span>{d.mrr ? `${money(d.mrr)}/mo` : ''}</span>
+              <span className="mono-font">{d.meeting_at ? new Date(d.meeting_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+            </div>
+            {canEdit && (
+              <button onClick={() => markPaid(d)} disabled={busy === d.id}
+                className="mt-1 flex items-center justify-center gap-1.5 py-1.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition-colors text-xs font-medium rounded-md disabled:opacity-50">
+                {busy === d.id ? 'Closing…' : 'Mark fully paid → Closed Won'}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function AeDealsPipeline({ profile, canEdit }) {
   const { deals, save, remove, matchStripe } = useAeDeals(profile.id)
   const [statusTab, setStatusTab] = useState('open')
@@ -1098,6 +1159,9 @@ function PipelineSection({ weekData, update, profile, canEdit }) {
 
   return (
     <div className="space-y-6">
+      {/* Deposits awaiting full payment — parked deals, NOT yet a close / in fulfillment */}
+      <DepositsSection profile={profile} canEdit={canEdit} />
+
       {/* New meeting-based pipeline (ae_deals) */}
       <AeDealsPipeline profile={profile} canEdit={canEdit} />
 

@@ -71,7 +71,7 @@ export function dayIdxOfMeeting(meetingAt) {
 // other metric stays on the meeting week. Keep in sync with the server mirror
 // (ae-meetings-sync funnelUpsertRow).
 export function deriveFunnelWeek(deals, weekKey) {
-  const out = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }))
+  const out = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, deposits: 0, intros: 0 }))
   for (const d of deals || []) {
     // Meeting-week metrics (booked / completed / unqualified / intros).
     if (d.meeting_at) {
@@ -83,6 +83,7 @@ export function deriveFunnelWeek(deals, weekKey) {
           if (d.status !== 'Rescheduled' && d.status !== 'Deleted') out[idx].demosBooked += 1
           if (AE_ATTENDED_STATUSES.includes(d.status)) out[idx].demosCompleted += 1
           if (d.status === 'Unqualified') out[idx].demosUnqualified += 1
+          if (d.status === 'Deposit collected') out[idx].deposits += 1
         }
       }
     }
@@ -115,6 +116,7 @@ export function funnelMatches(daily, derived) {
     if ((Number(c.demosCompleted) || 0) !== x.demosCompleted) return false
     if ((Number(c.demosUnqualified) || 0) !== x.demosUnqualified) return false
     if ((Number(c.trialSignups) || 0) !== x.trialSignups) return false
+    if ((Number(c.deposits) || 0) !== (x.deposits || 0)) return false
     if ((Number(c.intros) || 0) !== (x.intros || 0)) return false
   }
   return true

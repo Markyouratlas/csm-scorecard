@@ -329,7 +329,19 @@ Only plan against the full, confirmed column list.
   **⚠️ The funnel math lives in BOTH `aeFunnel.js` (client) and `ae-meetings-sync`
   `funnelUpsertRow` (server) — any status/derivation change must be made in both AND
   the function redeployed (`--no-verify-jwt`), or the nightly cron clobbers the
-  client's numbers.** The `Intro` status (channel-partner intro meetings) is
+  client's numbers.** The **`Deposit collected`** status (AE collected a partial
+  deposit, not full payment) is a distinct outcome that **parks** the deal: it
+  **counts as a completed demo** (in `AE_ATTENDED_STATUSES`/`AE_CLOSEABLE_STATUSES`,
+  so show-up + close-rate denominator include it) and increments its own
+  `daily[].deposits` funnel column, but it is **NOT** a close (`trialSignups` still
+  keys only on `Closed Won`), **NOT** in `AE_CLOSED_STATUSES` (stays an open deal),
+  and does **NOT** route to Fulfillment or hit commission (both gate on `Closed Won`).
+  AeView renders a dedicated **"Deposits — awaiting full payment"** section
+  (`DepositsSection`) with a "Mark fully paid → Closed Won" action that flips the
+  status (firing the `closed_at` stamp + fulfillment trigger + `recordCommissionDeal`
+  once). `deposits` is a funnel field like the others → it lives in BOTH
+  `aeFunnel.js` and `ae-meetings-sync` and must stay in sync (same footgun). The
+  `Intro` status (channel-partner intro meetings) is
   **fully backed out** of the demo funnel there — counted only in `daily[].intros`,
   excluded from `demosBooked`/completed/show-up/close. Intro tracking + channel-
   partner deal attribution (`ae_deals.referred_by_partner`, the "Referred by" picker,
