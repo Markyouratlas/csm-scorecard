@@ -440,7 +440,7 @@ function cellContent(col, c) {
     case 'csm': return <PersonChip name={c.csm} />
     case 'imp': return <PersonChip name={c.imp} />
     case 'priority': return <Chip color={PRIORITY_COLORS[c.priority]}>{c.priority}</Chip>
-    case 'sub': return c.subscription ? <Chip color={SUB_COLORS[c.subscription] || '#c7c9d1'}>{c.subscription}</Chip> : null
+    case 'sub': return c.planLabel ? <Chip color={SUB_COLORS[c.planLabel] || '#c7c9d1'}>{c.planLabel}</Chip> : null
     case 'tshirt': return <Chip color={TSHIRT_COLORS[c.tShirt] || '#c7c9d1'}>{c.tShirt}</Chip>
     case 'temp': return <Chip color={TEMP_COLORS[c.temperament] || '#c7c9d1'}>{c.temperament}</Chip>
     case 'payment': return <span className="text-zinc-600">{fmtDate(c.dates.payment)}</span>
@@ -515,7 +515,7 @@ const MetricTile = ({ label, value, tone }) => (
     <div className="font-display mt-0.5 text-sm font-semibold" style={{ color: tone === 'bad' ? '#d6453a' : tone === 'good' ? '#1f9d5b' : '#27272f' }}>{value}</div>
   </div>
 )
-function Drawer({ c, people, planOptions = [], canDelete, canDial, dialer, onClose, onPatch, onDates, onWL, onStage, onDelete }) {
+function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDates, onWL, onStage, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [wlOpen, setWlOpen] = useState(c.subscription === 'White Label')
   const m = clientMetrics(c)
@@ -566,7 +566,7 @@ function Drawer({ c, people, planOptions = [], canDelete, canDial, dialer, onClo
                 )}
               </div>
             </Field>
-            <Field label="Subscription · from Stripe"><SelectInput blank options={planOptions} value={c.subscription} onChange={(e) => onPatch({ subscription: e.target.value })} /></Field>
+            <Field label="Subscription · from Stripe"><div className="ainput" style={{ background: '#f5f4f7', color: '#52525b' }}>{c.planLabel || '—'}</div></Field>
             <Field label="T-Shirt Size"><SelectInput options={['Small', 'Medium', 'Large']} value={c.tShirt} onChange={(e) => onPatch({ tShirt: e.target.value })} /></Field>
             <Field label="Temperament"><SelectInput options={['Happy', 'Neutral', 'Frustrated']} value={c.temperament} onChange={(e) => onPatch({ temperament: e.target.value })} /></Field>
             <Field label={`Task progress · ${c.taskProgress}%`}>
@@ -584,7 +584,6 @@ function Drawer({ c, people, planOptions = [], canDelete, canDial, dialer, onClo
 
           <SectionTitle>Deal &amp; billing</SectionTitle>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <MetricTile label="Plan (Stripe)" value={c.planLabel || '—'} />
             <MetricTile label="MRR" value={c.mrr != null ? `$${Number(c.mrr).toLocaleString()}` : '—'} />
             <MetricTile label="One-time cash" value={c.oneTime != null ? `$${Number(c.oneTime).toLocaleString()}` : '—'} />
             <MetricTile label="Payment date" value={fmtDate(c.dates.payment) || '—'} />
@@ -640,13 +639,12 @@ function Drawer({ c, people, planOptions = [], canDelete, canDial, dialer, onClo
 }
 
 /* ─── Add client modal ─── */
-function AddModal({ people, planOptions = [], onAdd, onClose }) {
+function AddModal({ people, onAdd, onClose }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [user, setUser] = useState('')
   const [stage, setStage] = useState('pre')
   const [csm, setCsm] = useState('')
-  const [sub, setSub] = useState('')
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-900/30 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="fade-up w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -659,12 +657,11 @@ function AddModal({ people, planOptions = [], onAdd, onClose }) {
           <Field label="POC Email"><TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" /></Field>
           <Field label="ATLAS Username"><TextInput value={user} onChange={(e) => setUser(e.target.value)} /></Field>
           <Field label="Stage"><select className="ainput" value={stage} onChange={(e) => setStage(e.target.value)}>{STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></Field>
-          <Field label="CSM / FDE"><SelectInput blank options={people.csms} value={csm} onChange={(e) => setCsm(e.target.value)} /></Field>
-          <Field label="Subscription" full><SelectInput blank options={planOptions} value={sub} onChange={(e) => setSub(e.target.value)} /></Field>
+          <Field label="CSM / FDE" full><SelectInput blank options={people.csms} value={csm} onChange={(e) => setCsm(e.target.value)} /></Field>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800">Cancel</button>
-          <button disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), email, user, stage, csm, sub })} className="rounded-lg px-4 py-2 text-sm font-medium text-white transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${BRAND}, ${ACCENT})` }}>Add client</button>
+          <button disabled={!name.trim()} onClick={() => onAdd({ name: name.trim(), email, user, stage, csm })} className="rounded-lg px-4 py-2 text-sm font-medium text-white transition-all disabled:cursor-not-allowed disabled:opacity-40" style={{ background: `linear-gradient(135deg, ${BRAND}, ${ACCENT})` }}>Add client</button>
         </div>
       </div>
     </div>
@@ -694,9 +691,6 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
 
   const canDelete = accessTier(profile) === 'executive'
   const canDial = DIALER_ROLES.includes(profile?.role_type) || accessTier(profile) === 'executive'
-  // Subscription options = the real Stripe plans currently in use (replaces the old
-  // hardcoded Starter/Pro/White-Label tiers).
-  const planOptions = useMemo(() => [...new Set(clients.map((c) => c.subscription).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [clients])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -710,7 +704,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
   const hasFilters = q || csmF !== 'all' || stageF !== 'all'
 
   const onAdd = async (f) => {
-    const c = await addClient({ name: f.name, pocEmail: f.email, atlasUsername: f.user, stage: f.stage, csm: f.csm, subscription: f.sub })
+    const c = await addClient({ name: f.name, pocEmail: f.email, atlasUsername: f.user, stage: f.stage, csm: f.csm })
     setAdding(false)
     if (c) setSel(c.id)
   }
@@ -816,7 +810,6 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
             key={selClient.id}
             c={selClient}
             people={people}
-            planOptions={planOptions}
             canDelete={canDelete}
             canDial={canDial}
             dialer={dialer}
@@ -829,7 +822,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
           />
         )}
 
-        {adding && <AddModal people={people} planOptions={planOptions} onAdd={onAdd} onClose={() => setAdding(false)} />}
+        {adding && <AddModal people={people} onAdd={onAdd} onClose={() => setAdding(false)} />}
       </div>
     </PeopleColors.Provider>
   )
