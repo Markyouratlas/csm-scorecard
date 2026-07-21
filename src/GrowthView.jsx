@@ -677,16 +677,19 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
 // so they're intentionally not rendered. Same visual language as the Atlas Blue tab.
 function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, weeklyTrend, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks)
+  const { viewedWeekDays, weeklyTrend, recentSignups, revenueBreakdown, totalSignups, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks)
 
   const t = workDayIdxs.reduce((acc, di) => {
     const a = viewedWeekDays[di] || {}
     acc.adSpend += Number(a.adSpend) || 0
     acc.visitors += Number(a.visitors) || 0
+    acc.signups += Number(a.signups) || 0
     return acc
-  }, { adSpend: 0, visitors: 0 })
+  }, { adSpend: 0, visitors: 0, signups: 0 })
+  // Opt-ins arrive any day (incl. weekends), so the headline count spans the full week.
+  const weekSignups = viewedWeekDays.reduce((n, d) => n + (Number(d.signups) || 0), 0)
 
-  const chartData = weeklyTrend.map(w => ({ name: formatWeekLabel(w.weekKey), adSpend: w.adSpend, visitors: w.visitors }))
+  const chartData = weeklyTrend.map(w => ({ name: formatWeekLabel(w.weekKey), adSpend: w.adSpend, visitors: w.visitors, signups: w.signups }))
   const WEEK_OPTIONS = [4, 8, 12, 26]
 
   return (
@@ -705,10 +708,11 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
         </div>
         <p className="text-sm text-stone-600 mb-6">
           The “Atlas Blue - Workshop” Meta campaign. Ad Spend + Visitors are pulled live from Meta;
-          registration / attendee / booked-call stages will be added once we wire a source for them.
+          Opt-ins are live from the GHL workshop opt-in form. Attendee / booked-call stages will be
+          added once we wire a source for them.
           {loading ? ' · Syncing…' : ''}
         </p>
-        <table className="w-full text-sm min-w-[560px]">
+        <table className="w-full text-sm min-w-[760px]">
           <thead>
             <tr className="border-b border-stone-200">
               <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Day</th>
@@ -718,6 +722,10 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
                 tip="Live from Meta Ads — the 'landing_page_view' action (someone clicked the ad AND the page loaded) for the Atlas Blue - Workshop campaign only." />
               <AbHeadCell label="Cost / Visitor" tone="calc"
                 tip="Calculated: Ad Spend ÷ Visitors." />
+              <AbHeadCell label="Opt-ins" tone="live"
+                tip="Live from the GHL workshop opt-in form (webinar_signups), bucketed by submission date." />
+              <AbHeadCell label="Cost / Opt-in" tone="calc"
+                tip="Calculated: Ad Spend ÷ Opt-ins." />
             </tr>
           </thead>
           <tbody>
@@ -729,6 +737,8 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
                   <ReadCell value={a.adSpend} money />
                   <ReadCell value={a.visitors} />
                   <DerivedCell value={safeDiv(a.adSpend, a.visitors)} format="money" />
+                  <ReadCell value={a.signups} />
+                  <DerivedCell value={safeDiv(a.adSpend, a.signups)} format="money" />
                 </tr>
               )
             })}
@@ -737,6 +747,8 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
               <td className="py-3 px-2 text-center num-tabular font-bold">{fmtWhole(t.adSpend)}</td>
               <td className="py-3 px-2 text-center num-tabular font-bold">{t.visitors.toLocaleString()}</td>
               <FooterDerivedCell value={safeDiv(t.adSpend, t.visitors)} format="money" />
+              <td className="py-3 px-2 text-center num-tabular font-bold">{t.signups.toLocaleString()}</td>
+              <FooterDerivedCell value={safeDiv(t.adSpend, t.signups)} format="money" />
             </tr>
           </tbody>
         </table>
@@ -765,6 +777,8 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
             tip="Live from Meta Ads (meta_ads_daily.spend) for the workshop campaign, summed per calendar week." />
           <LegendItem color={AB_BLUE} label="Visitors"
             tip="Meta 'landing_page_view' for the workshop campaign, summed per calendar week." />
+          <LegendItem color="#059669" label="Opt-ins"
+            tip="Workshop opt-in form submissions (webinar_signups), summed per calendar week." />
         </div>
         <div className="h-[300px] mt-4">
           <ResponsiveContainer width="100%" height="100%">
@@ -779,9 +793,78 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
               />
               <Bar yAxisId="left" dataKey="adSpend" name="Ad Spend" fill="#93C5FD" radius={[3, 3, 0, 0]} />
               <Line yAxisId="right" type="monotone" dataKey="visitors" name="Visitors" stroke={AB_BLUE} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line yAxisId="right" type="monotone" dataKey="signups" name="Opt-ins" stroke="#059669" strokeWidth={2} dot={{ r: 3 }} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* ---------- WORKSHOP OPT-INS (registration stage) ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-1">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5" style={{ color: '#059669' }} />
+            <div className="display-font text-2xl font-medium text-stone-900">Workshop Opt-ins</div>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">This week</div>
+              <div className="num-tabular text-2xl font-bold" style={{ color: '#059669' }}>{weekSignups.toLocaleString()}</div>
+            </div>
+            <div className="text-right">
+              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Last {chartWeeks}w</div>
+              <div className="num-tabular text-2xl font-bold text-stone-800">{(totalSignups || 0).toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+        <p className="text-sm text-stone-600 mb-4">
+          Live from the “Stop Hiring, Start Cloning Workshop” opt-in form (GHL). Full history syncs daily.
+        </p>
+
+        {revenueBreakdown && revenueBreakdown.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            {revenueBreakdown.map(({ band, count }) => (
+              <span key={band} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                {band}<span className="num-tabular font-bold">{count}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr className="border-b border-stone-200">
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Name</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Email</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Phone</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Revenue</th>
+                <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Source</th>
+                <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Opted in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(recentSignups || []).length === 0 && (
+                <tr><td colSpan={6} className="py-6 px-3 text-center text-sm text-stone-400 italic">{loading ? 'Loading opt-ins…' : 'No opt-ins in this window yet.'}</td></tr>
+              )}
+              {(recentSignups || []).slice(0, 25).map((s, i) => (
+                <tr key={i} className="border-b border-stone-100">
+                  <td className="py-2 px-3 text-stone-800 font-medium text-xs">{s.name || '—'}</td>
+                  <td className="py-2 px-3 text-stone-600 text-xs">{s.email || '—'}</td>
+                  <td className="py-2 px-3 text-stone-600 text-xs num-tabular">{s.phone || '—'}</td>
+                  <td className="py-2 px-3 text-stone-600 text-xs">{s.revenueBand || '—'}</td>
+                  <td className="py-2 px-3 text-stone-600 text-xs">{s.source || '—'}</td>
+                  <td className="py-2 px-3 text-right text-stone-500 text-xs num-tabular">
+                    {s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {(recentSignups || []).length > 25 && (
+          <div className="text-xs text-stone-400 mt-3">Showing the 25 most recent of {recentSignups.length} in this window.</div>
+        )}
       </div>
     </div>
   )
