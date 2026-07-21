@@ -544,6 +544,13 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
             <Field label="Priority"><SelectInput options={['Low', 'Medium', 'High']} value={c.priority} onChange={(e) => onPatch({ priority: e.target.value })} /></Field>
           </div>
 
+          <SectionTitle>Team · assign first</SectionTitle>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="CSM / FDE"><SelectInput blank options={people.csms} value={c.csm} onChange={(e) => onPatch({ csm: e.target.value })} /></Field>
+            <Field label="Implementation Specialist"><SelectInput blank options={people.imps} value={c.imp} onChange={(e) => onPatch({ imp: e.target.value })} /></Field>
+            <Field label="CSA"><SelectInput blank options={people.csms} value={c.csa} onChange={(e) => onPatch({ csa: e.target.value })} /></Field>
+          </div>
+
           <SectionTitle>Client</SectionTitle>
           <div className="grid grid-cols-2 gap-3">
             <Field label="ATLAS Username · payment email"><TextInput value={c.atlasUsername} onChange={(e) => onPatch({ atlasUsername: e.target.value })} /></Field>
@@ -585,13 +592,6 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
             {c.referredByPartner && <MetricTile label="Referral partner" value={c.referredByPartner} />}
           </div>
           {c.stripeCustomerId && <div className="mt-1 text-[10px] text-zinc-400">Stripe customer · <span className="font-mono">{c.stripeCustomerId}</span></div>}
-
-          <SectionTitle>Team</SectionTitle>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="CSM / FDE"><SelectInput blank options={people.csms} value={c.csm} onChange={(e) => onPatch({ csm: e.target.value })} /></Field>
-            <Field label="Implementation Specialist"><SelectInput blank options={people.imps} value={c.imp} onChange={(e) => onPatch({ imp: e.target.value })} /></Field>
-            <Field label="CSA"><SelectInput blank options={people.csms} value={c.csa} onChange={(e) => onPatch({ csa: e.target.value })} /></Field>
-          </div>
 
           <SectionTitle>Timeline metrics</SectionTitle>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
