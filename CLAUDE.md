@@ -190,6 +190,16 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
     (mirrors `trg_ae_deals_stamp_closed_at`) auto-creates a `fulfillment_clients` row (stage `pre`,
     `ae_deal_id` unique for idempotency) on transition to Closed Won, + a one-time backfill. `csm` starts blank;
     an exec/lead assigns the customer to a CS/FDE person in the Fulfillment view.
+  - **Sales/Stripe context + TTFV** (`src/29-fulfillment-sales-context.sql`): the trigger also denormalizes
+    the deal's `atlas_username` (= the Stripe `payment_email`), `one_time`, `matched_stripe_customer_id`,
+    `closed_by` (AE name), `referred_by_partner`, and `plan_label` (real Stripe plan from
+    `commission_customers.subscriptions[].product_label` via the `stripe_plan_label()` helper) — shown
+    read-only in the drawer's "Deal & billing" section. The trigger is **exception-wrapped** so enrichment
+    can never block a deal close, and a trigger on `commission_customers` keeps `plan_label` fresh after the
+    nightly stripe-sync (customers usually sync AFTER close). **Time to First Value** = `payment_date → launch_date`
+    (target ≤14d): a drawer metric (green ≤14 / red >14) + a dashboard KPI (avg + % within 14 days). The
+    read-only sales fields live in `useFulfillment`'s `fromRow` only (never in `toRow`, so client edits can't
+    clobber the trigger-set values).
   - **CS/FDE "New customers from Sales" panel** (`CsHandoffPanel` in CsmView/FdeView) is now **per-person**:
     `useCsHandoffs(profile.name)` reads `fulfillment_clients WHERE csm = <my name>` (was the shared Closed Won
     `ae_deals` queue). Call/text + "Open in Fulfillment". The old `mark_cs_onboarded` RPC + `cs_onboarded_*`

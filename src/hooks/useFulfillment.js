@@ -37,6 +37,12 @@ function fromRow(r) {
     pocEmail: r.poc_email || '',
     pocPhone: r.poc_phone || '',
     mrr: r.mrr,
+    // Sales/Stripe context (read-only; set by the closed-won trigger, never written back).
+    oneTime: r.one_time,
+    stripeCustomerId: r.matched_stripe_customer_id || null,
+    planLabel: r.plan_label || '',
+    closedBy: r.closed_by || '',
+    referredByPartner: r.referred_by_partner || '',
     stage: r.stage || 'pre',
     status: r.status || 'none',
     statusDate: r.status_date || null,

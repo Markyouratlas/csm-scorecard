@@ -88,6 +88,7 @@ const clientMetrics = (c) => {
     impReviewOverdue: diffDays(d.impReviewDue, d.impReviewStart),
     launchOverdue: diffDays(d.launchDue, d.launch),
     holdDuration: d.holdStart ? diffDays(d.holdStart, d.holdEnd || todayISO()) : null,
+    ttfv: diffDays(d.payment, d.launch),   // Time to First Value: payment → launch (target ≤14d)
   }
 }
 
@@ -255,6 +256,8 @@ function DashboardView({ list }) {
   const tillKO = pick('timeTillKO'), koSched = pick('koVsSched'), koOD = pick('koOverdue')
   const toLaunch = pick('timeToLaunch'), impTL = pick('impTimeline'), revOD = pick('impReviewOverdue')
   const launchOD = pick('launchOverdue'), holdDur = pick('holdDuration')
+  const ttfvs = pick('ttfv')
+  const ttfvWithin = ttfvs.length ? Math.round((100 * ttfvs.filter((v) => v <= 14).length) / ttfvs.length) : null
   const tps = list.map((c) => c.touchpoints).filter((v) => v != null)
   const obs = list.map((c) => c.obCompletionTime).filter((v) => v != null)
 
@@ -264,6 +267,7 @@ function DashboardView({ list }) {
 
   const kpis = [
     { label: 'Current Clients in Pipeline', raw: list.length, fmt: (v) => String(Math.round(v)), unit: 'n', sub: 'All stages · trend = new clients/mo', spark: sparkPipeline, delta: lastDelta(sparkPipeline), lowerIsBetter: false },
+    { label: 'Time to First Value (target ≤14d)', raw: avg(ttfvs), fmt: (v) => fmtDur(v, 1), unit: 'd', sub: `Payment → Launch · ${ttfvWithin != null ? `${ttfvWithin}% within 14d` : 'no launches yet'} · n=${ttfvs.length}`, spark: byMonth('launch', 'ttfv'), delta: lastDelta(byMonth('launch', 'ttfv')), lowerIsBetter: true },
     { label: 'Average Time till KO Call', raw: avg(tillKO), fmt: (v) => fmtDur(v, 1), unit: 'd', sub: `Payment → Kickoff · n=${tillKO.length}`, spark: byMonth('kickoff', 'timeTillKO'), delta: lastDelta(byMonth('kickoff', 'timeTillKO')), lowerIsBetter: true },
     { label: 'KO Call vs KO Scheduling Date', raw: avg(koSched), fmt: (v) => fmtDur(v, 1), unit: 'd', sub: `Scheduled → Kickoff · n=${koSched.length}`, spark: byMonth('kickoff', 'koVsSched'), delta: lastDelta(byMonth('kickoff', 'koVsSched')), lowerIsBetter: true },
     { label: 'Average Kickoff Call Overdue', raw: avg(koOD), fmt: (v) => fmtDur(v, 2), unit: 'd', sub: `Kickoff vs KO due date · n=${koOD.length}`, spark: byMonth('kickoff', 'koOverdue'), delta: lastDelta(byMonth('kickoff', 'koOverdue')), lowerIsBetter: true },
@@ -542,7 +546,7 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
 
           <SectionTitle>Client</SectionTitle>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="ATLAS Username"><TextInput value={c.atlasUsername} onChange={(e) => onPatch({ atlasUsername: e.target.value })} /></Field>
+            <Field label="ATLAS Username · payment email"><TextInput value={c.atlasUsername} onChange={(e) => onPatch({ atlasUsername: e.target.value })} /></Field>
             <Field label="POC Email"><TextInput value={c.pocEmail} onChange={(e) => onPatch({ pocEmail: e.target.value })} /></Field>
             <Field label="POC Phone" full>
               <div className="flex items-center gap-1.5">
@@ -571,6 +575,17 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
             </div>
           </div>
 
+          <SectionTitle>Deal &amp; billing</SectionTitle>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <MetricTile label="Plan (Stripe)" value={c.planLabel || '—'} />
+            <MetricTile label="MRR" value={c.mrr != null ? `$${Number(c.mrr).toLocaleString()}` : '—'} />
+            <MetricTile label="One-time cash" value={c.oneTime != null ? `$${Number(c.oneTime).toLocaleString()}` : '—'} />
+            <MetricTile label="Payment date" value={fmtDate(c.dates.payment) || '—'} />
+            <MetricTile label="Closed by" value={c.closedBy || '—'} />
+            {c.referredByPartner && <MetricTile label="Referral partner" value={c.referredByPartner} />}
+          </div>
+          {c.stripeCustomerId && <div className="mt-1 text-[10px] text-zinc-400">Stripe customer · <span className="font-mono">{c.stripeCustomerId}</span></div>}
+
           <SectionTitle>Team</SectionTitle>
           <div className="grid grid-cols-2 gap-3">
             <Field label="CSM / FDE"><SelectInput blank options={people.csms} value={c.csm} onChange={(e) => onPatch({ csm: e.target.value })} /></Field>
@@ -580,6 +595,7 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
 
           <SectionTitle>Timeline metrics</SectionTitle>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MetricTile label="Time to First Value" value={fmtDur(m.ttfv)} tone={m.ttfv == null ? undefined : m.ttfv <= 14 ? 'good' : 'bad'} />
             <MetricTile label="Time till KO" value={fmtDur(m.timeTillKO)} />
             <MetricTile label="KO vs Scheduling" value={fmtDur(m.koVsSched)} />
             <MetricTile label="KO Overdue" value={fmtDur(m.koOverdue)} tone={overdueTone(m.koOverdue)} />
