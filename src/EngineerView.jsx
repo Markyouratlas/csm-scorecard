@@ -34,7 +34,7 @@ const STATUS_COLORS = {
   'Carry-over':  '#78716C',
 }
 
-export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
+export default function EngineerView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const monthKey = useMemo(() => getMonthKey(), [])
   const {
     weekData, loading, saving, savedAt, update,
@@ -69,7 +69,7 @@ export default function EngineerView({ profile, onSignOut, onSwitchToManager, on
       profile={profile} weekKey={weekKey} setWeekKey={setWeekKey}
       isExecDrillIn={isExecDrillIn} isViewingCurrentWeek={isViewingCurrentWeek} currentWeekKey={currentWeekKey}
       submittedAt={submittedAt} isLocked={isLocked} submit={submit} unsubmit={unsubmit} submitting={submitting}
-      saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
+      saving={saving} savedAt={savedAt} onSwitchToFeatureRequests={onSwitchToFeatureRequests} onSwitchToFulfillment={onSwitchToFulfillment} onSwitchToIntegrations={onSwitchToIntegrations} onSwitchToCancellations={onSwitchToCancellations} onSwitchToApiGuide={onSwitchToApiGuide} onSwitchToLeadership={onSwitchToLeadership}
       onSignOut={onSignOut} onSwitchToManager={onSwitchToManager} onProfileUpdated={onProfileUpdated} hideWeekNav>
       <PageHeader
         kicker={`Engineer · Week of ${formatWeekLabel(weekKey)}`}

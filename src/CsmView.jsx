@@ -27,7 +27,7 @@ import { useScorecardEditable } from './ScorecardEditContext'
 import RocketLoader from './RocketLoader'
 import { WeekNavigator } from './ScorecardShell'
 
-export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
+export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated, weekKey: propWeekKey, setWeekKey: propSetWeekKey }) {
   const [section, setSection] = useState('meetings')
   const [weekData, setWeekData] = useState(null)
   const [submittedAt, setSubmittedAt] = useState(null) // ISO string when this week is finalized
@@ -261,6 +261,7 @@ export default function CsmView({ profile, onSignOut, onSwitchToManager, onSwitc
             onSwitchToLeadership={onSwitchToLeadership}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToFulfillment={onSwitchToFulfillment}
             onSwitchToCancellations={onSwitchToCancellations}
             onSwitchToCommissions={onSwitchToCommissions}
             onSwitchToApiGuide={onSwitchToApiGuide}
@@ -791,7 +792,7 @@ function PipelineSection({ weekData, setPipeline, update }) {
         </div>
       </div>
 
-      <CsHandoffPanel />
+      <CsHandoffPanel profile={profile} onSwitchToFulfillment={onSwitchToFulfillment} />
 
       <ChannelPartnersPanel
         customers={channelPartners}

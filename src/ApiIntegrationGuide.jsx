@@ -295,7 +295,7 @@ const PRIORITY_LABELS = {
 
 export default function ApiIntegrationGuide({
   profile, onSignOut, onSwitchToManager, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToLeadership,
+  onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToLeadership,
   onSwitchToCommissions,
   onProfileUpdated,
 }) {
@@ -323,6 +323,7 @@ export default function ApiIntegrationGuide({
             onSwitchToLeadership={canSeeLeadership ? onSwitchToLeadership : null}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToFulfillment={onSwitchToFulfillment}
             onSwitchToCancellations={onSwitchToCancellations}
             onSwitchToCommissions={onSwitchToCommissions}
             onSwitchToApiGuide={null}

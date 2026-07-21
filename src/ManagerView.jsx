@@ -40,7 +40,7 @@ async function fetchManagerData(weekKey) {
   return { allProfiles: profiles || [], scorecardData, submittedMap }
 }
 
-export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
+export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
@@ -160,6 +160,7 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
               onSwitchToLeadership={onSwitchToLeadership}
               onSwitchToIntegrations={onSwitchToIntegrations}
               onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+              onSwitchToFulfillment={onSwitchToFulfillment}
               onSwitchToCancellations={onSwitchToCancellations}
               onSwitchToCommissions={onSwitchToCommissions}
               onSwitchToApiGuide={onSwitchToApiGuide}

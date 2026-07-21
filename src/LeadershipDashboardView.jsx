@@ -47,7 +47,7 @@ const GOLD = '#B8860B'
 
 export default function LeadershipDashboardView({
   profile, onSignOut, onSwitchToManager, onSwitchToManagerTeam, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
+  onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
   onSwitchToCommissions,
   onProfileUpdated,
 }) {
@@ -159,6 +159,7 @@ export default function LeadershipDashboardView({
             onSwitchToLeadership={null}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToFulfillment={onSwitchToFulfillment}
             onSwitchToCancellations={onSwitchToCancellations}
             onSwitchToCommissions={onSwitchToCommissions}
             onSwitchToApiGuide={onSwitchToApiGuide}

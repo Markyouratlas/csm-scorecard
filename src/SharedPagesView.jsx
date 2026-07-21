@@ -72,7 +72,7 @@ const REUSABLE_OPTIONS = [
 
 export default function SharedPagesView({
   profile, page, onSignOut, onSwitchToManager, onSwitchToSelf,
-  onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations,
+  onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations,
   onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated,
 }) {
   const [showSettings, setShowSettings] = useState(false)
@@ -109,6 +109,7 @@ export default function SharedPagesView({
             onSwitchToLeadership={canSeeLeadership ? onSwitchToLeadership : null}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToFulfillment={onSwitchToFulfillment}
             onSwitchToCancellations={canSeeCancellations ? onSwitchToCancellations : null}
             onSwitchToCommissions={onSwitchToCommissions}
             onSwitchToApiGuide={onSwitchToApiGuide}

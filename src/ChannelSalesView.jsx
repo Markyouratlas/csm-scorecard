@@ -8,12 +8,12 @@ import { ChannelPartnerDeals } from './AeView'
 // toggle and the in-app dialer. No AE meeting funnel — just their channel pipeline.
 export default function ChannelSalesView({
   profile, onSignOut,
-  onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations,
+  onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations,
   onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions,
   onProfileUpdated,
 }) {
   const shellNav = {
-    onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations,
+    onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations,
     onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions,
     onProfileUpdated,
   }

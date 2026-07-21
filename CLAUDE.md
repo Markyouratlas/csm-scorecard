@@ -175,6 +175,25 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
   margin is executive-only and is deliberately NOT written to `atlas_targets`** (that table is authenticated-read
   → would leak to investors); it's computed live in the Odyssey ExecutiveView tile + `GrossMarginModal` only.
 - `cancellations` — customer cancellation log. Used by Odyssey monthly rollups.
+- `fulfillment_clients` — the **Fulfillment** view (customer onboarding tracker, Asana/Jira-style: 12-stage
+  board + KPI dashboard + master table + per-client drawer). Schema `src/27-fulfillment.sql` (flat 19 date
+  cols, `wl jsonb` white-label config, stage/status CHECK constraints; **RLS: staff read/write, executives
+  delete** — inlined to `accessTier`, NOT the `admin/super_admin`/`is_staff()` model the original handoff
+  assumed, which doesn't exist here). UI: `src/FulfillmentView.jsx` (ported ~1:1 from
+  `docs/fulfillment/atlas-fulfillment-tracker-light.jsx`, kept its self-contained zinc/Space-Grotesk look) +
+  `src/hooks/useFulfillment.js` (fetch-on-mount, snake↔camel mapper, optimistic debounced persist,
+  client-side stage auto-stamping). Assignee dropdowns (CSM/FDE, Implementation, CSA) come from **live
+  profiles** (CS + FDE teams; `implementation` role); the drawer has in-app dialer buttons on `poc_phone`.
+  Nav: it's a `viewMode` (`'fulfillment'`) with a `HeaderNav` button, **ungated** (all staff; investors are
+  hard-routed away) — `onSwitchToFulfillment` is threaded through every HeaderNav/ScorecardShell-rendering view.
+  - **Closed Won → Fulfillment routing** (`src/28-fulfillment-from-closed-won.sql`): a trigger on `ae_deals`
+    (mirrors `trg_ae_deals_stamp_closed_at`) auto-creates a `fulfillment_clients` row (stage `pre`,
+    `ae_deal_id` unique for idempotency) on transition to Closed Won, + a one-time backfill. `csm` starts blank;
+    an exec/lead assigns the customer to a CS/FDE person in the Fulfillment view.
+  - **CS/FDE "New customers from Sales" panel** (`CsHandoffPanel` in CsmView/FdeView) is now **per-person**:
+    `useCsHandoffs(profile.name)` reads `fulfillment_clients WHERE csm = <my name>` (was the shared Closed Won
+    `ae_deals` queue). Call/text + "Open in Fulfillment". The old `mark_cs_onboarded` RPC + `cs_onboarded_*`
+    columns are now unused (left in place; onboarding state lives in the Fulfillment stages).
 - `testimonial_candidates` + `testimonial-videos` storage bucket — added by `supabase-testimonials-migration.sql`.
 
 RLS: users read/write their own rows; managers/executives read across the team. Some policies still check the legacy `role = 'manager'` column rather than `accessTier` — if you add a new policy, mirror the existing pattern in the same migration file rather than inventing a new one. For `atlas_targets`, write access is restricted to executive tier via dedicated policies in the targets migration.

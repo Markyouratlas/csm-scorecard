@@ -37,6 +37,7 @@ export default function ScorecardShell({
   onSignOut,
   onSwitchToManager,
   onSwitchToFeatureRequests,
+  onSwitchToFulfillment,
   onSwitchToIntegrations,
   onSwitchToCancellations,
   onSwitchToApiGuide,
@@ -98,6 +99,7 @@ export default function ScorecardShell({
             onSwitchToLeadership={onSwitchToLeadership}
             onSwitchToIntegrations={onSwitchToIntegrations}
             onSwitchToFeatureRequests={onSwitchToFeatureRequests}
+            onSwitchToFulfillment={onSwitchToFulfillment}
             onSwitchToCancellations={onSwitchToCancellations}
             onSwitchToCommissions={onSwitchToCommissions}
             onSwitchToApiGuide={onSwitchToApiGuide}

@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   Crown, Plug, Lightbulb, UserMinus, DollarSign, Zap,
-  LayoutDashboard, UserCircle2, Settings as SettingsIcon, LogOut,
+  LayoutDashboard, UserCircle2, Settings as SettingsIcon, LogOut, ClipboardList,
 } from 'lucide-react'
 
 // ============================================================================
@@ -70,6 +70,7 @@ export default function HeaderNav({
   onSwitchToCancellations,
   onSwitchToCommissions,
   onSwitchToApiGuide,
+  onSwitchToFulfillment,
   onSwitchToManager,
   onSwitchToSelf,
   onOpenSettings,
@@ -82,6 +83,7 @@ export default function HeaderNav({
     { page: 'leadership',       onClick: onSwitchToLeadership,      icon: Crown,           label: 'Leadership', accent: true },
     { page: 'integrations',     onClick: onSwitchToIntegrations,    icon: Plug,            label: 'Integrations' },
     { page: 'feature_requests', onClick: onSwitchToFeatureRequests, icon: Lightbulb,       label: 'Feature Requests' },
+    { page: 'fulfillment',      onClick: onSwitchToFulfillment,     icon: ClipboardList,   label: 'Fulfillment' },
     { page: 'cancellations',    onClick: onSwitchToCancellations,   icon: UserMinus,       label: 'Cancellations' },
     { page: 'commissions',      onClick: onSwitchToCommissions,     icon: DollarSign,      label: 'Commissions' },
     { page: 'api_guide',        onClick: onSwitchToApiGuide,        icon: Zap,             label: 'API Setup' },

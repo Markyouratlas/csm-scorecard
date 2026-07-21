@@ -1,72 +1,43 @@
-import { useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase.js'
 
-// =============================================================================
-//  useCsHandoffs
+// ============================================================================
+//  useCsHandoffs(assigneeName)
 //
-//  The Sales → CS/FDE hand-off queue. When an AE marks an ae_deals row
-//  'Closed Won', it surfaces here as a callable new-customer contact for every
-//  CSM + FDE (shared queue). RLS ("CS and FDE read Closed Won ae_deals") scopes
-//  the read to Closed Won rows only; the mark_cs_onboarded() rpc is the only way
-//  CS/FDE can write (it toggles just the onboarded flag — never sales fields).
+//  "New customers from Sales" — now PER-PERSON. A Closed Won deal auto-creates a
+//  fulfillment_clients row (see 28-fulfillment-from-closed-won.sql); an exec/lead
+//  assigns it to a CSM or FDE in the Fulfillment view (fulfillment_clients.csm =
+//  that person's name). This hook returns the customers assigned to the current
+//  user so the CS/FDE hand-off panel shows only THEIR onboarding queue.
 //
-//  Returns { active, onboarded } split on cs_onboarded_at, each newest-first,
-//  with the closing AE's name resolved best-effort. markOnboarded(id, done)
-//  toggles a contact between the two lists.
-// =============================================================================
+//  Matches by profile name (fulfillment_clients.csm is a text name populated from
+//  the profiles-backed assignee dropdown, so it equals profiles.name). RLS lets
+//  any staff read fulfillment_clients; we filter by the assignee here.
+// ============================================================================
 
-export function useCsHandoffs() {
-  const queryClient = useQueryClient()
-  const KEY = ['cs-handoffs']
+// Stages that mean onboarding is essentially finished (collapsed in the panel).
+const DONE_STAGES = new Set(['ongoing', 'cancelled'])
 
-  const { data, isPending, error, refetch } = useQuery({
-    queryKey: KEY,
+export function useCsHandoffs(assigneeName) {
+  const { data, isPending, error } = useQuery({
+    queryKey: ['cs-handoffs', assigneeName || null],
+    enabled: !!assigneeName,
     queryFn: async () => {
-      const { data: deals, error: dErr } = await supabase
-        .from('ae_deals')
-        .select('id, customer_name, customer_phone, customer_email, mrr, meeting_at, ae_id, status, cs_onboarded_at, cs_onboarded_by')
-        .eq('status', 'Closed Won')
-        .order('meeting_at', { ascending: false })
-      if (dErr) {
-        console.warn('useCsHandoffs: ae_deals read failed (migration not run / no access?) —', dErr.message)
-        return []
-      }
-      const rows = deals || []
-
-      // Resolve AE (and onboarder) names best-effort — degrade gracefully if
-      // profiles aren't readable for this role.
-      const ids = [...new Set(rows.flatMap(d => [d.ae_id, d.cs_onboarded_by]).filter(Boolean))]
-      let names = {}
-      if (ids.length) {
-        const { data: profs } = await supabase.from('profiles').select('id, name').in('id', ids)
-        names = Object.fromEntries((profs || []).map(p => [p.id, p.name]))
-      }
-      return rows.map(d => ({
-        ...d,
-        ae_name: names[d.ae_id] || null,
-        onboarded_by_name: names[d.cs_onboarded_by] || null,
-      }))
+      const { data, error } = await supabase
+        .from('fulfillment_clients')
+        .select('id, name, poc_email, poc_phone, mrr, stage, csm, ae_deal_id, created_at')
+        .eq('csm', assigneeName)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      return data || []
     },
   })
 
-  const rows = data || []
-  const active = rows.filter(d => !d.cs_onboarded_at)
-  const onboarded = rows.filter(d => d.cs_onboarded_at)
-
-  const markOnboarded = useCallback(async (id, done = true) => {
-    const { error } = await supabase.rpc('mark_cs_onboarded', { p_deal_id: id, p_done: done })
-    if (error) throw error
-    queryClient.invalidateQueries({ queryKey: KEY })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
+  const clients = data || []
   return {
-    active,
-    onboarded,
-    loading: isPending,
-    error: error ?? null,
-    markOnboarded,
-    refresh: refetch,
+    active: clients.filter((c) => !DONE_STAGES.has(c.stage)),
+    done: clients.filter((c) => DONE_STAGES.has(c.stage)),
+    loading: !!assigneeName && isPending,
+    error: error || null,
   }
 }

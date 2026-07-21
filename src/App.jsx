@@ -16,6 +16,7 @@ import LeadershipPendingView from './LeadershipPendingView'
 import SharedPagesView from './SharedPagesView'
 import ApiIntegrationGuide from './ApiIntegrationGuide'
 import LeadershipDashboardView from './LeadershipDashboardView'
+import FulfillmentView from './FulfillmentView'
 import InvestorView from './InvestorView'
 import InvestorPendingView from './InvestorPendingView'
 import ResetPasswordView from './ResetPasswordView'
@@ -279,6 +280,7 @@ export default function App() {
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
           onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
@@ -308,6 +310,7 @@ export default function App() {
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
           onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
@@ -331,6 +334,7 @@ export default function App() {
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
           onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={() => setViewMode('api_guide')}
@@ -363,11 +367,37 @@ export default function App() {
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
           onSwitchToManager={goToManager}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
           onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
           onProfileUpdated={setProfile}
+        />
+      </Shell>
+    )
+  }
+
+  // Fulfillment — customer onboarding tracker. Visible to all staff (investors
+  // are hard-routed away earlier), so it's ungated like Feature Requests.
+  if (viewMode === 'fulfillment') {
+    const canGoToSelf = !isLeadershipRole(profile.role_type)
+    const canSeeLeadership = tier === 'executive'
+    const canSeeCancellations = tier === 'executive' || profile.team === 'customer_success' || profile.team === 'forward_deployed'
+    return (
+      <Shell>
+        <FulfillmentView
+          profile={profile}
+          onSignOut={handleSignOut}
+          onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
+          onSwitchToManager={canSeeManagerView ? goToManager : null}
+          onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
+          onSwitchToIntegrations={() => setViewMode('integrations')}
+          onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
+          onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
+          onSwitchToLeadership={canSeeLeadership ? () => setViewMode('leadership') : null}
+          onSwitchToCommissions={canSeeCommissions ? () => setViewMode('commissions') : null}
         />
       </Shell>
     )
@@ -384,6 +414,7 @@ export default function App() {
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
@@ -407,6 +438,7 @@ export default function App() {
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
+          onSwitchToFulfillment={() => setViewMode('fulfillment')}
           onSwitchToIntegrations={() => setViewMode('integrations')}
           onSwitchToCancellations={canSeeCancellations ? () => setViewMode('cancellations') : null}
           onSwitchToApiGuide={tier === 'executive' ? () => setViewMode('api_guide') : null}
@@ -473,9 +505,9 @@ function InvestorRoute({ profile, onSignOut }) {
   )
 }
 
-function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
+function PersonalScorecard({ profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const role = profile.role_type
-  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }
+  const props = { profile, onSignOut, onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }
   switch (role) {
     case 'csm':
       return <CsmView {...props} />

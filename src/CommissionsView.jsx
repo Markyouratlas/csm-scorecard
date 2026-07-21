@@ -101,14 +101,14 @@ function fmtDate(iso) {
 // ============================================================
 export default function CommissionsView({
   profile, onSignOut,
-  onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations,
+  onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations,
   onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership,
   onProfileUpdated,
 }) {
   const tier = accessTier(profile);
   const isExecutive = tier === "executive";
   const shellNav = {
-    onSwitchToManager, onSwitchToFeatureRequests, onSwitchToIntegrations,
+    onSwitchToManager, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations,
     onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership,
     onProfileUpdated,
   };
