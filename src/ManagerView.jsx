@@ -1835,11 +1835,12 @@ function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, is
                 <div className="text-[10px] text-stone-400 mt-1">Private to executives. Feeds Operating Margin (all salaries) + Gross Margin (if delivery). Stored off the profiles table.</div>
               </div>
             )}
-            {isExec && !isSelf && profile.role !== 'executive' && (
+            {/* Investor toggle only for people who signed up as investors (team='investor'
+                → investor / investor_pending tier). Not shown for staff. */}
+            {isExec && !isSelf && (tier === 'investor' || tier === 'investor_pending') && (
               <button onClick={() => onSetInvestor(tier !== 'investor')}
                 title={tier === 'investor' ? 'Revert this investor to a normal team role'
-                  : tier === 'investor_pending' ? 'Grant this pending investor access to the gold dashboard'
-                  : 'Make this user an external investor (gold dashboard only)'}
+                  : 'Grant this pending investor access to the gold dashboard'}
                 className={`w-full flex items-center justify-center gap-1.5 py-1.5 border transition-colors text-xs ${
                   tier === 'investor_pending' ? 'border-transparent text-white hover:opacity-90'
                   : tier === 'investor' ? 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900'
@@ -1857,12 +1858,12 @@ function RosterCard({ profile, currentUser, isExec, expanded, onToggleExpand, is
                     className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 transition-colors text-xs disabled:opacity-40">
                     <Crown className="w-3 h-3" /> Demote from exec
                   </button>
-                ) : (
+                ) : (profile.team === 'leadership' || isLeadershipRole(profile.role_type)) ? (
                   <button onClick={() => onSetRole('executive')}
                     className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-stone-300 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-900 transition-colors text-xs">
                     <Crown className="w-3 h-3" /> Make exec
                   </button>
-                )}
+                ) : null}
                 {profile.archived_at ? (
                   <button onClick={onUnarchive} disabled={isSelf}
                     title="Restore this user — they'll appear in the roster again"
