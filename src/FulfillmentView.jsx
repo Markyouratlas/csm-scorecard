@@ -530,11 +530,19 @@ function SlackLink({ url, onSave }) {
   if (url && !editing) {
     return (
       <div className="flex items-center gap-2">
-        <a href={url} target="_blank" rel="noopener noreferrer"
+        <button type="button"
+          onClick={() => {
+            const w = 520, h = 420
+            const left = Math.max(0, Math.round((window.screen.width - w) / 2))
+            const top = Math.max(0, Math.round((window.screen.height - h) / 2))
+            // Small centered popup (not a full tab) — Slack hands off to the desktop app,
+            // so the browser window is just a throwaway redirect notice.
+            window.open(url, 'slack_handoff', `popup=yes,menubar=no,toolbar=no,location=no,status=no,width=${w},height=${h},left=${left},top=${top}`)
+          }}
           className="flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
           style={{ background: '#4A154B' }}>
           <MessageSquare size={15} /> Open Sales → CS hand-off
-        </a>
+        </button>
         <button type="button" onClick={() => setEditing(true)} title="Edit link"
           className="shrink-0 rounded-lg border border-zinc-200 p-2 text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-800">
           <Pencil size={14} />
