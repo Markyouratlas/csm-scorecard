@@ -423,7 +423,7 @@ const COLS = [
   { k: 'name', label: 'Name', w: 230, sticky: true }, { k: 'ttfv', label: 'TTFV', w: 90 }, { k: 'user', label: 'ATLAS Username', w: 180 },
   { k: 'email', label: 'POC Email', w: 200 }, { k: 'status', label: 'Status', w: 180 },
   { k: 'progress', label: 'Task progress', w: 130 }, { k: 'stage', label: 'Stage', w: 190 },
-  { k: 'csm', label: 'CSM / FDE', w: 160 }, { k: 'imp', label: 'Implementation Specialist', w: 170 },
+  { k: 'csm', label: 'CSM / FDE', w: 160 }, { k: 'imp', label: 'Implementation Specialist', w: 170 }, { k: 'sales', label: 'Closed by', w: 150 },
   { k: 'priority', label: 'Priority', w: 90 }, { k: 'sub', label: 'Subscription', w: 115 },
   { k: 'tshirt', label: 'T-Shirt Size', w: 100 }, { k: 'temp', label: 'Temperament', w: 110 },
   { k: 'payment', label: 'Payment Date', w: 110 }, { k: 'kickoff', label: 'Kickoff Call', w: 110 },
@@ -444,6 +444,7 @@ function cellContent(col, c) {
     case 'stage': return <StageChip stageId={c.stage} />
     case 'csm': return <PersonChip name={c.csm} />
     case 'imp': return <PersonChip name={c.imp} />
+    case 'sales': return c.closedBy ? <Chip color="#e7e5f2">{c.closedBy}</Chip> : <span className="text-zinc-400">—</span>
     case 'priority': return <Chip color={PRIORITY_COLORS[c.priority]}>{c.priority}</Chip>
     case 'sub': return c.planLabel ? <Chip color={SUB_COLORS[c.planLabel] || '#c7c9d1'}>{c.planLabel}</Chip> : null
     case 'tshirt': return <Chip color={TSHIRT_COLORS[c.tShirt] || '#c7c9d1'}>{c.tShirt}</Chip>
@@ -691,6 +692,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
   const [view, setView] = useState('dashboard')
   const [q, setQ] = useState('')
   const [csmF, setCsmF] = useState('all')
+  const [salesF, setSalesF] = useState('all')
   const [stageF, setStageF] = useState('all')
   const [sel, setSel] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -699,17 +701,20 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
 
   const canDelete = accessTier(profile) === 'executive'
   const canDial = DIALER_ROLES.includes(profile?.role_type) || accessTier(profile) === 'executive'
+  // Salespeople (closed_by) currently in the book — for the "closed by" filter.
+  const salesOptions = useMemo(() => [...new Set(clients.map((c) => c.closedBy).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [clients])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return clients.filter((c) =>
       (csmF === 'all' || c.csm === csmF) &&
+      (salesF === 'all' || c.closedBy === salesF) &&
       (stageF === 'all' || c.stage === stageF) &&
       (!needle || [c.name, c.pocEmail, c.atlasUsername].join(' ').toLowerCase().includes(needle)))
-  }, [clients, q, csmF, stageF])
+  }, [clients, q, csmF, salesF, stageF])
 
   const selClient = clients.find((c) => c.id === sel)
-  const hasFilters = q || csmF !== 'all' || stageF !== 'all'
+  const hasFilters = q || csmF !== 'all' || salesF !== 'all' || stageF !== 'all'
 
   const onAdd = async (f) => {
     const c = await addClient({ name: f.name, pocEmail: f.email, atlasUsername: f.user, stage: f.stage, csm: f.csm })
@@ -768,6 +773,10 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
                 <option value="all">All CSMs / FDEs</option>
                 {people.csms.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
+              <select className="ainput" style={{ width: 160 }} value={salesF} onChange={(e) => setSalesF(e.target.value)}>
+                <option value="all">All Sales (closed by)</option>
+                {salesOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
               <select className="ainput" style={{ width: 190 }} value={stageF} onChange={(e) => setStageF(e.target.value)}>
                 <option value="all">All stages</option>
                 {STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -799,7 +808,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
                 <p className="mt-2 text-sm text-zinc-500">{hasFilters ? 'Nothing matches the current search or filters.' : 'The pipeline is empty. Closed Won deals route in automatically, or add a client.'}</p>
               )}
               {!loading && hasFilters ? (
-                <button onClick={() => { setQ(''); setCsmF('all'); setStageF('all') }} className="mt-4 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100">Clear filters</button>
+                <button onClick={() => { setQ(''); setCsmF('all'); setSalesF('all'); setStageF('all') }} className="mt-4 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100">Clear filters</button>
               ) : !loading ? (
                 <button onClick={() => setAdding(true)} className="mt-4 rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ background: `linear-gradient(135deg, ${BRAND}, ${ACCENT})` }}>Add client</button>
               ) : null}
