@@ -515,7 +515,7 @@ const MetricTile = ({ label, value, tone }) => (
     <div className="font-display mt-0.5 text-sm font-semibold" style={{ color: tone === 'bad' ? '#d6453a' : tone === 'good' ? '#1f9d5b' : '#27272f' }}>{value}</div>
   </div>
 )
-function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDates, onWL, onStage, onDelete }) {
+function Drawer({ c, people, planOptions = [], canDelete, canDial, dialer, onClose, onPatch, onDates, onWL, onStage, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [wlOpen, setWlOpen] = useState(c.subscription === 'White Label')
   const m = clientMetrics(c)
@@ -566,7 +566,7 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
                 )}
               </div>
             </Field>
-            <Field label="Subscription"><SelectInput options={['Starter', 'Pro', 'White Label']} value={c.subscription} onChange={(e) => onPatch({ subscription: e.target.value })} /></Field>
+            <Field label="Subscription · from Stripe"><SelectInput blank options={planOptions} value={c.subscription} onChange={(e) => onPatch({ subscription: e.target.value })} /></Field>
             <Field label="T-Shirt Size"><SelectInput options={['Small', 'Medium', 'Large']} value={c.tShirt} onChange={(e) => onPatch({ tShirt: e.target.value })} /></Field>
             <Field label="Temperament"><SelectInput options={['Happy', 'Neutral', 'Frustrated']} value={c.temperament} onChange={(e) => onPatch({ temperament: e.target.value })} /></Field>
             <Field label={`Task progress · ${c.taskProgress}%`}>
@@ -640,13 +640,13 @@ function Drawer({ c, people, canDelete, canDial, dialer, onClose, onPatch, onDat
 }
 
 /* ─── Add client modal ─── */
-function AddModal({ people, onAdd, onClose }) {
+function AddModal({ people, planOptions = [], onAdd, onClose }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [user, setUser] = useState('')
   const [stage, setStage] = useState('pre')
   const [csm, setCsm] = useState('')
-  const [sub, setSub] = useState('Starter')
+  const [sub, setSub] = useState('')
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-zinc-900/30 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="fade-up w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -660,7 +660,7 @@ function AddModal({ people, onAdd, onClose }) {
           <Field label="ATLAS Username"><TextInput value={user} onChange={(e) => setUser(e.target.value)} /></Field>
           <Field label="Stage"><select className="ainput" value={stage} onChange={(e) => setStage(e.target.value)}>{STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></Field>
           <Field label="CSM / FDE"><SelectInput blank options={people.csms} value={csm} onChange={(e) => setCsm(e.target.value)} /></Field>
-          <Field label="Subscription" full><SelectInput options={['Starter', 'Pro', 'White Label']} value={sub} onChange={(e) => setSub(e.target.value)} /></Field>
+          <Field label="Subscription" full><SelectInput blank options={planOptions} value={sub} onChange={(e) => setSub(e.target.value)} /></Field>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800">Cancel</button>
@@ -694,6 +694,9 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
 
   const canDelete = accessTier(profile) === 'executive'
   const canDial = DIALER_ROLES.includes(profile?.role_type) || accessTier(profile) === 'executive'
+  // Subscription options = the real Stripe plans currently in use (replaces the old
+  // hardcoded Starter/Pro/White-Label tiers).
+  const planOptions = useMemo(() => [...new Set(clients.map((c) => c.subscription).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [clients])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -813,6 +816,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
             key={selClient.id}
             c={selClient}
             people={people}
+            planOptions={planOptions}
             canDelete={canDelete}
             canDial={canDial}
             dialer={dialer}
@@ -825,7 +829,7 @@ export default function FulfillmentView({ profile, onSignOut, onOpenSettings, ..
           />
         )}
 
-        {adding && <AddModal people={people} onAdd={onAdd} onClose={() => setAdding(false)} />}
+        {adding && <AddModal people={people} planOptions={planOptions} onAdd={onAdd} onClose={() => setAdding(false)} />}
       </div>
     </PeopleColors.Provider>
   )
