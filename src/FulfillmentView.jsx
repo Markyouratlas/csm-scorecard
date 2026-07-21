@@ -420,7 +420,7 @@ function BoardView({ list, onOpen, onMove, dragOver, setDragOver }) {
 
 /* ─── Table view ─── */
 const COLS = [
-  { k: 'name', label: 'Name', w: 230, sticky: true }, { k: 'user', label: 'ATLAS Username', w: 180 },
+  { k: 'name', label: 'Name', w: 230, sticky: true }, { k: 'ttfv', label: 'TTFV', w: 90 }, { k: 'user', label: 'ATLAS Username', w: 180 },
   { k: 'email', label: 'POC Email', w: 200 }, { k: 'status', label: 'Status', w: 180 },
   { k: 'progress', label: 'Task progress', w: 130 }, { k: 'stage', label: 'Stage', w: 190 },
   { k: 'csm', label: 'CSM / FDE', w: 160 }, { k: 'imp', label: 'Implementation Specialist', w: 170 },
@@ -432,6 +432,11 @@ const COLS = [
 function cellContent(col, c) {
   switch (col.k) {
     case 'name': return (<div className="flex items-center gap-1.5"><span className="truncate font-medium text-zinc-900">{c.name || '(no name)'}</span>{c.impEscalation && <AlertTriangle size={13} className="shrink-0 text-red-500" />}</div>)
+    case 'ttfv': {
+      const v = c.dates.payment ? diffDays(c.dates.payment, c.dates.launch || todayISO()) : null
+      if (v == null) return <span className="text-zinc-400">—</span>
+      return <span className="num-tabular font-medium" style={{ color: v <= 14 ? '#1f9d5b' : '#d6453a' }} title={c.dates.launch ? 'Launched' : 'Days since payment (live)'}>{fmtDur(v)}</span>
+    }
     case 'user': return <span className="truncate text-zinc-500">{c.atlasUsername || 'null'}</span>
     case 'email': return <span className="truncate text-zinc-500">{c.pocEmail || ''}</span>
     case 'status': return <StatusPill c={c} />
