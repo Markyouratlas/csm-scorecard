@@ -273,6 +273,26 @@ Only plan against the full, confirmed column list.
   `GA4_SA_KEY_B64`. Schema `src/18-ga4-metrics.sql`. Read by `src/hooks/useGa4Metrics.js` →
   the GrowthView "Website (GA4)" tab (`Ga4Section`).
 - **ProfitWell** → `profitwell-sync`.
+- **GHL webinar signups** → `ghl-webinar-signups-sync` (daily cron
+  `supabase-webinar-signups-cron.sql` + re-runnable backfill) pages the GHL v2 API
+  `GET https://services.leadconnectorhq.com/forms/submissions` (Bearer `GHL_API_KEY`,
+  `Version: 2021-07-28`, page/limit ≤100, walk `meta.nextPage`) for the workshop opt-in
+  form (`3nmXZEM7jE796XhIsFVV` "Stop Hiring, Start Cloning Workshop - Optin", on
+  blue.youratlas.com) and **upserts into `webinar_signups`** on `ghl_submission_id`
+  (idempotent). Schema `src/33-webinar-signups.sql` (RLS: exec + `growth_manager` +
+  managers read; service-role writes only). **Gotcha:** a GHL submission promotes only
+  `id`/`contactId`/`formId`/`name`/`email`/`createdAt` top-level — **phone, custom
+  fields (revenue-band qualifier), and attribution live inside `others`** (phone +
+  UTM under friendly keys for THIS form, but custom fields are **dynamic per-form
+  field-ID keys**, so the sync extracts phone/revenue-band heuristically and keeps the
+  full submission in `raw`). Attribution is mostly `source:"Direct traffic"` (custom
+  landing page) — `fbEventId`/`fbp`/`fbc` are the real Meta-match hook. Auth = cron
+  secret (`CRON_SHARED_SECRET`, also accepts legacy `CRON_SECRET`) or a signed-in exec;
+  deploy `--no-verify-jwt`. **Phase 2 (not built): a `ghl-webinar-optin` webhook** fed by
+  a GHL Workflow "Custom Webhook" action — which GHL does **NOT** sign (Ed25519
+  `X-GHL-Signature` is only for native marketplace webhooks), so gate it with a `?token=`
+  secret like `ghl-calls-inbound`. Future: join `webinar_signups.email/phone` → Stripe
+  for an opt-in→paid funnel. See [[ghl-call-tracking]].
 - **Attio (CRM)** → **Pipe 1 (read, LIVE):** `attio-sync` (nightly cron `supabase-attio-cron.sql`
   + manual backfill) pages the Attio Data API (`POST /v2/objects/deals/records/query`, Bearer
   `ATTIO_API_KEY`) and `attio-webhook` (public, `--no-verify-jwt`, verifies `Attio-Signature`
