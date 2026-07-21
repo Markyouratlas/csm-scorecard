@@ -8,12 +8,12 @@
 --  PREREQUISITES (one-time):
 --    1. Table exists (src/33-webinar-signups.sql).
 --    2. Function deployed:  supabase functions deploy ghl-webinar-signups-sync --no-verify-jwt
---    3. Secrets exist: GHL_API_KEY, GHL_LOCATION_ID, CRON_SECRET.
+--    3. Secrets exist: GHL_API_KEY, GHL_LOCATION_ID, CRON_SHARED_SECRET.
 --    4. pg_cron + pg_net enabled (already are if the other syncs run on a schedule).
 --
 --  BEFORE RUNNING: replace the two <PLACEHOLDERS>:
 --    <ANON_KEY>     → the project's anon/publishable key (public).
---    <CRON_SECRET>  → the value of the CRON_SECRET secret.
+--    <CRON_SHARED_SECRET>  → the value of the CRON_SECRET secret.
 --
 --  EASIER ALTERNATIVE (no SQL): Dashboard → Edge Functions / Cron — pick
 --  ghl-webinar-signups-sync, schedule "0 10 * * *", add header X-Cron-Secret: <secret>.
@@ -33,7 +33,7 @@ select cron.schedule(
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
       'Authorization', 'Bearer <ANON_KEY>',
-      'X-Cron-Secret', '<CRON_SECRET>'
+      'X-Cron-Secret', '<CRON_SHARED_SECRET>'
     ),
     body    := '{}'::jsonb,
     timeout_milliseconds := 120000
@@ -47,7 +47,7 @@ select cron.schedule(
 --
 -- select net.http_post(
 --   url     := 'https://ckobnzvgjeaxxgvmexaz.supabase.co/functions/v1/ghl-webinar-signups-sync',
---   headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <ANON_KEY>','X-Cron-Secret','<CRON_SECRET>'),
+--   headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer <ANON_KEY>','X-Cron-Secret','<CRON_SHARED_SECRET>'),
 --   body    := '{}'::jsonb, timeout_milliseconds := 120000);
 
 -- Verify / manage:

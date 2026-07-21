@@ -88,9 +88,12 @@ serve(async (req) => {
     if (!key || !loc) return json({ error: "GHL_API_KEY / GHL_LOCATION_ID not set" }, 500);
 
     // ---- Auth: cron secret OR signed-in executive ----
+    // Accept the shared cron secret (what every scheduled job uses) or the legacy
+    // CRON_SECRET — whichever matches the X-Cron-Secret header.
+    const sharedSecret = Deno.env.get("CRON_SHARED_SECRET") || "";
     const cronSecret = Deno.env.get("CRON_SECRET") || "";
     const providedCron = req.headers.get("x-cron-secret") || "";
-    let authed = !!cronSecret && providedCron === cronSecret;
+    let authed = !!providedCron && (providedCron === sharedSecret || providedCron === cronSecret);
     if (!authed) {
       const authHeader = req.headers.get("Authorization") || "";
       const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!,
