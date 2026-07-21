@@ -71,7 +71,7 @@ function dayIdxOfYMD(ymd: string): number {
 // Mirrors src/aeFunnel.js: Booked = any status except 'Rescheduled'; Completed =
 // attended (incl. 'Unqualified' — they showed); demosUnqualified = 'Unqualified'
 // (excluded from the close-rate denominator); Closes = 'Closed Won'. Keep in sync.
-const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up", "Closed Won", "Closed Lost"]);
+const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up", "Deposit collected", "Closed Won", "Closed Lost"]);
 
 // Pure: compute one (AE, week) funnel from its meetings and merge into the
 // existing weekly_scorecards.data, returning the row to upsert — or null when
@@ -79,7 +79,7 @@ const ATTENDED = new Set(["Showed", "Unqualified", "Proposal sent", "Follow-up",
 // Only the funnel fields are touched; other daily fields, deals, notes, and
 // submitted_at are preserved. The orchestrator batches the actual I/O.
 function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingData: any, nowISO: string): any | null {
-  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, intros: 0 }));
+  const daily = Array.from({ length: 7 }, () => ({ demosBooked: 0, demosCompleted: 0, demosUnqualified: 0, trialSignups: 0, deposits: 0, intros: 0 }));
   for (const d of rows) {
     // Meeting-week metrics (booked / completed / unqualified / intros). 'Intro' is
     // fully backed out of the demo funnel and counted only in `intros`.
@@ -92,6 +92,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
           if (d.status !== "Rescheduled" && d.status !== "Deleted") daily[idx].demosBooked += 1;
           if (ATTENDED.has(d.status)) daily[idx].demosCompleted += 1;
           if (d.status === "Unqualified") daily[idx].demosUnqualified += 1;
+          if (d.status === "Deposit collected") daily[idx].deposits += 1;
         }
       }
     }
@@ -105,7 +106,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
       }
     }
   }
-  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups && !x.intros);
+  const allZero = daily.every((x) => !x.demosBooked && !x.demosCompleted && !x.demosUnqualified && !x.trialSignups && !x.deposits && !x.intros);
   const exists = existingData != null;
   if (!exists && allZero) return null; // nothing to record; don't create an empty row
 
@@ -121,6 +122,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
         || (Number(c.demosCompleted) || 0) !== daily[i].demosCompleted
         || (Number(c.demosUnqualified) || 0) !== daily[i].demosUnqualified
         || (Number(c.trialSignups) || 0) !== daily[i].trialSignups
+        || (Number(c.deposits) || 0) !== daily[i].deposits
         || (Number(c.intros) || 0) !== daily[i].intros) { changed = true; break; }
     }
     if (!changed) return null;
@@ -132,6 +134,7 @@ function funnelUpsertRow(aeId: string, weekKey: string, rows: any[], existingDat
     demosCompleted: daily[i].demosCompleted,
     demosUnqualified: daily[i].demosUnqualified,
     trialSignups: daily[i].trialSignups,
+    deposits: daily[i].deposits,
     intros: daily[i].intros,
   }));
   const newData = { ...base, daily: newDaily, deals: Array.isArray(base.deals) ? base.deals : [] };

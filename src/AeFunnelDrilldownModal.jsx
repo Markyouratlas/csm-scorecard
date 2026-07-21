@@ -26,6 +26,7 @@ const METRICS = {
   completed: { title: 'Demos completed',        bucket: 'meeting', filter: d => AE_ATTENDED_STATUSES.includes(d.status) },
   intros:    { title: 'Intro meetings',         bucket: 'meeting', filter: d => d.status === 'Intro' },
   closes:    { title: 'Closes (Closed Won)',    bucket: 'close',   filter: d => d.status === 'Closed Won', money: true },
+  deposits:  { title: 'Deposits collected',     bucket: 'meeting', filter: d => d.status === 'Deposit collected', money: true },
 }
 
 const STATUS_STYLE = {
@@ -34,6 +35,7 @@ const STATUS_STYLE = {
   'No-show':     { color: '#9A3412', bg: 'rgba(234,88,12,0.10)' },
   'Unqualified': { color: '#57534E', bg: 'rgba(120,113,108,0.12)' },
   'Intro':       { color: '#6639A6', bg: 'rgba(102,57,166,0.12)' },
+  'Deposit collected': { color: '#B45309', bg: 'rgba(217,119,6,0.12)' },
 }
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) } catch { return '—' } }
