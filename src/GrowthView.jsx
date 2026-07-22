@@ -944,18 +944,21 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
 // useCalEventTypes, so a brand-new type can always be tagged.
 function BookedMeetingsSection() {
   const [weeks, setWeeks] = useState(8)
+  const isWeek = weeks === 'week'
   const isAllTime = weeks === 'all'
-  const days = isAllTime ? 3650 : weeks * 7 // ~10y ≈ all history
-  const winLabel = isAllTime ? 'all time' : `${weeks}w`
-  const cal = useCalBookings({ days })
+  const currentWeekKey = getWeekKey() // this week's Monday (YYYY-MM-DD)
+  const days = isAllTime ? 3650 : isWeek ? 7 : weeks * 7 // fallback detail window
+  const winLabel = isWeek ? 'this week' : isAllTime ? 'all time' : `${weeks}w`
+  const weekSinceISO = isWeek ? new Date(`${currentWeekKey}T00:00:00`).toISOString() : null
+  const cal = useCalBookings(isWeek ? { weekKey: currentWeekKey } : { days })
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
-  const detail = useBookedMeetingsDetail(days)
+  const detail = useBookedMeetingsDetail(days, weekSinceISO)
   const allTime = useCalBookingsAllTimeByType()
   const queryClient = useQueryClient()
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
   const [testBusy, setTestBusy] = useState(null)
-  const WEEK_OPTIONS = [4, 8, 12, 26, 'all']
+  const WEEK_OPTIONS = ['week', 4, 8, 12, 26, 'all']
 
   // Flag/unflag a booking as internal/test — backs it out of all counts.
   const markTest = async (uid, isTest) => {
@@ -1070,7 +1073,7 @@ function BookedMeetingsSection() {
                   color: weeks === w ? 'white' : AB_BLUE,
                   border: '1px solid rgba(37,99,235,0.25)',
                 }}>
-                {w === 'all' ? 'All Time' : `${w}w`}
+                {w === 'week' ? 'This Week' : w === 'all' ? 'All Time' : `${w}w`}
               </button>
             ))}
           </div>
@@ -1091,7 +1094,7 @@ function BookedMeetingsSection() {
           )}
         </div>
         <p className="text-sm text-stone-600 mb-4">
-          {isAllTime ? 'All meetings ever booked' : `Meetings booked in the last ${weeks} weeks`} per Cal.com event type. Tap a type’s tag to flip it between
+          {isWeek ? 'Meetings booked this week' : isAllTime ? 'All meetings ever booked' : `Meetings booked in the last ${weeks} weeks`} per Cal.com event type. Tap a type’s tag to flip it between
           <span className="font-medium"> Ad-driven</span> (counts as a paid-attributable booked call) and
           <span className="font-medium"> Organic</span>. Types with no bookings {isAllTime ? '' : 'in this window '}still show so they can be tagged.
         </p>
