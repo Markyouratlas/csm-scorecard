@@ -19,8 +19,10 @@ import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
+import { useBookedMeetingsDetail } from './hooks/useBookedMeetingsDetail.js'
 import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
+import BookedMeetingsDrilldownModal from './BookedMeetingsDrilldownModal'
 import { dayIdxOfYMD } from './aeFunnel'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
@@ -942,8 +944,19 @@ function BookedMeetingsSection() {
   const [weeks, setWeeks] = useState(8)
   const cal = useCalBookings({ days: weeks * 7 })
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
+  const detail = useBookedMeetingsDetail(weeks * 7)
   const [savingSlug, setSavingSlug] = useState(null)
+  const [drill, setDrill] = useState(null) // { slug, label } | null
   const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  // Per-booking detail grouped by event-type slug (for the drill-down modal).
+  const detailBySlug = useMemo(() => {
+    const m = {}
+    for (const r of detail.rows || []) (m[r.event_type_slug ?? '(none)'] ||= []).push(r)
+    return m
+  }, [detail.rows])
+  const openDrill = (r) => setDrill({ slug: r.slug, label: r.label })
+  const drillRows = drill ? (detailBySlug[drill.slug ?? '(none)'] || []) : []
 
   // Windowed booking count per slug (the numbers), keyed like useCalEventTypes.
   const windowCount = {}
@@ -1028,13 +1041,15 @@ function BookedMeetingsSection() {
           <div className="space-y-2">
             {rows.map(r => (
               <div key={r.slug || 'none'} className={`flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5 ${r.count === 0 ? 'opacity-60' : ''}`}>
-                <div className="flex items-center gap-3 min-w-0">
+                <button type="button" onClick={() => openDrill(r)} disabled={r.count === 0}
+                  title={r.count ? 'View the meetings behind this count' : 'No meetings in this window'}
+                  className="flex items-center gap-3 min-w-0 flex-1 text-left group disabled:cursor-default">
                   <span className="display-font text-lg font-medium num-tabular w-8 text-right shrink-0" style={{ color: r.isAdDriven && r.count ? AB_BLUE : '#57534e' }}>{r.count}</span>
-                  <span className="text-sm font-medium text-stone-700 truncate">{r.label}</span>
+                  <span className={`text-sm font-medium text-stone-700 truncate ${r.count ? 'group-hover:underline decoration-dotted decoration-stone-400 underline-offset-2' : ''}`}>{r.label}</span>
                   {!r.isNull && !r.isConfigured && (
                     <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>New</span>
                   )}
-                </div>
+                </button>
                 {r.isNull ? (
                   <span className="mono-font text-[9px] uppercase tracking-wider text-stone-300 shrink-0">No slug · not taggable</span>
                 ) : (
@@ -1052,6 +1067,10 @@ function BookedMeetingsSection() {
           </div>
         )}
       </div>
+
+      {drill && (
+        <BookedMeetingsDrilldownModal label={drill.label} rows={drillRows} onClose={() => setDrill(null)} />
+      )}
     </div>
   )
 }
