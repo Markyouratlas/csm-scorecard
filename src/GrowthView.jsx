@@ -150,6 +150,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
+    { id: 'booked-meetings', label: 'Booked Meetings', icon: Calendar },
     { id: 'atlas-blue',  label: 'Atlas Blue',    icon: Sparkles },
     { id: 'atlas-blue-webinar', label: 'AB Webinar', icon: Users },
     { id: 'ga4',         label: 'Website (GA4)', icon: Globe },
@@ -215,6 +216,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
+        {section === 'booked-meetings' && <BookedMeetingsSection />}
         {section === 'atlas-blue' && <AtlasBlueFunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} />}
         {section === 'atlas-blue-webinar' && <AtlasBlueWebinarSection workDayIdxs={workDayIdxs} weekKey={weekKey} />}
         {section === 'ga4' && <Ga4Section />}
@@ -706,11 +708,6 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   const chartData = weeklyTrend.map(w => ({ name: formatWeekLabel(w.weekKey), adSpend: w.adSpend, visitors: w.visitors, signups: w.signups }))
   const WEEK_OPTIONS = [4, 8, 12, 26]
 
-  // Booked-meeting attribution: bookings by Cal.com event type over the chart window.
-  // Ad-driven event types (tagged in Event Type Settings) = paid-attributable booked calls.
-  const cal = useCalBookings({ days: chartWeeks * 7 })
-  const adDrivenBooked = (cal.byEventType || []).reduce((n, et) => n + (et.isAdDriven ? (Number(et.count) || 0) : 0), 0)
-
   return (
     <div className="space-y-6">
       {error && (
@@ -931,30 +928,62 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
           <div className="text-xs text-stone-400 mt-3">Showing the 25 most recent of {recentSignups.length} in this window.</div>
         )}
       </div>
+    </div>
+  )
+}
 
-      {/* ---------- BOOKED MEETINGS BY EVENT TYPE (attribution) ---------- */}
+// Booked-meeting attribution — its own Growth sub-tab. Bookings by Cal.com event
+// type over a selectable window; ad-driven event types (tagged in Event Type
+// Settings, the shared cal_event_type_config) are the paid-attributable booked calls.
+function BookedMeetingsSection() {
+  const [weeks, setWeeks] = useState(8)
+  const cal = useCalBookings({ days: weeks * 7 })
+  const byType = cal.byEventType || []
+  const adDrivenBooked = byType.reduce((n, et) => n + (et.isAdDriven ? (Number(et.count) || 0) : 0), 0)
+  const totalBooked = byType.reduce((n, et) => n + (Number(et.count) || 0), 0)
+  const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  return (
+    <div className="space-y-6">
       <div className="bg-white border border-stone-200 p-6">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
-            <div className="display-font text-2xl font-medium text-stone-900">Booked Meetings by Event Type</div>
+            <div className="display-font text-2xl font-medium text-stone-900">Booked Meetings</div>
           </div>
-          <div className="text-right">
-            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Ad-driven booked · last {chartWeeks}w</div>
-            <div className="num-tabular text-2xl font-bold" style={{ color: AB_BLUE }}>{adDrivenBooked.toLocaleString()}</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {WEEK_OPTIONS.map(w => (
+              <button key={w} onClick={() => setWeeks(w)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: weeks === w ? AB_BLUE : 'rgba(37,99,235,0.08)',
+                  color: weeks === w ? 'white' : AB_BLUE,
+                  border: '1px solid rgba(37,99,235,0.25)',
+                }}>
+                {w}w
+              </button>
+            ))}
           </div>
         </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+          <HeroStat label={`Ad-driven booked · ${weeks}w`} value={adDrivenBooked.toLocaleString()} accent={AB_BLUE} />
+          <HeroStat label={`Total booked · ${weeks}w`} value={totalBooked.toLocaleString()} accent="#57534e" />
+          <HeroStat label="% Ad-driven" value={totalBooked ? `${Math.round((adDrivenBooked / totalBooked) * 100)}%` : '—'} accent="#047857" />
+        </div>
+
+        <div className="display-font text-xl font-medium text-stone-900 mb-1">By Event Type</div>
         <p className="text-sm text-stone-600 mb-4">
-          Meetings booked in the last {chartWeeks} weeks, split by Cal.com event type. Types tagged
+          Meetings booked in the last {weeks} weeks, split by Cal.com event type. Types tagged
           <span className="font-medium"> Ad-driven</span> below count as paid-attributable booked calls.
         </p>
         {cal.loading ? (
           <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
-        ) : (cal.byEventType || []).length === 0 ? (
+        ) : byType.length === 0 ? (
           <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No bookings in this window</div>
         ) : (
           <div className="space-y-2">
-            {cal.byEventType.map(et => {
+            {byType.map(et => {
               const isPaid = et.isAdDriven
               return (
                 <div key={et.slug || 'unknown'} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
