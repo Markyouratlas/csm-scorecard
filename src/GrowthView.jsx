@@ -985,6 +985,17 @@ function BookedMeetingsSection() {
   }, [types, allTime.bySlug])
   const allTimeAdDrivenTotal = allTimeCards.reduce((n, c) => n + c.count, 0)
 
+  // Closed Won from ad-driven (paid-attributable), test-excluded bookings in the window.
+  const adDrivenSlugs = useMemo(() => new Set((types || []).filter(t => t.isAdDriven).map(t => t.slug)), [types])
+  const won = useMemo(() => {
+    const rws = (detail.rows || []).filter(r => !r.is_test && r.deal_status === 'Closed Won' && adDrivenSlugs.has(r.event_type_slug))
+    return {
+      count: rws.length,
+      cash: rws.reduce((s, r) => s + (Number(r.one_time) || 0), 0),
+      mrr: rws.reduce((s, r) => s + (Number(r.mrr) || 0), 0),
+    }
+  }, [detail.rows, adDrivenSlugs])
+
   // Per-booking detail grouped by event-type slug (for the drill-down modal).
   const detailBySlug = useMemo(() => {
     const m = {}
@@ -1084,6 +1095,13 @@ function BookedMeetingsSection() {
           <HeroStat label={`Total booked · ${winLabel}`} value={totalBooked.toLocaleString()} accent="#57534e" />
           <HeroStat label="% Ad-driven" value={totalBooked ? `${Math.round((adDrivenBooked / totalBooked) * 100)}%` : '—'} accent="#047857" />
         </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
+          <HeroStat label={`New customers · ${winLabel}`} value={won.count.toLocaleString()} accent="#065F46" />
+          <HeroStat label={`Cash collected · ${winLabel}`} value={fmtWhole(won.cash)} accent="#065F46" />
+          <HeroStat label={`MRR · ${winLabel}`} value={fmtWhole(won.mrr)} accent="#065F46" />
+        </div>
+        <p className="text-[11px] text-stone-400 mb-6">Closed Won from ad-driven booked meetings (test-excluded) in this window.</p>
 
         <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
           <div className="display-font text-xl font-medium text-stone-900">By Event Type</div>
