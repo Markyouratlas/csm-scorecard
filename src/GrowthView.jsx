@@ -932,16 +932,46 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   )
 }
 
-// Booked-meeting attribution — its own Growth sub-tab. Bookings by Cal.com event
-// type over a selectable window; ad-driven event types (tagged in Event Type
-// Settings, the shared cal_event_type_config) are the paid-attributable booked calls.
+// Booked-meeting attribution — its own Growth sub-tab. ONE list: bookings per
+// Cal.com event type over a selectable window, with an inline ad-driven toggle on
+// each row (writes the shared cal_event_type_config, same source the Meta Live tab
+// + funnels read). The windowed booking count comes from useCalBookings; the full
+// taggable set (incl. types with no bookings in the window) comes from
+// useCalEventTypes, so a brand-new type can always be tagged.
 function BookedMeetingsSection() {
   const [weeks, setWeeks] = useState(8)
   const cal = useCalBookings({ days: weeks * 7 })
-  const byType = cal.byEventType || []
-  const adDrivenBooked = byType.reduce((n, et) => n + (et.isAdDriven ? (Number(et.count) || 0) : 0), 0)
-  const totalBooked = byType.reduce((n, et) => n + (Number(et.count) || 0), 0)
+  const { types, loading: typesLoading, saveType } = useCalEventTypes()
+  const [savingSlug, setSavingSlug] = useState(null)
   const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  // Windowed booking count per slug (the numbers), keyed like useCalEventTypes.
+  const windowCount = {}
+  for (const et of cal.byEventType || []) windowCount[et.slug ?? '(none)'] = Number(et.count) || 0
+
+  // One row per known event type: windowed count + tagging state. Booked-in-window
+  // types sort to the top; count-0 types stay listed (dimmed) so they're taggable.
+  const rows = (types || []).map(t => ({
+    slug: t.slug,
+    label: t.label || t.slug,
+    count: windowCount[t.slug] ?? 0,
+    isAdDriven: t.isAdDriven,
+    isConfigured: t.isConfigured,
+    isNull: t.isNull,
+  })).sort((a, b) => (b.count - a.count) || String(a.label).localeCompare(String(b.label)))
+
+  const adDrivenBooked = rows.reduce((n, r) => n + (r.isAdDriven ? r.count : 0), 0)
+  const totalBooked = rows.reduce((n, r) => n + r.count, 0)
+  const untaggedCount = rows.filter(r => !r.isNull && !r.isConfigured).length
+  const loading = cal.loading || typesLoading
+
+  const toggle = async (r) => {
+    if (r.isNull) return
+    setSavingSlug(r.slug)
+    try { await saveType(r.slug, { isAdDriven: !r.isAdDriven }) }
+    catch (e) { console.error('saveType failed:', e) }
+    finally { setSavingSlug(null) }
+  }
 
   return (
     <div className="space-y-6">
@@ -972,40 +1002,51 @@ function BookedMeetingsSection() {
           <HeroStat label="% Ad-driven" value={totalBooked ? `${Math.round((adDrivenBooked / totalBooked) * 100)}%` : '—'} accent="#047857" />
         </div>
 
-        <div className="display-font text-xl font-medium text-stone-900 mb-1">By Event Type</div>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+          <div className="display-font text-xl font-medium text-stone-900">By Event Type</div>
+          {untaggedCount > 0 && (
+            <span className="mono-font text-[9px] uppercase tracking-wider px-2 py-1 rounded" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>
+              {untaggedCount} new — needs tagging
+            </span>
+          )}
+        </div>
         <p className="text-sm text-stone-600 mb-4">
-          Meetings booked in the last {weeks} weeks, split by Cal.com event type. Types tagged
-          <span className="font-medium"> Ad-driven</span> below count as paid-attributable booked calls.
+          Meetings booked in the last {weeks} weeks per Cal.com event type. Tap a type’s tag to flip it between
+          <span className="font-medium"> Ad-driven</span> (counts as a paid-attributable booked call) and
+          <span className="font-medium"> Organic</span>. Types with no bookings in this window still show so they can be tagged.
         </p>
-        {cal.loading ? (
+        {loading ? (
           <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
-        ) : byType.length === 0 ? (
-          <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No bookings in this window</div>
+        ) : rows.length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No event types yet</div>
         ) : (
           <div className="space-y-2">
-            {byType.map(et => {
-              const isPaid = et.isAdDriven
-              return (
-                <div key={et.slug || 'unknown'} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-stone-700">{et.label}</span>
-                    <span className="mono-font text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={ isPaid
-                        ? { background: 'rgba(37,99,235,0.1)', color: AB_BLUE }
-                        : { background: '#f5f5f4', color: '#78716c' } }>
-                      {isPaid ? 'Ad-driven' : 'Organic'}
-                    </span>
-                  </span>
-                  <span className="display-font text-lg font-medium" style={{ color: isPaid ? AB_BLUE : '#57534e' }}>{et.count}</span>
+            {rows.map(r => (
+              <div key={r.slug || 'none'} className={`flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5 ${r.count === 0 ? 'opacity-60' : ''}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="display-font text-lg font-medium num-tabular w-8 text-right shrink-0" style={{ color: r.isAdDriven && r.count ? AB_BLUE : '#57534e' }}>{r.count}</span>
+                  <span className="text-sm font-medium text-stone-700 truncate">{r.label}</span>
+                  {!r.isNull && !r.isConfigured && (
+                    <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>New</span>
+                  )}
                 </div>
-              )
-            })}
+                {r.isNull ? (
+                  <span className="mono-font text-[9px] uppercase tracking-wider text-stone-300 shrink-0">No slug · not taggable</span>
+                ) : (
+                  <button onClick={() => toggle(r)} disabled={savingSlug === r.slug}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mono-font text-[9px] uppercase tracking-wider font-semibold transition-all disabled:opacity-50 shrink-0"
+                    style={ r.isAdDriven
+                      ? { background: 'rgba(37,99,235,0.1)', color: AB_BLUE, border: '1px solid rgba(37,99,235,0.3)' }
+                      : { background: '#f5f5f4', color: '#78716c', border: '1px solid #e7e5e4' } }>
+                    {savingSlug === r.slug ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    {r.isAdDriven ? 'Ad-driven' : 'Organic'}
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
-
-      {/* Event Type Settings — Nick tags which event types are ad-driven (shared config) */}
-      <EventTypeSettings refreshKey={0} />
     </div>
   )
 }
