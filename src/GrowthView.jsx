@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe } from 'lucide-react'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe, Check } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
@@ -387,6 +387,18 @@ function NumCell({ value, onChange, prefix }) {
 // ============================================================================
 const AB_BLUE = '#2563EB'
 const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
+const money2 = (v) => (v == null || isNaN(v) ? '—' : `$${Number(v).toFixed(2)}`)
+const fmtDay = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}` : '')
+
+// Lifetime hero stat card for the Atlas Blue Webinar tab.
+function HeroStat({ label, value, accent }) {
+  return (
+    <div className="border border-stone-200 rounded-xl p-4 bg-white">
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-1">{label}</div>
+      <div className="display-font text-3xl font-medium leading-none" style={{ color: accent }}>{value}</div>
+    </div>
+  )
+}
 
 // Read-only numeric cell (auto-derived columns). When onClick is passed the
 // value becomes a button that opens the drill-down modal.
@@ -677,7 +689,9 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
 // so they're intentionally not rendered. Same visual language as the Atlas Blue tab.
 function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, weeklyTrend, recentSignups, revenueBreakdown, totalSignups, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks)
+  const [deselected, setDeselected] = useState([])
+  const { viewedWeekDays, weeklyTrend, campaigns, lifetime, recentSignups, revenueBreakdown, totalSignups, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks, deselected)
+  const toggleCampaign = (id) => setDeselected(d => d.includes(id) ? d.filter(x => x !== id) : [...d, id])
 
   const t = workDayIdxs.reduce((acc, di) => {
     const a = viewedWeekDays[di] || {}
@@ -700,16 +714,62 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
         </div>
       )}
 
-      {/* ---------- TOP OF FUNNEL ---------- */}
+      {/* ---------- CAMPAIGN LIFETIME TOTALS + FILTER ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div>
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Campaign totals · full duration</div>
+            <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Webinar</div>
+          </div>
+          {loading && <span className="text-xs text-stone-400">Syncing…</span>}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <HeroStat label="Total Ad Spend" value={fmtWhole(lifetime?.adSpend)} accent={AB_BLUE} />
+          <HeroStat label="Visitors" value={(lifetime?.visitors || 0).toLocaleString()} accent={AB_BLUE} />
+          <HeroStat label="Cost / Visitor" value={money2(safeDiv(lifetime?.adSpend, lifetime?.visitors))} accent="#047857" />
+          <HeroStat label="Opt-ins" value={(totalSignups || 0).toLocaleString()} accent="#059669" />
+          <HeroStat label="Cost / Opt-in" value={money2(safeDiv(lifetime?.adSpend, totalSignups))} accent="#047857" />
+        </div>
+
+        {campaigns && campaigns.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-stone-100">
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-2">Campaigns included</div>
+            <div className="flex flex-wrap gap-2">
+              {campaigns.map(c => {
+                const on = !deselected.includes(c.id)
+                return (
+                  <button key={c.id} type="button" onClick={() => toggleCampaign(c.id)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors"
+                    style={{ borderColor: on ? AB_BLUE : '#e7e5e4', background: on ? 'rgba(37,99,235,0.06)' : 'white' }}>
+                    <span className="w-4 h-4 rounded flex items-center justify-center shrink-0 border"
+                      style={{ borderColor: on ? AB_BLUE : '#d6d3d1', background: on ? AB_BLUE : 'white' }}>
+                      {on && <Check className="w-3 h-3 text-white" />}
+                    </span>
+                    <span>
+                      <span className="block text-xs font-semibold text-stone-800">{c.name}</span>
+                      <span className="block text-[11px] text-stone-500 num-tabular">{fmtWhole(c.adSpend)} · {fmtDay(c.firstDay)}–{fmtDay(c.lastDay)}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-stone-400 mt-2">
+              Opt-ins come from the single opt-in form and aren’t split by campaign, so they stay constant when you toggle campaigns — toggling changes the ad-spend side (and Cost / Opt-in).
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ---------- TOP OF FUNNEL (weekly) ---------- */}
       <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-5 h-5" style={{ color: AB_BLUE }} />
-          <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Webinar</div>
+          <div className="display-font text-2xl font-medium text-stone-900">This Week</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          The “Atlas Blue - Workshop” Meta campaign. Ad Spend + Visitors are pulled live from Meta;
-          Opt-ins are live from the GHL workshop opt-in form. Attendee / booked-call stages will be
-          added once we wire a source for them.
+          Daily Ad Spend + Visitors (live from Meta) and Opt-ins (live from the GHL workshop opt-in form)
+          for the selected campaign{campaigns && campaigns.length !== 1 ? 's' : ''}, this week.
           {loading ? ' · Syncing…' : ''}
         </p>
         <table className="w-full text-sm min-w-[760px]">

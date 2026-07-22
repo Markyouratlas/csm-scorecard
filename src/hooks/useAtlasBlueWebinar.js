@@ -22,12 +22,20 @@ import { stepWeek } from '../dateUtils.js'
 //  bucketed by submitted_at into the same week/day grid so they line up with the
 //  Meta spend/visitors. cost/opt-in (derived in the view) = adSpend / signups.
 //
+//  Campaign filtering: the tab lists each workshop campaign as a checkbox; the
+//  caller passes `deselectedIds` (ids the user unchecked) and every Meta figure
+//  (viewed week, trend, lifetime totals) is computed over the still-selected
+//  campaigns only. Opt-ins come from the single opt-in form and aren't attributable
+//  to a specific Meta campaign, so they are NOT filtered by campaign.
+//
 //  Returns:
 //    viewedWeekDays — 7-element array (getDay 0=Sun..6=Sat) of { adSpend, visitors, signups }
 //    weeklyTrend    — [{ weekKey, adSpend, visitors, signups }] oldest→newest, length `weeks`
+//    campaigns      — [{ id, name, adSpend, visitors, firstDay, lastDay }] (for the checkboxes)
+//    lifetime       — { adSpend, visitors, signups } over the FULL campaign history (selected only)
 //    recentSignups  — [{ name, email, phone, revenueBand, source, submittedAt }] newest→oldest
-//    revenueBreakdown — [{ band, count }] desc, over the loaded window
-//    totalSignups   — count of opt-ins in the loaded window
+//    revenueBreakdown — [{ band, count }] desc, all-time
+//    totalSignups   — count of all opt-ins (not campaign-filtered)
 // =============================================================================
 
 // The workshop has run under two Meta campaign ids (renamed/relaunched mid-July) —
@@ -45,23 +53,22 @@ const metaAction = (actions, type) => {
   return n
 }
 
-export function useAtlasBlueWebinar(weekKey, weeks = 8) {
+export function useAtlasBlueWebinar(weekKey, weeks = 8, deselectedIds = []) {
   const chartStart = stepWeek(weekKey, -(weeks - 1)) // oldest week in the chart window
 
   const { data, isPending, error } = useQuery({
-    queryKey: ['atlas-blue-webinar', weekKey, weeks],
-    enabled: !!weekKey,
+    // Fetch the FULL workshop history once (meta_ads_daily is ~90d; campaigns are
+    // recent, so this is the whole campaign) — week/selection filtering is done in JS.
+    queryKey: ['atlas-blue-webinar'],
     queryFn: async () => {
       const [metaRes, signupRes] = await Promise.all([
         supabase
           .from('meta_ads_daily')
-          .select('date_start, spend, actions')
-          .in('campaign_id', WEBINAR_CAMPAIGN_IDS)
-          .gte('date_start', chartStart),
+          .select('campaign_id, campaign_name, date_start, spend, actions')
+          .in('campaign_id', WEBINAR_CAMPAIGN_IDS),
         supabase
           .from('webinar_signups')
           .select('full_name, email, phone, revenue_band, source, submitted_at')
-          .gte('submitted_at', chartStart)
           .order('submitted_at', { ascending: false }),
       ])
       if (metaRes.error) console.warn('atlas blue webinar — meta_ads_daily read failed:', metaRes.error.message)
@@ -70,8 +77,31 @@ export function useAtlasBlueWebinar(weekKey, weeks = 8) {
     },
   })
 
-  const metaRows = data?.metaRows || []
+  const allMetaRows = data?.metaRows || []
   const signups = data?.signups || []
+
+  // ----- Per-campaign breakdown (for the checkboxes) over full history -----
+  const campMap = {}
+  for (const r of allMetaRows) {
+    const c = (campMap[r.campaign_id] ||= { id: r.campaign_id, name: r.campaign_name || r.campaign_id, adSpend: 0, visitors: 0, firstDay: null, lastDay: null })
+    c.name = r.campaign_name || c.name
+    c.adSpend += Number(r.spend) || 0
+    c.visitors += metaAction(r.actions, 'landing_page_view')
+    if (r.date_start && (!c.firstDay || r.date_start < c.firstDay)) c.firstDay = r.date_start
+    if (r.date_start && (!c.lastDay || r.date_start > c.lastDay)) c.lastDay = r.date_start
+  }
+  const campaigns = Object.values(campMap).sort((a, b) => (a.firstDay || '').localeCompare(b.firstDay || ''))
+
+  // Apply the checkbox selection — only rows from still-selected campaigns count.
+  const deselected = new Set(deselectedIds || [])
+  const metaRows = allMetaRows.filter(r => !deselected.has(r.campaign_id))
+
+  // ----- Lifetime totals (full campaign history, selected campaigns only) -----
+  const lifetime = { adSpend: 0, visitors: 0, signups: signups.length }
+  for (const r of metaRows) {
+    lifetime.adSpend += Number(r.spend) || 0
+    lifetime.visitors += metaAction(r.actions, 'landing_page_view')
+  }
 
   // ----- Viewed week: per-day Ad Spend + Visitors + Opt-ins -----
   const viewedWeekDays = Array.from({ length: 7 }, () => ({ adSpend: 0, visitors: 0, signups: 0 }))
@@ -118,7 +148,7 @@ export function useAtlasBlueWebinar(weekKey, weeks = 8) {
     .sort((a, b) => b.count - a.count)
 
   return {
-    viewedWeekDays, weeklyTrend, recentSignups, revenueBreakdown,
+    viewedWeekDays, weeklyTrend, campaigns, lifetime, recentSignups, revenueBreakdown,
     totalSignups: signups.length, loading: isPending, error: error ?? null,
   }
 }
