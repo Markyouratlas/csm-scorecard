@@ -6,12 +6,12 @@ import { stepWeek } from '../dateUtils.js'
 // =============================================================================
 //  useAtlasBlueWebinar
 //
-//  Powers Nick's "Atlas Blue Webinar" funnel tab — the "Atlas Blue - Workshop"
-//  Meta campaign (a separate campaign from the Atlas Blue iMessage funnel). Only
-//  Ad Spend + Visitors are available from Meta today; the later funnel stages
-//  (registrations / attendees / booked calls) have no source yet, so they aren't
-//  rendered. Everything here is derived from `meta_ads_daily`, filtered to the one
-//  workshop campaign_id (by id, not name, so a rename can't break it).
+//  Powers Nick's "Atlas Blue Webinar" funnel tab — the Atlas Blue workshop
+//  Meta campaign(s) (separate from the Atlas Blue iMessage funnel). Ad Spend +
+//  Visitors come from Meta; Opt-ins (registration stage) come from webinar_signups.
+//  Ad data is derived from `meta_ads_daily`, filtered to the workshop campaign ids
+//  in WEBINAR_CAMPAIGN_IDS (the campaign was relaunched under a new id mid-July, so
+//  we match a LIST of ids — add any future relaunch id there).
 //
 //    adSpend  = meta_ads_daily.spend
 //    visitors = the 'landing_page_view' action out of the raw `actions` jsonb
@@ -30,7 +30,13 @@ import { stepWeek } from '../dateUtils.js'
 //    totalSignups   — count of opt-ins in the loaded window
 // =============================================================================
 
-const WEBINAR_CAMPAIGN_ID = '120246016759050144' // "Atlas Blue - Workshop"
+// The workshop has run under two Meta campaign ids (renamed/relaunched mid-July) —
+// same Atlas Blue workshop funnel, so we aggregate both. Add new ids here if it's
+// relaunched again.
+const WEBINAR_CAMPAIGN_IDS = [
+  '120246016759050144', // "Atlas Blue - Workshop"            (~through Jul 15)
+  '120246289486080144', // "Stop Hiring, Start Cloning Workshop" (Jul 17+, matches the opt-in form)
+]
 
 const metaAction = (actions, type) => {
   if (!Array.isArray(actions)) return 0
@@ -50,7 +56,7 @@ export function useAtlasBlueWebinar(weekKey, weeks = 8) {
         supabase
           .from('meta_ads_daily')
           .select('date_start, spend, actions')
-          .eq('campaign_id', WEBINAR_CAMPAIGN_ID)
+          .in('campaign_id', WEBINAR_CAMPAIGN_IDS)
           .gte('date_start', chartStart),
         supabase
           .from('webinar_signups')
