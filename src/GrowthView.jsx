@@ -706,6 +706,11 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   const chartData = weeklyTrend.map(w => ({ name: formatWeekLabel(w.weekKey), adSpend: w.adSpend, visitors: w.visitors, signups: w.signups }))
   const WEEK_OPTIONS = [4, 8, 12, 26]
 
+  // Booked-meeting attribution: bookings by Cal.com event type over the chart window.
+  // Ad-driven event types (tagged in Event Type Settings) = paid-attributable booked calls.
+  const cal = useCalBookings({ days: chartWeeks * 7 })
+  const adDrivenBooked = (cal.byEventType || []).reduce((n, et) => n + (et.isAdDriven ? (Number(et.count) || 0) : 0), 0)
+
   return (
     <div className="space-y-6">
       {error && (
@@ -926,6 +931,52 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
           <div className="text-xs text-stone-400 mt-3">Showing the 25 most recent of {recentSignups.length} in this window.</div>
         )}
       </div>
+
+      {/* ---------- BOOKED MEETINGS BY EVENT TYPE (attribution) ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
+            <div className="display-font text-2xl font-medium text-stone-900">Booked Meetings by Event Type</div>
+          </div>
+          <div className="text-right">
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Ad-driven booked · last {chartWeeks}w</div>
+            <div className="num-tabular text-2xl font-bold" style={{ color: AB_BLUE }}>{adDrivenBooked.toLocaleString()}</div>
+          </div>
+        </div>
+        <p className="text-sm text-stone-600 mb-4">
+          Meetings booked in the last {chartWeeks} weeks, split by Cal.com event type. Types tagged
+          <span className="font-medium"> Ad-driven</span> below count as paid-attributable booked calls.
+        </p>
+        {cal.loading ? (
+          <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : (cal.byEventType || []).length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No bookings in this window</div>
+        ) : (
+          <div className="space-y-2">
+            {cal.byEventType.map(et => {
+              const isPaid = et.isAdDriven
+              return (
+                <div key={et.slug || 'unknown'} className="flex items-center justify-between border border-stone-200 rounded-lg px-4 py-2.5">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-stone-700">{et.label}</span>
+                    <span className="mono-font text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={ isPaid
+                        ? { background: 'rgba(37,99,235,0.1)', color: AB_BLUE }
+                        : { background: '#f5f5f4', color: '#78716c' } }>
+                      {isPaid ? 'Ad-driven' : 'Organic'}
+                    </span>
+                  </span>
+                  <span className="display-font text-lg font-medium" style={{ color: isPaid ? AB_BLUE : '#57534e' }}>{et.count}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Event Type Settings — Nick tags which event types are ad-driven (shared config) */}
+      <EventTypeSettings refreshKey={0} />
     </div>
   )
 }
