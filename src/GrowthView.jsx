@@ -1073,7 +1073,7 @@ function BookedMeetingsSection() {
                   color: weeks === w ? 'white' : AB_BLUE,
                   border: '1px solid rgba(37,99,235,0.25)',
                 }}>
-                {w === 'week' ? 'This Week' : w === 'all' ? 'All Time' : `${w}w`}
+                {w === 'week' ? 'This Week' : w === 'all' ? 'All-Time' : `${w}w`}
               </button>
             ))}
           </div>
