@@ -288,11 +288,17 @@ Only plan against the full, confirmed column list.
   full submission in `raw`). Attribution is mostly `source:"Direct traffic"` (custom
   landing page) — `fbEventId`/`fbp`/`fbc` are the real Meta-match hook. Auth = cron
   secret (`CRON_SHARED_SECRET`, also accepts legacy `CRON_SECRET`) or a signed-in exec;
-  deploy `--no-verify-jwt`. **Phase 2 (not built): a `ghl-webinar-optin` webhook** fed by
-  a GHL Workflow "Custom Webhook" action — which GHL does **NOT** sign (Ed25519
-  `X-GHL-Signature` is only for native marketplace webhooks), so gate it with a `?token=`
-  secret like `ghl-calls-inbound`. Future: join `webinar_signups.email/phone` → Stripe
-  for an opt-in→paid funnel. See [[ghl-call-tracking]].
+  deploy `--no-verify-jwt`. **Phase 2 (LIVE): `ghl-webinar-optin` webhook** fed by a GHL
+  Workflow "Custom Webhook" action — which GHL does **NOT** sign (Ed25519
+  `X-GHL-Signature` is only for native marketplace webhooks), so it's gated by a `?token=`
+  secret (`WEBINAR_OPTIN_TOKEN`) like `ghl-calls-inbound`, deployed `--no-verify-jwt`. It
+  does **not** parse the GHL body (a workflow payload can lack the submission `id` we
+  dedupe on → dupes); instead it **triggers an incremental re-pull** by calling
+  `ghl-webinar-signups-sync` with `{maxPages:1}` + `X-Cron-Secret`, so a new lead lands
+  with the identical `ghl_submission_id` key as the backfill/daily cron. The GHL Workflow
+  = trigger **Form Submitted** (filtered to form `3nmXZEM7jE796XhIsFVV`) → **Custom
+  Webhook** POST to the function URL `?token=<WEBINAR_OPTIN_TOKEN>`. Future: join
+  `webinar_signups.email/phone` → Stripe for an opt-in→paid funnel. See [[ghl-call-tracking]].
 - **Attio (CRM)** → **Pipe 1 (read, LIVE):** `attio-sync` (nightly cron `supabase-attio-cron.sql`
   + manual backfill) pages the Attio Data API (`POST /v2/objects/deals/records/query`, Bearer
   `ATTIO_API_KEY`) and `attio-webhook` (public, `--no-verify-jwt`, verifies `Attio-Signature`
