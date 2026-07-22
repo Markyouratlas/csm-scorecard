@@ -967,16 +967,17 @@ function BookedMeetingsSection() {
     finally { setTestBusy(null) }
   }
 
-  // All-time booked meetings per event type (test-excluded), sorted ad-driven-first.
+  // All-time booked meetings per AD-DRIVEN event type (test-excluded), sorted by volume.
   const allTimeCards = useMemo(() => {
     return (types || [])
       .map(t => ({
         slug: t.slug, label: t.label || t.slug, isAdDriven: t.isAdDriven,
         count: allTime.bySlug[t.slug ?? '(none)'] || 0,
       }))
-      .filter(c => c.count > 0)
-      .sort((a, b) => (Number(b.isAdDriven) - Number(a.isAdDriven)) || (b.count - a.count))
+      .filter(c => c.count > 0 && c.isAdDriven)
+      .sort((a, b) => b.count - a.count)
   }, [types, allTime.bySlug])
+  const allTimeAdDrivenTotal = allTimeCards.reduce((n, c) => n + c.count, 0)
 
   // Per-booking detail grouped by event-type slug (for the drill-down modal).
   const detailBySlug = useMemo(() => {
@@ -1028,19 +1029,19 @@ function BookedMeetingsSection() {
           <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
           <div className="display-font text-2xl font-medium text-stone-900">All-Time Booked Meetings</div>
         </div>
-        <p className="text-sm text-stone-600 mb-4">Every meeting ever booked, per Cal.com event type. Test/internal meetings are excluded.</p>
+        <p className="text-sm text-stone-600 mb-4">Every meeting ever booked, per <span className="font-medium">ad-driven</span> Cal.com event type. Organic and test/internal meetings are excluded.</p>
         {allTime.loading ? (
           <div className="h-[100px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
         ) : allTimeCards.length === 0 ? (
-          <div className="h-[100px] flex items-center justify-center text-stone-400 text-sm">No bookings yet</div>
+          <div className="h-[100px] flex items-center justify-center text-stone-400 text-sm">No ad-driven event types tagged yet — tag them below.</div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {allTimeCards.map(c => (
-              <HeroStat key={c.slug || 'none'} label={c.label} value={c.count.toLocaleString()} accent={c.isAdDriven ? AB_BLUE : '#57534e'} />
+              <HeroStat key={c.slug || 'none'} label={c.label} value={c.count.toLocaleString()} accent={AB_BLUE} />
             ))}
             <div className="rounded-xl p-4" style={{ border: `2px solid ${AB_BLUE}`, background: 'rgba(37,99,235,0.05)' }}>
               <div className="mono-font text-[10px] uppercase tracking-widest mb-1" style={{ color: AB_BLUE }}>Total</div>
-              <div className="display-font text-3xl font-medium leading-none" style={{ color: AB_BLUE }}>{allTime.total.toLocaleString()}</div>
+              <div className="display-font text-3xl font-medium leading-none" style={{ color: AB_BLUE }}>{allTimeAdDrivenTotal.toLocaleString()}</div>
             </div>
           </div>
         )}
