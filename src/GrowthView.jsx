@@ -944,15 +944,18 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
 // useCalEventTypes, so a brand-new type can always be tagged.
 function BookedMeetingsSection() {
   const [weeks, setWeeks] = useState(8)
-  const cal = useCalBookings({ days: weeks * 7 })
+  const isAllTime = weeks === 'all'
+  const days = isAllTime ? 3650 : weeks * 7 // ~10y ≈ all history
+  const winLabel = isAllTime ? 'all time' : `${weeks}w`
+  const cal = useCalBookings({ days })
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
-  const detail = useBookedMeetingsDetail(weeks * 7)
+  const detail = useBookedMeetingsDetail(days)
   const allTime = useCalBookingsAllTimeByType()
   const queryClient = useQueryClient()
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
   const [testBusy, setTestBusy] = useState(null)
-  const WEEK_OPTIONS = [4, 8, 12, 26]
+  const WEEK_OPTIONS = [4, 8, 12, 26, 'all']
 
   // Flag/unflag a booking as internal/test — backs it out of all counts.
   const markTest = async (uid, isTest) => {
@@ -988,9 +991,14 @@ function BookedMeetingsSection() {
   const openDrill = (r) => setDrill({ slug: r.slug, label: r.label })
   const drillRows = drill ? (detailBySlug[drill.slug ?? '(none)'] || []) : []
 
-  // Windowed booking count per slug (the numbers), keyed like useCalEventTypes.
+  // Booking count per slug (the numbers). All-time reads the RPC (test-excluded, no
+  // row cap); a rolling window reads useCalBookings (also test-excluded).
   const windowCount = {}
-  for (const et of cal.byEventType || []) windowCount[et.slug ?? '(none)'] = Number(et.count) || 0
+  if (isAllTime) {
+    Object.assign(windowCount, allTime.bySlug)
+  } else {
+    for (const et of cal.byEventType || []) windowCount[et.slug ?? '(none)'] = Number(et.count) || 0
+  }
 
   // One row per known event type: windowed count + tagging state. Ad-driven types
   // group to the top; within each group sort by booking count (desc), then label.
@@ -1011,7 +1019,7 @@ function BookedMeetingsSection() {
   const adDrivenBooked = rows.reduce((n, r) => n + (r.isAdDriven ? r.count : 0), 0)
   const totalBooked = rows.reduce((n, r) => n + r.count, 0)
   const untaggedCount = rows.filter(r => !r.isNull && !r.isConfigured).length
-  const loading = cal.loading || typesLoading
+  const loading = typesLoading || (isAllTime ? allTime.loading : cal.loading)
 
   const toggle = async (r) => {
     if (r.isNull) return
@@ -1062,15 +1070,15 @@ function BookedMeetingsSection() {
                   color: weeks === w ? 'white' : AB_BLUE,
                   border: '1px solid rgba(37,99,235,0.25)',
                 }}>
-                {w}w
+                {w === 'all' ? 'All Time' : `${w}w`}
               </button>
             ))}
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-          <HeroStat label={`Ad-driven booked · ${weeks}w`} value={adDrivenBooked.toLocaleString()} accent={AB_BLUE} />
-          <HeroStat label={`Total booked · ${weeks}w`} value={totalBooked.toLocaleString()} accent="#57534e" />
+          <HeroStat label={`Ad-driven booked · ${winLabel}`} value={adDrivenBooked.toLocaleString()} accent={AB_BLUE} />
+          <HeroStat label={`Total booked · ${winLabel}`} value={totalBooked.toLocaleString()} accent="#57534e" />
           <HeroStat label="% Ad-driven" value={totalBooked ? `${Math.round((adDrivenBooked / totalBooked) * 100)}%` : '—'} accent="#047857" />
         </div>
 
@@ -1083,9 +1091,9 @@ function BookedMeetingsSection() {
           )}
         </div>
         <p className="text-sm text-stone-600 mb-4">
-          Meetings booked in the last {weeks} weeks per Cal.com event type. Tap a type’s tag to flip it between
+          {isAllTime ? 'All meetings ever booked' : `Meetings booked in the last ${weeks} weeks`} per Cal.com event type. Tap a type’s tag to flip it between
           <span className="font-medium"> Ad-driven</span> (counts as a paid-attributable booked call) and
-          <span className="font-medium"> Organic</span>. Types with no bookings in this window still show so they can be tagged.
+          <span className="font-medium"> Organic</span>. Types with no bookings {isAllTime ? '' : 'in this window '}still show so they can be tagged.
         </p>
         {loading ? (
           <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
