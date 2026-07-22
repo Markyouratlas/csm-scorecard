@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe, Check } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
@@ -945,9 +946,23 @@ function BookedMeetingsSection() {
   const cal = useCalBookings({ days: weeks * 7 })
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
   const detail = useBookedMeetingsDetail(weeks * 7)
+  const queryClient = useQueryClient()
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
+  const [testBusy, setTestBusy] = useState(null)
   const WEEK_OPTIONS = [4, 8, 12, 26]
+
+  // Flag/unflag a booking as internal/test — backs it out of all counts.
+  const markTest = async (uid, isTest) => {
+    setTestBusy(uid)
+    try {
+      const { error } = await supabase.rpc('set_booking_test', { p_uid: uid, p_is_test: isTest })
+      if (error) throw error
+      await queryClient.invalidateQueries({ queryKey: ['booked-meetings-detail'] })
+      queryClient.invalidateQueries({ queryKey: ['cal-bookings'] })
+    } catch (e) { console.error('set_booking_test failed:', e) }
+    finally { setTestBusy(null) }
+  }
 
   // Per-booking detail grouped by event-type slug (for the drill-down modal).
   const detailBySlug = useMemo(() => {
@@ -1069,7 +1084,8 @@ function BookedMeetingsSection() {
       </div>
 
       {drill && (
-        <BookedMeetingsDrilldownModal label={drill.label} rows={drillRows} onClose={() => setDrill(null)} />
+        <BookedMeetingsDrilldownModal label={drill.label} rows={drillRows}
+          onToggleTest={markTest} testBusy={testBusy} onClose={() => setDrill(null)} />
       )}
     </div>
   )

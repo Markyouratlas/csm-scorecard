@@ -147,7 +147,7 @@ async function fetchCalBookings({ days, weekKey, period, dateField }) {
 
   let q = supabase
     .from('cal_bookings')
-    .select('uid, status, event_type_slug, created_at_cal, start_time')
+    .select('uid, status, event_type_slug, created_at_cal, start_time, is_test')
     .gte(filterCol, sinceISO)
   if (untilISO) q = q.lt(filterCol, untilISO)
   q = q.order('created_at_cal', { ascending: false }).limit(2000)
@@ -155,7 +155,9 @@ async function fetchCalBookings({ days, weekKey, period, dateField }) {
 
   if (error) throw error
 
-  const rows = data || []
+  // Back out internal/test bookings (flagged via set_booking_test) from every
+  // count + cost metric derived here. is_test may be absent on old cached rows.
+  const rows = (data || []).filter(r => !r.is_test)
 
   // 1. Total booked calls made in the window.
   const bookedCalls = rows.length
