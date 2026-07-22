@@ -949,8 +949,9 @@ function BookedMeetingsSection() {
   const windowCount = {}
   for (const et of cal.byEventType || []) windowCount[et.slug ?? '(none)'] = Number(et.count) || 0
 
-  // One row per known event type: windowed count + tagging state. Booked-in-window
-  // types sort to the top; count-0 types stay listed (dimmed) so they're taggable.
+  // One row per known event type: windowed count + tagging state. Ad-driven types
+  // group to the top; within each group sort by booking count (desc), then label.
+  // Count-0 types stay listed (dimmed) so they're taggable.
   const rows = (types || []).map(t => ({
     slug: t.slug,
     label: t.label || t.slug,
@@ -958,7 +959,11 @@ function BookedMeetingsSection() {
     isAdDriven: t.isAdDriven,
     isConfigured: t.isConfigured,
     isNull: t.isNull,
-  })).sort((a, b) => (b.count - a.count) || String(a.label).localeCompare(String(b.label)))
+  })).sort((a, b) =>
+    (Number(b.isAdDriven) - Number(a.isAdDriven)) ||
+    (b.count - a.count) ||
+    String(a.label).localeCompare(String(b.label))
+  )
 
   const adDrivenBooked = rows.reduce((n, r) => n + (r.isAdDriven ? r.count : 0), 0)
   const totalBooked = rows.reduce((n, r) => n + r.count, 0)
