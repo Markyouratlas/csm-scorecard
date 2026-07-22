@@ -1054,13 +1054,20 @@ function BookedMeetingsSection() {
           <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No event types yet</div>
         ) : (
           <div className="space-y-2">
-            {rows.map(r => (
-              <div key={r.slug || 'none'} className={`flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5 ${r.count === 0 ? 'opacity-60' : ''}`}>
-                <button type="button" onClick={() => openDrill(r)} disabled={r.count === 0}
-                  title={r.count ? 'View the meetings behind this count' : 'No meetings in this window'}
+            {rows.map(r => {
+              const dRows = detailBySlug[r.slug ?? '(none)'] || []
+              const testInSlug = dRows.filter(x => x.is_test).length
+              const canDrill = dRows.length > 0 // clickable if there's anything behind it, incl. test-only
+              return (
+              <div key={r.slug || 'none'} className={`flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5 ${r.count === 0 && !testInSlug ? 'opacity-60' : ''}`}>
+                <button type="button" onClick={() => openDrill(r)} disabled={!canDrill}
+                  title={canDrill ? 'View the meetings behind this count' : 'No meetings in this window'}
                   className="flex items-center gap-3 min-w-0 flex-1 text-left group disabled:cursor-default">
                   <span className="display-font text-lg font-medium num-tabular w-8 text-right shrink-0" style={{ color: r.isAdDriven && r.count ? AB_BLUE : '#57534e' }}>{r.count}</span>
-                  <span className={`text-sm font-medium text-stone-700 truncate ${r.count ? 'group-hover:underline decoration-dotted decoration-stone-400 underline-offset-2' : ''}`}>{r.label}</span>
+                  <span className={`text-sm font-medium text-stone-700 truncate ${canDrill ? 'group-hover:underline decoration-dotted decoration-stone-400 underline-offset-2' : ''}`}>{r.label}</span>
+                  {testInSlug > 0 && (
+                    <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>{testInSlug} test</span>
+                  )}
                   {!r.isNull && !r.isConfigured && (
                     <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>New</span>
                   )}
@@ -1078,7 +1085,8 @@ function BookedMeetingsSection() {
                   </button>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
