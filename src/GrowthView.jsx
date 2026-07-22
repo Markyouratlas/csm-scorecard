@@ -21,6 +21,7 @@ import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, lead
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
 import { useBookedMeetingsDetail } from './hooks/useBookedMeetingsDetail.js'
+import { useCalBookingsAllTimeByType } from './hooks/useCalBookingsAllTimeByType.js'
 import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import BookedMeetingsDrilldownModal from './BookedMeetingsDrilldownModal'
@@ -946,6 +947,7 @@ function BookedMeetingsSection() {
   const cal = useCalBookings({ days: weeks * 7 })
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
   const detail = useBookedMeetingsDetail(weeks * 7)
+  const allTime = useCalBookingsAllTimeByType()
   const queryClient = useQueryClient()
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
@@ -960,9 +962,21 @@ function BookedMeetingsSection() {
       if (error) throw error
       await queryClient.invalidateQueries({ queryKey: ['booked-meetings-detail'] })
       queryClient.invalidateQueries({ queryKey: ['cal-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['cal-bookings-alltime-by-type'] })
     } catch (e) { console.error('set_booking_test failed:', e) }
     finally { setTestBusy(null) }
   }
+
+  // All-time booked meetings per event type (test-excluded), sorted ad-driven-first.
+  const allTimeCards = useMemo(() => {
+    return (types || [])
+      .map(t => ({
+        slug: t.slug, label: t.label || t.slug, isAdDriven: t.isAdDriven,
+        count: allTime.bySlug[t.slug ?? '(none)'] || 0,
+      }))
+      .filter(c => c.count > 0)
+      .sort((a, b) => (Number(b.isAdDriven) - Number(a.isAdDriven)) || (b.count - a.count))
+  }, [types, allTime.bySlug])
 
   // Per-booking detail grouped by event-type slug (for the drill-down modal).
   const detailBySlug = useMemo(() => {
@@ -1008,6 +1022,30 @@ function BookedMeetingsSection() {
 
   return (
     <div className="space-y-6">
+      {/* ---------- ALL-TIME BOOKED (per event type + total) ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
+          <div className="display-font text-2xl font-medium text-stone-900">All-Time Booked Meetings</div>
+        </div>
+        <p className="text-sm text-stone-600 mb-4">Every meeting ever booked, per Cal.com event type. Test/internal meetings are excluded.</p>
+        {allTime.loading ? (
+          <div className="h-[100px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : allTimeCards.length === 0 ? (
+          <div className="h-[100px] flex items-center justify-center text-stone-400 text-sm">No bookings yet</div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {allTimeCards.map(c => (
+              <HeroStat key={c.slug || 'none'} label={c.label} value={c.count.toLocaleString()} accent={c.isAdDriven ? AB_BLUE : '#57534e'} />
+            ))}
+            <div className="rounded-xl p-4" style={{ border: `2px solid ${AB_BLUE}`, background: 'rgba(37,99,235,0.05)' }}>
+              <div className="mono-font text-[10px] uppercase tracking-widest mb-1" style={{ color: AB_BLUE }}>Total</div>
+              <div className="display-font text-3xl font-medium leading-none" style={{ color: AB_BLUE }}>{allTime.total.toLocaleString()}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white border border-stone-200 p-6">
         <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
           <div className="flex items-center gap-2">
