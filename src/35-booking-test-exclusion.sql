@@ -22,7 +22,7 @@ drop function if exists public.set_booking_test(text, boolean);
 create or replace function public.set_booking_test(p_uid text, p_is_test boolean)
 returns void
 language plpgsql security definer set search_path to 'public'
-as $fn$
+as $setbt$
 declare v_role text; v_role_type text;
 begin
   select p.role, p.role_type into v_role, v_role_type from public.profiles p where p.id = auth.uid() limit 1;
@@ -32,7 +32,7 @@ begin
   end if;
   update public.cal_bookings set is_test = coalesce(p_is_test, false) where uid = p_uid;
 end;
-$fn$;
+$setbt$;
 grant execute on function public.set_booking_test(text, boolean) to authenticated;
 
 -- Recreate booked_meetings_detail with is_test in the result (drill-down shows +
@@ -45,7 +45,7 @@ returns table (
   deal_status text, mrr numeric, one_time numeric, products text, is_test boolean
 )
 language plpgsql security definer set search_path to 'public'
-as $function$
+as $bmd$
 declare v_role text; v_role_type text;
 begin
   select p.role, p.role_type into v_role, v_role_type from public.profiles p where p.id = auth.uid() limit 1;
@@ -70,17 +70,18 @@ begin
      where cb.created_at_cal >= p_since
      order by cb.start_time desc nulls last;
 end;
-$function$;
+$bmd$;
 grant execute on function public.booked_meetings_detail(timestamptz) to authenticated;
 
 -- Atlas Blue funnel: back test bookings out of the ad-driven deals too.
+drop function if exists public.atlas_blue_deals(timestamptz);
 create or replace function public.atlas_blue_deals(p_since timestamptz)
 returns table (
   id uuid, meeting_at timestamptz, booked_at timestamptz, status text,
   one_time numeric, mrr numeric, customer_name text, customer_email text, rep_name text
 )
 language plpgsql security definer set search_path to 'public'
-as $function$
+as $abd$
 declare v_role text; v_role_type text;
 begin
   select p.role, p.role_type into v_role, v_role_type from public.profiles p where p.id = auth.uid() limit 1;
@@ -99,5 +100,5 @@ begin
        and d.meeting_at >= p_since
        and d.status <> 'Deleted';
 end;
-$function$;
+$abd$;
 grant execute on function public.atlas_blue_deals(timestamptz) to authenticated;
