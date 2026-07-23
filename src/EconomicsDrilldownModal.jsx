@@ -22,8 +22,9 @@ import { X } from 'lucide-react'
 const BRAND = '#2563EB'
 const META = '#1877F2'
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
+const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
 
-export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, customers = 0, campaigns = [], loading = false, onClose }) {
+export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, customers = 0, campaigns = [], customerRows = [], loading = false, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -70,6 +71,42 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
                 Blended: total Meta ad spend ÷ new customers from ad-driven booked meetings (test excluded).
                 Spend isn’t attributable to a single campaign, so the breakdown below shows where the whole ad budget went.
               </p>
+            </div>
+          )}
+
+          {isCac && (
+            <div className="mb-6">
+              <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">New customers ({customerRows.length})</div>
+              {customerRows.length === 0 ? (
+                <div className="py-4 text-sm text-stone-400">No new customers in this window.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200">
+                      <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Customer</th>
+                      <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Closed</th>
+                      <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Cash</th>
+                      <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">MRR</th>
+                      <th className="text-left py-2 pl-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Products</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customerRows.map((r, i) => (
+                      <tr key={r.uid || i} className="border-b border-stone-100">
+                        <td className="py-2.5 pr-3">
+                          <div className="font-medium text-stone-900 leading-tight">{r.attendee_name || 'Unnamed'}</div>
+                          {r.attendee_email && <div className="text-[11px] text-stone-400 truncate max-w-[200px]">{r.attendee_email}</div>}
+                          {r.host_name && <div className="text-[11px] text-stone-400">with {r.host_name}</div>}
+                        </td>
+                        <td className="py-2.5 px-3 num-tabular text-xs text-stone-600">{fmtDate(r.start_time)}</td>
+                        <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{Number(r.one_time) ? fmtMoney(r.one_time) : '—'}</td>
+                        <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{Number(r.mrr) ? fmtMoney(r.mrr) : '—'}</td>
+                        <td className="py-2.5 pl-3 text-xs text-stone-600 max-w-[180px] truncate">{r.products || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 

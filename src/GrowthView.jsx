@@ -1198,7 +1198,7 @@ function BookedMeetingsSection() {
       {(tileDrill === 'spend' || tileDrill === 'cac') && (
         <EconomicsDrilldownModal mode={tileDrill} winLabel={winLabel}
           spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
-          loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
+          customerRows={won.rows} loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
       )}
     </div>
   )
