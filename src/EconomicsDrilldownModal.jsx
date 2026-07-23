@@ -24,7 +24,7 @@ const META = '#1877F2'
 const fmtMoney = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return '—' } }
 
-export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, customers = 0, campaigns = [], customerRows = [], ltvMonths = 24, loading = false, onClose }) {
+export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, customers = 0, campaigns = [], customerRows = [], ltvMonths = 24, onLtvMonthsChange, loading = false, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -91,17 +91,17 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-stone-200">
-                      <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Customer</th>
+                      <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Customer</th>
                       <th className="text-left py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Closed</th>
                       <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Cash</th>
                       <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">MRR</th>
-                      <th className="text-left py-2 pl-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Products</th>
+                      <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Products</th>
                     </tr>
                   </thead>
                   <tbody>
                     {customerRows.map((r, i) => (
                       <tr key={r.uid || i} className="border-b border-stone-100">
-                        <td className="py-2.5 pr-3">
+                        <td className="py-2.5 px-4">
                           <div className="font-medium text-stone-900 leading-tight">{r.attendee_name || 'Unnamed'}</div>
                           {r.attendee_email && <div className="text-[11px] text-stone-400 truncate max-w-[200px]">{r.attendee_email}</div>}
                           {r.host_name && <div className="text-[11px] text-stone-400">with {r.host_name}</div>}
@@ -109,7 +109,7 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
                         <td className="py-2.5 px-3 num-tabular text-xs text-stone-600">{fmtDate(r.start_time)}</td>
                         <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{Number(r.one_time) ? fmtMoney(r.one_time) : '—'}</td>
                         <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{Number(r.mrr) ? fmtMoney(r.mrr) : '—'}</td>
-                        <td className="py-2.5 pl-3 text-xs text-stone-600 max-w-[180px] truncate">{r.products || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs text-stone-600 max-w-[180px] truncate">{r.products || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -123,7 +123,15 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
               <div className="rounded-xl p-4 mb-4 text-center" style={{ border: `2px solid #6639A6`, background: 'rgba(102,57,166,0.05)' }}>
                 <div className="mono-font text-[10px] uppercase tracking-widest mb-1" style={{ color: '#6639A6' }}>Total LTV · {winLabel}</div>
                 <div className="display-font text-3xl font-medium" style={{ color: '#6639A6' }}>{fmtMoney(ltvTotals.ltv)}</div>
-                <div className="text-[11px] text-stone-400 mt-1">LTV = upfront cash + MRR × {ltvMonths} months (assumed lifetime)</div>
+                <div className="text-[11px] text-stone-400 mt-2 flex items-center justify-center gap-1.5 flex-wrap">
+                  <span>LTV = upfront cash + MRR ×</span>
+                  {onLtvMonthsChange ? (
+                    <input type="number" min={1} max={600} value={ltvMonths}
+                      onChange={(e) => onLtvMonthsChange(Math.min(600, Math.max(1, Math.round(Number(e.target.value) || 1))))}
+                      className="w-14 text-center border border-stone-300 rounded px-1 py-0.5 num-tabular text-stone-800 focus:outline-none focus:border-[#6639A6]" />
+                  ) : (<span className="font-medium">{ltvMonths}</span>)}
+                  <span>months (assumed lifetime — edit to model)</span>
+                </div>
               </div>
               <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-2">Per customer ({customerRows.length})</div>
               {customerRows.length === 0 ? (
@@ -132,11 +140,11 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-stone-200">
-                      <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Customer</th>
+                      <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Customer</th>
                       <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Cash</th>
                       <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">MRR</th>
                       <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">× {ltvMonths}mo</th>
-                      <th className="text-right py-2 pl-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">LTV</th>
+                      <th className="text-right py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">LTV</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -145,23 +153,23 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
                       const recurring = mrr * ltvMonths
                       return (
                         <tr key={r.uid || i} className="border-b border-stone-100">
-                          <td className="py-2.5 pr-3">
+                          <td className="py-2.5 px-4">
                             <div className="font-medium text-stone-900 leading-tight">{r.attendee_name || 'Unnamed'}</div>
                             {r.attendee_email && <div className="text-[11px] text-stone-400 truncate max-w-[180px]">{r.attendee_email}</div>}
                           </td>
                           <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{cash ? fmtMoney(cash) : '—'}</td>
                           <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-700">{mrr ? fmtMoney(mrr) : '—'}</td>
                           <td className="py-2.5 px-3 text-right num-tabular text-xs text-stone-500">{recurring ? fmtMoney(recurring) : '—'}</td>
-                          <td className="py-2.5 pl-3 text-right num-tabular text-xs font-semibold" style={{ color: '#6639A6' }}>{fmtMoney(cash + recurring)}</td>
+                          <td className="py-2.5 px-4 text-right num-tabular text-xs font-semibold" style={{ color: '#6639A6' }}>{fmtMoney(cash + recurring)}</td>
                         </tr>
                       )
                     })}
                     <tr className="bg-stone-900 text-stone-50">
-                      <td className="py-2.5 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+                      <td className="py-2.5 px-4 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
                       <td className="py-2.5 px-3 text-right num-tabular font-bold">{fmtMoney(ltvTotals.cash)}</td>
                       <td className="py-2.5 px-3 text-right num-tabular font-bold">{fmtMoney(ltvTotals.mrr)}</td>
                       <td className="py-2.5 px-3 text-right num-tabular font-bold">{fmtMoney(ltvTotals.recurring)}</td>
-                      <td className="py-2.5 pl-3 text-right num-tabular font-bold">{fmtMoney(ltvTotals.ltv)}</td>
+                      <td className="py-2.5 px-4 text-right num-tabular font-bold">{fmtMoney(ltvTotals.ltv)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -179,23 +187,23 @@ export default function EconomicsDrilldownModal({ mode, winLabel, spend = 0, cus
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-200">
-                  <th className="text-left py-2 pr-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Campaign</th>
+                  <th className="text-left py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Campaign</th>
                   <th className="text-right py-2 px-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">Spend</th>
-                  <th className="text-right py-2 pl-3 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">%</th>
+                  <th className="text-right py-2 px-4 mono-font text-[10px] uppercase tracking-widest text-stone-500 font-medium">%</th>
                 </tr>
               </thead>
               <tbody>
                 {campaigns.map(c => (
                   <tr key={c.id} className="border-b border-stone-100">
-                    <td className="py-2.5 pr-3 text-stone-800">{c.name}</td>
+                    <td className="py-2.5 px-4 text-stone-800">{c.name}</td>
                     <td className="py-2.5 px-3 text-right num-tabular text-stone-700">{fmtMoney(c.spend)}</td>
-                    <td className="py-2.5 pl-3 text-right num-tabular text-stone-500">{total ? `${Math.round((c.spend / total) * 100)}%` : '—'}</td>
+                    <td className="py-2.5 px-4 text-right num-tabular text-stone-500">{total ? `${Math.round((c.spend / total) * 100)}%` : '—'}</td>
                   </tr>
                 ))}
                 <tr className="bg-stone-900 text-stone-50">
-                  <td className="py-2.5 pr-3 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
+                  <td className="py-2.5 px-4 mono-font text-[10px] uppercase tracking-widest font-medium">Total</td>
                   <td className="py-2.5 px-3 text-right num-tabular font-bold">{fmtMoney(total)}</td>
-                  <td className="py-2.5 pl-3 text-right num-tabular font-bold">100%</td>
+                  <td className="py-2.5 px-4 text-right num-tabular font-bold">100%</td>
                 </tr>
               </tbody>
             </table>

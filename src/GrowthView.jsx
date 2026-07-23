@@ -977,6 +977,7 @@ function BookedMeetingsSection() {
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
   const [testBusy, setTestBusy] = useState(null)
+  const [ltvMonths, setLtvMonths] = useState(LTV_LIFETIME_MONTHS) // editable for modeling (not persisted)
   const WEEK_OPTIONS = ['week', 4, 8, 12, 26, 'all']
 
   // Flag/unflag a booking as internal/test — backs it out of all counts.
@@ -1014,9 +1015,9 @@ function BookedMeetingsSection() {
       cash: rws.reduce((s, r) => s + (Number(r.one_time) || 0), 0),
       mrr: rws.reduce((s, r) => s + (Number(r.mrr) || 0), 0),
       // LTV = upfront cash + recurring MRR over the assumed lifetime.
-      ltv: rws.reduce((s, r) => s + (Number(r.one_time) || 0) + (Number(r.mrr) || 0) * LTV_LIFETIME_MONTHS, 0),
+      ltv: rws.reduce((s, r) => s + (Number(r.one_time) || 0) + (Number(r.mrr) || 0) * ltvMonths, 0),
     }
-  }, [detail.rows, adDrivenSlugs])
+  }, [detail.rows, adDrivenSlugs, ltvMonths])
   const spendByCampaign = useSpendByCampaign(spendSince)
   const [tileDrill, setTileDrill] = useState(null) // 'won' | 'spend' | 'cac' | null
 
@@ -1132,7 +1133,7 @@ function BookedMeetingsSection() {
         </div>
         <p className="text-[11px] text-stone-400 mb-6">
           Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
-          LTV = cash + MRR × {LTV_LIFETIME_MONTHS} months (assumed lifetime).
+          LTV = cash + MRR × {ltvMonths} months (editable in the LTV drill-down).
           {isAllTime ? ' All-time ad spend covers synced history (Meta daily data accumulates over time).' : ''}
         </p>
 
@@ -1204,7 +1205,7 @@ function BookedMeetingsSection() {
       {(tileDrill === 'spend' || tileDrill === 'cac' || tileDrill === 'ltv') && (
         <EconomicsDrilldownModal mode={tileDrill} winLabel={winLabel}
           spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
-          customerRows={won.rows} ltvMonths={LTV_LIFETIME_MONTHS}
+          customerRows={won.rows} ltvMonths={ltvMonths} onLtvMonthsChange={setLtvMonths}
           loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
       )}
     </div>
