@@ -22,6 +22,7 @@ import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
 import { useBookedMeetingsDetail } from './hooks/useBookedMeetingsDetail.js'
 import { useCalBookingsAllTimeByType } from './hooks/useCalBookingsAllTimeByType.js'
+import { useTotalAdSpend } from './hooks/useTotalAdSpend.js'
 import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import BookedMeetingsDrilldownModal from './BookedMeetingsDrilldownModal'
@@ -954,6 +955,9 @@ function BookedMeetingsSection() {
   const { types, loading: typesLoading, saveType } = useCalEventTypes()
   const detail = useBookedMeetingsDetail(days, weekSinceISO)
   const allTime = useCalBookingsAllTimeByType()
+  // Blended CAC = total Meta ad spend over this window ÷ new customers.
+  const spendSince = isAllTime ? null : (isWeek ? currentWeekKey : new Date(Date.now() - days * 86400000).toISOString().slice(0, 10))
+  const adSpend = useTotalAdSpend(spendSince)
   const queryClient = useQueryClient()
   const [savingSlug, setSavingSlug] = useState(null)
   const [drill, setDrill] = useState(null) // { slug, label } | null
@@ -1101,7 +1105,14 @@ function BookedMeetingsSection() {
           <HeroStat label={`Cash collected · ${winLabel}`} value={fmtWhole(won.cash)} accent="#065F46" />
           <HeroStat label={`MRR · ${winLabel}`} value={fmtWhole(won.mrr)} accent="#065F46" />
         </div>
-        <p className="text-[11px] text-stone-400 mb-6">Closed Won from ad-driven booked meetings (test-excluded) in this window.</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
+          <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" />
+          <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} />
+        </div>
+        <p className="text-[11px] text-stone-400 mb-6">
+          Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
+          {isAllTime ? ' All-time ad spend covers synced history (Meta daily data accumulates over time).' : ''}
+        </p>
 
         <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
           <div className="display-font text-xl font-medium text-stone-900">By Event Type</div>
