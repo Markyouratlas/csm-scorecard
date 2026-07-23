@@ -1128,7 +1128,7 @@ function BookedMeetingsSection() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
           <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" onClick={() => setTileDrill('spend')} />
           <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} onClick={() => setTileDrill('cac')} />
-          <HeroStat label={`LTV · ${winLabel}`} value={fmtWhole(won.ltv)} accent="#6639A6" onClick={won.count ? () => setTileDrill('won') : undefined} />
+          <HeroStat label={`LTV · ${winLabel}`} value={fmtWhole(won.ltv)} accent="#6639A6" onClick={won.count ? () => setTileDrill('ltv') : undefined} />
         </div>
         <p className="text-[11px] text-stone-400 mb-6">
           Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
@@ -1201,10 +1201,11 @@ function BookedMeetingsSection() {
         <BookedMeetingsDrilldownModal label={`New customers · ${winLabel}`} rows={won.rows}
           onToggleTest={markTest} testBusy={testBusy} onClose={() => setTileDrill(null)} />
       )}
-      {(tileDrill === 'spend' || tileDrill === 'cac') && (
+      {(tileDrill === 'spend' || tileDrill === 'cac' || tileDrill === 'ltv') && (
         <EconomicsDrilldownModal mode={tileDrill} winLabel={winLabel}
           spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
-          customerRows={won.rows} loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
+          customerRows={won.rows} ltvMonths={LTV_LIFETIME_MONTHS}
+          loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
       )}
     </div>
   )
