@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Loader2, BarChart3, Layers, FlaskConical, FileText, Users, DollarSign, TrendingUp, Plus, Trash2, Calendar, Activity, Clock, RefreshCw, ChevronDown, ChevronRight, Sparkles, Info, Globe, Check } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, ComposedChart, Cell } from 'recharts'
 import { useMetaAds } from './hooks/useMetaAds.js'
 import { useMetaDaily } from './hooks/useMetaDaily.js'
@@ -19,8 +20,14 @@ import { BLANK_GROWTH_WEEK, EXPERIMENT_STATUSES, newId } from './roleConstants'
 import { cpm, ctr, cpc, cpl, bookingRate, showUpRate, closeRate, optinRate, leadToSql, costPerDemo, cpbc, safeDiv } from './metrics'
 import { useAtlasBlueFunnel } from './hooks/useAtlasBlueFunnel.js'
 import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
+import { useBookedMeetingsDetail } from './hooks/useBookedMeetingsDetail.js'
+import { useCalBookingsAllTimeByType } from './hooks/useCalBookingsAllTimeByType.js'
+import { useTotalAdSpend } from './hooks/useTotalAdSpend.js'
+import { useSpendByCampaign } from './hooks/useSpendByCampaign.js'
+import EconomicsDrilldownModal from './EconomicsDrilldownModal'
 import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
+import BookedMeetingsDrilldownModal from './BookedMeetingsDrilldownModal'
 import { dayIdxOfYMD } from './aeFunnel'
 import { DAY_NAMES, DEFAULT_WORK_DAYS } from './teams'
 import ScorecardShell, { NorthStarTile, SectionTabs, PageHeader, WeekNavigator } from './ScorecardShell'
@@ -150,6 +157,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
   const sections = [
     { id: 'funnel',      label: 'Daily Funnel',  icon: BarChart3 },
+    { id: 'booked-meetings', label: 'Booked Meetings', icon: Calendar },
     { id: 'atlas-blue',  label: 'Atlas Blue',    icon: Sparkles },
     { id: 'atlas-blue-webinar', label: 'AB Webinar', icon: Users },
     { id: 'ga4',         label: 'Website (GA4)', icon: Globe },
@@ -215,6 +223,7 @@ export default function GrowthView({ profile, onSignOut, onSwitchToManager, onSw
 
       <div className="fade-up" style={{ animationDelay: '160ms' }}>
         {section === 'funnel' && <FunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} totals={totals} />}
+        {section === 'booked-meetings' && <BookedMeetingsSection />}
         {section === 'atlas-blue' && <AtlasBlueFunnelSection weekData={weekData} update={update} workDayIdxs={workDayIdxs} weekKey={weekKey} profile={profile} />}
         {section === 'atlas-blue-webinar' && <AtlasBlueWebinarSection workDayIdxs={workDayIdxs} weekKey={weekKey} />}
         {section === 'ga4' && <Ga4Section />}
@@ -386,7 +395,32 @@ function NumCell({ value, onChange, prefix }) {
 //  Stripe via useAtlasBlueFunnel. See src/13-atlas-blue-funnel.sql.
 // ============================================================================
 const AB_BLUE = '#2563EB'
+// Assumed customer lifetime for LTV = cash + MRR × months. Adjust if Finance sets a real figure.
+const LTV_LIFETIME_MONTHS = 24
 const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
+const money2 = (v) => (v == null || isNaN(v) ? '—' : `$${Number(v).toFixed(2)}`)
+const fmtDay = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}` : '')
+
+// Hero stat card. Pass onClick to make it a clickable drill-down tile.
+function HeroStat({ label, value, accent, onClick }) {
+  const inner = (
+    <>
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-1 flex items-center gap-1">
+        {label}{onClick && <span className="text-stone-300">›</span>}
+      </div>
+      <div className="display-font text-3xl font-medium leading-none" style={{ color: accent }}>{value}</div>
+    </>
+  )
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick}
+        className="border border-stone-200 rounded-xl p-4 bg-white text-left w-full hover:border-stone-400 hover:shadow-sm transition-all cursor-pointer">
+        {inner}
+      </button>
+    )
+  }
+  return <div className="border border-stone-200 rounded-xl p-4 bg-white">{inner}</div>
+}
 
 // Read-only numeric cell (auto-derived columns). When onClick is passed the
 // value becomes a button that opens the drill-down modal.
@@ -677,7 +711,9 @@ function AtlasBlueFunnelSection({ weekData, update, workDayIdxs, weekKey, profil
 // so they're intentionally not rendered. Same visual language as the Atlas Blue tab.
 function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
   const [chartWeeks, setChartWeeks] = useState(8)
-  const { viewedWeekDays, weeklyTrend, recentSignups, revenueBreakdown, totalSignups, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks)
+  const [deselected, setDeselected] = useState([])
+  const { viewedWeekDays, weeklyTrend, campaigns, lifetime, recentSignups, revenueBreakdown, totalSignups, loading, error } = useAtlasBlueWebinar(weekKey, chartWeeks, deselected)
+  const toggleCampaign = (id) => setDeselected(d => d.includes(id) ? d.filter(x => x !== id) : [...d, id])
 
   const t = workDayIdxs.reduce((acc, di) => {
     const a = viewedWeekDays[di] || {}
@@ -700,16 +736,65 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
         </div>
       )}
 
-      {/* ---------- TOP OF FUNNEL ---------- */}
+      {/* ---------- CAMPAIGN LIFETIME TOTALS + FILTER ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div>
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400">Campaign totals · full duration</div>
+            <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Webinar</div>
+          </div>
+          {loading && <span className="text-xs text-stone-400">Syncing…</span>}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <HeroStat label="Total Ad Spend" value={fmtWhole(lifetime?.adSpend)} accent={AB_BLUE} />
+          <HeroStat label="Visitors" value={(lifetime?.visitors || 0).toLocaleString()} accent={AB_BLUE} />
+          <HeroStat label="Cost / Visitor" value={money2(safeDiv(lifetime?.adSpend, lifetime?.visitors))} accent="#047857" />
+          <HeroStat label="Opt-ins" value={(totalSignups || 0).toLocaleString()} accent="#059669" />
+          <HeroStat label="Cost / Opt-in" value={money2(safeDiv(lifetime?.adSpend, totalSignups))} accent="#047857" />
+        </div>
+
+        {campaigns && campaigns.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-stone-100">
+            <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-2">Campaigns included</div>
+            <div className="flex flex-wrap gap-2">
+              {campaigns.map(c => {
+                const on = !deselected.includes(c.id)
+                return (
+                  <button key={c.id} type="button" onClick={() => toggleCampaign(c.id)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors"
+                    style={{ borderColor: on ? AB_BLUE : '#e7e5e4', background: on ? 'rgba(37,99,235,0.06)' : 'white' }}>
+                    <span className="w-4 h-4 rounded flex items-center justify-center shrink-0 border"
+                      style={{ borderColor: on ? AB_BLUE : '#d6d3d1', background: on ? AB_BLUE : 'white' }}>
+                      {on && <Check className="w-3 h-3 text-white" />}
+                    </span>
+                    <span>
+                      <span className="block text-xs font-semibold text-stone-800">{c.name}</span>
+                      <span className="block text-[11px] text-stone-500 num-tabular">{fmtWhole(c.adSpend)} · {fmtDay(c.firstDay)}–{fmtDay(c.lastDay)}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-stone-400 mt-2">
+              Opt-ins come from the single opt-in form and aren’t split by campaign, so they stay constant when you toggle campaigns — toggling changes the ad-spend side (and Cost / Opt-in).
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ---------- BOOKED MEETING ATTRIBUTION ---------- */}
+      <BookedMeetingAttribution campaigns={campaigns} />
+
+      {/* ---------- TOP OF FUNNEL (weekly) ---------- */}
       <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-5 h-5" style={{ color: AB_BLUE }} />
-          <div className="display-font text-2xl font-medium text-stone-900">Atlas Blue Webinar</div>
+          <div className="display-font text-2xl font-medium text-stone-900">This Week</div>
         </div>
         <p className="text-sm text-stone-600 mb-6">
-          The “Atlas Blue - Workshop” Meta campaign. Ad Spend + Visitors are pulled live from Meta;
-          Opt-ins are live from the GHL workshop opt-in form. Attendee / booked-call stages will be
-          added once we wire a source for them.
+          Daily Ad Spend + Visitors (live from Meta) and Opt-ins (live from the GHL workshop opt-in form)
+          for the selected campaign{campaigns && campaigns.length !== 1 ? 's' : ''}, this week.
           {loading ? ' · Syncing…' : ''}
         </p>
         <table className="w-full text-sm min-w-[760px]">
@@ -866,6 +951,319 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
           <div className="text-xs text-stone-400 mt-3">Showing the 25 most recent of {recentSignups.length} in this window.</div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Booked-meeting attribution — its own Growth sub-tab. ONE list: bookings per
+// Cal.com event type over a selectable window, with an inline ad-driven toggle on
+// each row (writes the shared cal_event_type_config, same source the Meta Live tab
+// + funnels read). The windowed booking count comes from useCalBookings; the full
+// taggable set (incl. types with no bookings in the window) comes from
+// useCalEventTypes, so a brand-new type can always be tagged.
+function BookedMeetingsSection() {
+  const [weeks, setWeeks] = useState(8)
+  const isWeek = weeks === 'week'
+  const isAllTime = weeks === 'all'
+  const currentWeekKey = getWeekKey() // this week's Monday (YYYY-MM-DD)
+  const days = isAllTime ? 3650 : isWeek ? 7 : weeks * 7 // fallback detail window
+  const winLabel = isWeek ? 'this week' : isAllTime ? 'all time' : `${weeks}w`
+  const weekSinceISO = isWeek ? new Date(`${currentWeekKey}T00:00:00`).toISOString() : null
+  const cal = useCalBookings(isWeek ? { weekKey: currentWeekKey } : { days })
+  const { types, loading: typesLoading, saveType } = useCalEventTypes()
+  const detail = useBookedMeetingsDetail(days, weekSinceISO)
+  const allTime = useCalBookingsAllTimeByType()
+  // Blended CAC = total Meta ad spend over this window ÷ new customers.
+  const spendSince = isAllTime ? null : (isWeek ? currentWeekKey : new Date(Date.now() - days * 86400000).toISOString().slice(0, 10))
+  const adSpend = useTotalAdSpend(spendSince)
+  const queryClient = useQueryClient()
+  const [savingSlug, setSavingSlug] = useState(null)
+  const [drill, setDrill] = useState(null) // { slug, label } | null
+  const [testBusy, setTestBusy] = useState(null)
+  const [ltvMonths, setLtvMonths] = useState(LTV_LIFETIME_MONTHS) // editable for modeling (not persisted)
+  const WEEK_OPTIONS = ['week', 4, 8, 12, 26, 'all']
+
+  // Flag/unflag a booking as internal/test — backs it out of all counts.
+  const markTest = async (uid, isTest) => {
+    setTestBusy(uid)
+    try {
+      const { error } = await supabase.rpc('set_booking_test', { p_uid: uid, p_is_test: isTest })
+      if (error) throw error
+      await queryClient.invalidateQueries({ queryKey: ['booked-meetings-detail'] })
+      queryClient.invalidateQueries({ queryKey: ['cal-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['cal-bookings-alltime-by-type'] })
+    } catch (e) { console.error('set_booking_test failed:', e) }
+    finally { setTestBusy(null) }
+  }
+
+  // All-time booked meetings per AD-DRIVEN event type (test-excluded), sorted by volume.
+  const allTimeCards = useMemo(() => {
+    return (types || [])
+      .map(t => ({
+        slug: t.slug, label: t.label || t.slug, isAdDriven: t.isAdDriven,
+        count: allTime.bySlug[t.slug ?? '(none)'] || 0,
+      }))
+      .filter(c => c.count > 0 && c.isAdDriven)
+      .sort((a, b) => b.count - a.count)
+  }, [types, allTime.bySlug])
+  const allTimeAdDrivenTotal = allTimeCards.reduce((n, c) => n + c.count, 0)
+
+  // Closed Won from ad-driven (paid-attributable), test-excluded bookings in the window.
+  const adDrivenSlugs = useMemo(() => new Set((types || []).filter(t => t.isAdDriven).map(t => t.slug)), [types])
+  const won = useMemo(() => {
+    const rws = (detail.rows || []).filter(r => !r.is_test && r.deal_status === 'Closed Won' && adDrivenSlugs.has(r.event_type_slug))
+    return {
+      rows: rws,
+      count: rws.length,
+      cash: rws.reduce((s, r) => s + (Number(r.one_time) || 0), 0),
+      mrr: rws.reduce((s, r) => s + (Number(r.mrr) || 0), 0),
+      // LTV = upfront cash + recurring MRR over the assumed lifetime.
+      ltv: rws.reduce((s, r) => s + (Number(r.one_time) || 0) + (Number(r.mrr) || 0) * ltvMonths, 0),
+    }
+  }, [detail.rows, adDrivenSlugs, ltvMonths])
+  const spendByCampaign = useSpendByCampaign(spendSince)
+  const [tileDrill, setTileDrill] = useState(null) // 'won' | 'spend' | 'cac' | null
+
+  // Per-booking detail grouped by event-type slug (for the drill-down modal).
+  const detailBySlug = useMemo(() => {
+    const m = {}
+    for (const r of detail.rows || []) (m[r.event_type_slug ?? '(none)'] ||= []).push(r)
+    return m
+  }, [detail.rows])
+  const openDrill = (r) => setDrill({ slug: r.slug, label: r.label })
+  const drillRows = drill ? (detailBySlug[drill.slug ?? '(none)'] || []) : []
+
+  // Booking count per slug (the numbers). All-time reads the RPC (test-excluded, no
+  // row cap); a rolling window reads useCalBookings (also test-excluded).
+  const windowCount = {}
+  if (isAllTime) {
+    Object.assign(windowCount, allTime.bySlug)
+  } else {
+    for (const et of cal.byEventType || []) windowCount[et.slug ?? '(none)'] = Number(et.count) || 0
+  }
+
+  // One row per known event type: windowed count + tagging state. Ad-driven types
+  // group to the top; within each group sort by booking count (desc), then label.
+  // Count-0 types stay listed (dimmed) so they're taggable.
+  const rows = (types || []).map(t => ({
+    slug: t.slug,
+    label: t.label || t.slug,
+    count: windowCount[t.slug] ?? 0,
+    isAdDriven: t.isAdDriven,
+    isConfigured: t.isConfigured,
+    isNull: t.isNull,
+  })).sort((a, b) =>
+    (Number(b.isAdDriven) - Number(a.isAdDriven)) ||
+    (b.count - a.count) ||
+    String(a.label).localeCompare(String(b.label))
+  )
+
+  const adDrivenBooked = rows.reduce((n, r) => n + (r.isAdDriven ? r.count : 0), 0)
+  const totalBooked = rows.reduce((n, r) => n + r.count, 0)
+  const untaggedCount = rows.filter(r => !r.isNull && !r.isConfigured).length
+  const loading = typesLoading || (isAllTime ? allTime.loading : cal.loading)
+
+  const toggle = async (r) => {
+    if (r.isNull) return
+    setSavingSlug(r.slug)
+    try { await saveType(r.slug, { isAdDriven: !r.isAdDriven }) }
+    catch (e) { console.error('saveType failed:', e) }
+    finally { setSavingSlug(null) }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ---------- ALL-TIME BOOKED (per event type + total) ---------- */}
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
+          <div className="display-font text-2xl font-medium text-stone-900">All-Time Booked Meetings</div>
+        </div>
+        <p className="text-sm text-stone-600 mb-4">Every meeting ever booked, per <span className="font-medium">ad-driven</span> Cal.com event type. Organic and test/internal meetings are excluded.</p>
+        {allTime.loading ? (
+          <div className="h-[100px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : allTimeCards.length === 0 ? (
+          <div className="h-[100px] flex items-center justify-center text-stone-400 text-sm">No ad-driven event types tagged yet — tag them below.</div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {allTimeCards.map(c => (
+              <HeroStat key={c.slug || 'none'} label={c.label} value={c.count.toLocaleString()} accent={AB_BLUE} />
+            ))}
+            <div className="rounded-xl p-4" style={{ border: `2px solid ${AB_BLUE}`, background: 'rgba(37,99,235,0.05)' }}>
+              <div className="mono-font text-[10px] uppercase tracking-widest mb-1" style={{ color: AB_BLUE }}>Total</div>
+              <div className="display-font text-3xl font-medium leading-none" style={{ color: AB_BLUE }}>{allTimeAdDrivenTotal.toLocaleString()}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-stone-200 p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" style={{ color: AB_BLUE }} />
+            <div className="display-font text-2xl font-medium text-stone-900">Booked Meetings</div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {WEEK_OPTIONS.map(w => (
+              <button key={w} onClick={() => setWeeks(w)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all"
+                style={{
+                  background: weeks === w ? AB_BLUE : 'rgba(37,99,235,0.08)',
+                  color: weeks === w ? 'white' : AB_BLUE,
+                  border: '1px solid rgba(37,99,235,0.25)',
+                }}>
+                {w === 'week' ? 'This Week' : w === 'all' ? 'All-Time' : `${w}w`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+          <HeroStat label={`Ad-driven booked · ${winLabel}`} value={adDrivenBooked.toLocaleString()} accent={AB_BLUE} />
+          <HeroStat label={`Total booked · ${winLabel}`} value={totalBooked.toLocaleString()} accent="#57534e" />
+          <HeroStat label="% Ad-driven" value={totalBooked ? `${Math.round((adDrivenBooked / totalBooked) * 100)}%` : '—'} accent="#047857" />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
+          <HeroStat label={`New customers · ${winLabel}`} value={won.count.toLocaleString()} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
+          <HeroStat label={`Cash collected · ${winLabel}`} value={fmtWhole(won.cash)} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
+          <HeroStat label={`MRR · ${winLabel}`} value={fmtWhole(won.mrr)} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
+          <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" onClick={() => setTileDrill('spend')} />
+          <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} onClick={() => setTileDrill('cac')} />
+          <HeroStat label={`LTV · ${ltvMonths}mo lifetime · ${winLabel}`} value={fmtWhole(won.ltv)} accent="#6639A6" onClick={won.count ? () => setTileDrill('ltv') : undefined} />
+        </div>
+        <p className="text-[11px] text-stone-400 mb-6">
+          Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
+          LTV = cash + MRR × {ltvMonths} months (editable in the LTV drill-down).
+          {isAllTime ? ' All-time ad spend covers synced history (Meta daily data accumulates over time).' : ''}
+        </p>
+
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+          <div className="display-font text-xl font-medium text-stone-900">By Event Type</div>
+          {untaggedCount > 0 && (
+            <span className="mono-font text-[9px] uppercase tracking-wider px-2 py-1 rounded" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>
+              {untaggedCount} new — needs tagging
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-stone-600 mb-4">
+          {isWeek ? 'Meetings booked this week' : isAllTime ? 'All meetings ever booked' : `Meetings booked in the last ${weeks} weeks`} per Cal.com event type. Tap a type’s tag to flip it between
+          <span className="font-medium"> Ad-driven</span> (counts as a paid-attributable booked call) and
+          <span className="font-medium"> Organic</span>. Types with no bookings {isAllTime ? '' : 'in this window '}still show so they can be tagged.
+        </p>
+        {loading ? (
+          <div className="h-[120px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+        ) : rows.length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-stone-400 text-sm">No event types yet</div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map(r => {
+              const dRows = detailBySlug[r.slug ?? '(none)'] || []
+              const testInSlug = dRows.filter(x => x.is_test).length
+              const canDrill = dRows.length > 0 // clickable if there's anything behind it, incl. test-only
+              return (
+              <div key={r.slug || 'none'} className={`flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5 ${r.count === 0 && !testInSlug ? 'opacity-60' : ''}`}>
+                <button type="button" onClick={() => openDrill(r)} disabled={!canDrill}
+                  title={canDrill ? 'View the meetings behind this count' : 'No meetings in this window'}
+                  className="flex items-center gap-3 min-w-0 flex-1 text-left group disabled:cursor-default">
+                  <span className="display-font text-lg font-medium num-tabular w-8 text-right shrink-0" style={{ color: r.isAdDriven && r.count ? AB_BLUE : '#57534e' }}>{r.count}</span>
+                  <span className={`text-sm font-medium text-stone-700 truncate ${canDrill ? 'group-hover:underline decoration-dotted decoration-stone-400 underline-offset-2' : ''}`}>{r.label}</span>
+                  {testInSlug > 0 && (
+                    <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>{testInSlug} test</span>
+                  )}
+                  {!r.isNull && !r.isConfigured && (
+                    <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>New</span>
+                  )}
+                </button>
+                {r.isNull ? (
+                  <span className="mono-font text-[9px] uppercase tracking-wider text-stone-300 shrink-0">No slug · not taggable</span>
+                ) : (
+                  <button onClick={() => toggle(r)} disabled={savingSlug === r.slug}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mono-font text-[9px] uppercase tracking-wider font-semibold transition-all disabled:opacity-50 shrink-0"
+                    style={ r.isAdDriven
+                      ? { background: 'rgba(37,99,235,0.1)', color: AB_BLUE, border: '1px solid rgba(37,99,235,0.3)' }
+                      : { background: '#f5f5f4', color: '#78716c', border: '1px solid #e7e5e4' } }>
+                    {savingSlug === r.slug ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    {r.isAdDriven ? 'Ad-driven' : 'Organic'}
+                  </button>
+                )}
+              </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {drill && (
+        <BookedMeetingsDrilldownModal label={drill.label} rows={drillRows}
+          onToggleTest={markTest} testBusy={testBusy} onClose={() => setDrill(null)} />
+      )}
+
+      {tileDrill === 'won' && (
+        <BookedMeetingsDrilldownModal label={`New customers · ${winLabel}`} rows={won.rows}
+          onToggleTest={markTest} testBusy={testBusy} onClose={() => setTileDrill(null)} />
+      )}
+      {(tileDrill === 'spend' || tileDrill === 'cac' || tileDrill === 'ltv') && (
+        <EconomicsDrilldownModal mode={tileDrill} winLabel={winLabel}
+          spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
+          customerRows={won.rows} ltvMonths={ltvMonths} onLtvMonthsChange={setLtvMonths}
+          loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
+      )}
+    </div>
+  )
+}
+
+// Booked Meeting Attribution — link ad-driven Cal.com event types to this workshop's
+// ad campaigns (writes cal_event_type_config.campaign_id/name). Shown on the AB
+// Webinar tab between the campaign totals and the weekly table.
+function BookedMeetingAttribution({ campaigns = [] }) {
+  const { types, loading, saveType } = useCalEventTypes()
+  const [savingSlug, setSavingSlug] = useState(null)
+  const campIds = new Set(campaigns.map(c => c.id))
+  // Ad-driven events that are unlinked or linked to one of THIS view's campaigns.
+  const rows = (types || []).filter(t => t.isAdDriven && !t.isNull && (!t.campaignId || campIds.has(t.campaignId)))
+
+  const setCampaign = async (t, campaignId) => {
+    const camp = campaigns.find(c => c.id === campaignId)
+    setSavingSlug(t.slug)
+    try { await saveType(t.slug, { isAdDriven: true, campaignId: campaignId || null, campaignName: camp?.name || null }) }
+    catch (e) { console.error('attribution save failed:', e) }
+    finally { setSavingSlug(null) }
+  }
+
+  return (
+    <div className="bg-white border border-stone-200 p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <Layers className="w-5 h-5" style={{ color: AB_BLUE }} />
+        <div className="display-font text-2xl font-medium text-stone-900">Booked Meeting Attribution</div>
+      </div>
+      <p className="text-sm text-stone-600 mb-4">Ad-driven event types linked to this workshop’s ad campaigns. Tag each with the campaign it’s attributed to.</p>
+      {loading ? (
+        <div className="h-[70px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-stone-400 py-2">No ad-driven event types yet — tag them on the Booked Meetings tab.</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map(t => (
+            <div key={t.slug} className="flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className="text-sm font-medium text-stone-700 truncate">{t.label || t.slug}</span>
+                <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(37,99,235,0.1)', color: AB_BLUE }}>Ad-driven</span>
+                {campIds.has(t.campaignId) && (
+                  <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.12)', color: '#6639A6' }}>{t.campaignName || 'Campaign'}</span>
+                )}
+              </div>
+              <select value={campIds.has(t.campaignId) ? t.campaignId : ''} onChange={(e) => setCampaign(t, e.target.value)} disabled={savingSlug === t.slug}
+                className="text-xs border border-stone-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-stone-400 disabled:opacity-50 shrink-0 max-w-[220px]">
+                <option value="">Not linked</option>
+                {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

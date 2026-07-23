@@ -10,10 +10,10 @@ async function fetchCalEventTypes() {
   const { data: rpcData, error: rpcError } = await supabase.rpc('cal_distinct_event_types')
   if (rpcError) throw rpcError
 
-  // Current config (ad-driven flag + label overrides).
+  // Current config (ad-driven flag + label + campaign attribution).
   const { data: cfgData, error: cfgError } = await supabase
     .from('cal_event_type_config')
-    .select('slug, label, is_ad_driven')
+    .select('slug, label, is_ad_driven, campaign_id, campaign_name')
   if (cfgError) throw cfgError
   const cfgMap = new Map((cfgData || []).map(c => [c.slug, c]))
 
@@ -26,6 +26,8 @@ async function fetchCalEventTypes() {
       count: Number(n),
       label: cfgMap.get(slug)?.label ?? null,
       isAdDriven: cfgMap.get(slug)?.is_ad_driven ?? false,
+      campaignId: cfgMap.get(slug)?.campaign_id ?? null,
+      campaignName: cfgMap.get(slug)?.campaign_name ?? null,
       isConfigured: isNull ? true : cfgMap.has(slug),
       isNull,
     }
@@ -42,10 +44,12 @@ export function useCalEventTypes(refreshKey = 0) {
     queryFn: fetchCalEventTypes,
   })
 
-  const saveType = useCallback(async (slug, { isAdDriven, label }) => {
+  const saveType = useCallback(async (slug, { isAdDriven, label, campaignId, campaignName }) => {
     // Upsert the config row for this slug. Never call for the '(none)' sentinel.
     const row = { slug, is_ad_driven: isAdDriven, updated_at: new Date().toISOString() }
     if (label !== undefined) row.label = label
+    if (campaignId !== undefined) row.campaign_id = campaignId
+    if (campaignName !== undefined) row.campaign_name = campaignName
     const { error: saveErr } = await supabase
       .from('cal_event_type_config')
       .upsert(row, { onConflict: 'slug' })
