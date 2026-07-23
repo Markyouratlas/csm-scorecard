@@ -783,6 +783,9 @@ function AtlasBlueWebinarSection({ workDayIdxs, weekKey }) {
         )}
       </div>
 
+      {/* ---------- BOOKED MEETING ATTRIBUTION ---------- */}
+      <BookedMeetingAttribution campaigns={campaigns} />
+
       {/* ---------- TOP OF FUNNEL (weekly) ---------- */}
       <div className="bg-white border border-stone-200 p-6 overflow-x-auto">
         <div className="flex items-center gap-2 mb-1">
@@ -1207,6 +1210,59 @@ function BookedMeetingsSection() {
           spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
           customerRows={won.rows} ltvMonths={ltvMonths} onLtvMonthsChange={setLtvMonths}
           loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
+      )}
+    </div>
+  )
+}
+
+// Booked Meeting Attribution — link ad-driven Cal.com event types to this workshop's
+// ad campaigns (writes cal_event_type_config.campaign_id/name). Shown on the AB
+// Webinar tab between the campaign totals and the weekly table.
+function BookedMeetingAttribution({ campaigns = [] }) {
+  const { types, loading, saveType } = useCalEventTypes()
+  const [savingSlug, setSavingSlug] = useState(null)
+  const campIds = new Set(campaigns.map(c => c.id))
+  // Ad-driven events that are unlinked or linked to one of THIS view's campaigns.
+  const rows = (types || []).filter(t => t.isAdDriven && !t.isNull && (!t.campaignId || campIds.has(t.campaignId)))
+
+  const setCampaign = async (t, campaignId) => {
+    const camp = campaigns.find(c => c.id === campaignId)
+    setSavingSlug(t.slug)
+    try { await saveType(t.slug, { isAdDriven: true, campaignId: campaignId || null, campaignName: camp?.name || null }) }
+    catch (e) { console.error('attribution save failed:', e) }
+    finally { setSavingSlug(null) }
+  }
+
+  return (
+    <div className="bg-white border border-stone-200 p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <Layers className="w-5 h-5" style={{ color: AB_BLUE }} />
+        <div className="display-font text-2xl font-medium text-stone-900">Booked Meeting Attribution</div>
+      </div>
+      <p className="text-sm text-stone-600 mb-4">Ad-driven event types linked to this workshop’s ad campaigns. Tag each with the campaign it’s attributed to.</p>
+      {loading ? (
+        <div className="h-[70px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+      ) : rows.length === 0 ? (
+        <div className="text-sm text-stone-400 py-2">No ad-driven event types yet — tag them on the Booked Meetings tab.</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map(t => (
+            <div key={t.slug} className="flex items-center justify-between gap-3 border border-stone-200 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className="text-sm font-medium text-stone-700 truncate">{t.label || t.slug}</span>
+                <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(37,99,235,0.1)', color: AB_BLUE }}>Ad-driven</span>
+                {campIds.has(t.campaignId) && (
+                  <span className="mono-font text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style={{ background: 'rgba(102,57,166,0.12)', color: '#6639A6' }}>{t.campaignName || 'Campaign'}</span>
+                )}
+              </div>
+              <select value={campIds.has(t.campaignId) ? t.campaignId : ''} onChange={(e) => setCampaign(t, e.target.value)} disabled={savingSlug === t.slug}
+                className="text-xs border border-stone-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-stone-400 disabled:opacity-50 shrink-0 max-w-[220px]">
+                <option value="">Not linked</option>
+                {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
