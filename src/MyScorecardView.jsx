@@ -8,6 +8,13 @@ function PayFixQueueSection() {
   const { queue, loading, complete } = usePayFixQueue();
   const [busy, setBusy] = useState(null);
   const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
+  const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null; } catch { return null; } };
+  const Field = ({ label, value, mono, full }) => value ? (
+    <div className={full ? "col-span-2 sm:col-span-3" : ""}>
+      <span className="text-stone-400">{label}: </span>
+      <span className={`text-stone-700 ${mono ? "font-mono break-all" : ""}`}>{value}</span>
+    </div>
+  ) : null;
   const onComplete = async (id) => {
     setBusy(id);
     try { await complete(id); } catch (e) { console.error("pay_fix_complete failed:", e); }
@@ -26,23 +33,46 @@ function PayFixQueueSection() {
       ) : (
         <div className="space-y-2">
           {queue.map((d) => (
-            <div key={d.id} className="border border-amber-200 bg-amber-50 rounded-lg p-3">
-              <div className="flex items-start justify-between gap-3">
+            <div key={d.id} className="border border-amber-200 bg-amber-50 rounded-lg p-3.5">
+              <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="min-w-0">
-                  <div className="font-medium text-stone-900">{d.customer_name || d.customer_email || "Customer"}</div>
-                  <div className="text-[11px] text-stone-500">
-                    Flagged by {d.ae_name || "AE"}
-                    {d.mrr ? ` · ${money(d.mrr)}/mo` : ""}{d.one_time ? ` · ${money(d.one_time)} upfront` : ""}
-                  </div>
-                  {d.pay_fix_note && (
-                    <div className="text-sm text-stone-700 mt-1.5 whitespace-pre-wrap bg-white border border-amber-200 rounded p-2">{d.pay_fix_note}</div>
-                  )}
+                  <div className="font-medium text-stone-900 text-base">{d.customer_name || d.customer_email || "Customer"}</div>
+                  <div className="text-[11px] text-stone-500">Flagged by {d.ae_name || "AE"}{d.pay_fix_flagged_at ? ` · ${fmtDate(d.pay_fix_flagged_at)}` : ""}</div>
                 </div>
-                <button onClick={() => onComplete(d.id)} disabled={busy === d.id}
-                  className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">
-                  {busy === d.id ? "Saving…" : "Mark completed"}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {d.matched_stripe_customer_id && (
+                    <a href={`https://dashboard.stripe.com/customers/${d.matched_stripe_customer_id}`} target="_blank" rel="noreferrer"
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Open in Stripe ↗</a>
+                  )}
+                  <button onClick={() => onComplete(d.id)} disabled={busy === d.id}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 whitespace-nowrap">
+                    {busy === d.id ? "Saving…" : "Mark completed"}
+                  </button>
+                </div>
               </div>
+
+              {d.pay_fix_note && (
+                <div className="text-sm text-stone-800 whitespace-pre-wrap bg-white border border-amber-300 rounded p-2.5 mb-2.5">
+                  <span className="mono-font text-[9px] uppercase tracking-widest text-amber-700 block mb-1">Terms from the AE</span>
+                  {d.pay_fix_note}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                <Field label="Email" value={d.customer_email} />
+                <Field label="Payment email" value={d.payment_email} />
+                <Field label="Phone" value={d.customer_phone} />
+                <Field label="MRR" value={d.mrr ? `${money(d.mrr)}/mo` : null} />
+                <Field label="Upfront" value={d.one_time ? money(d.one_time) : null} />
+                <Field label="Expected MRR" value={d.expected_mrr ? `${money(d.expected_mrr)}/mo` : null} />
+                <Field label="Meeting" value={fmtDate(d.meeting_at)} />
+                <Field label="Closed" value={fmtDate(d.closed_at)} />
+                <Field label="Stripe customer" value={d.matched_stripe_customer_id} mono />
+                <Field label="Deal notes" value={d.notes} full />
+              </div>
+              {!d.matched_stripe_customer_id && (
+                <div className="text-[11px] text-stone-400 mt-2">No Stripe customer linked on this deal — search Stripe by email ({d.customer_email || d.payment_email || "—"}).</div>
+              )}
             </div>
           ))}
         </div>

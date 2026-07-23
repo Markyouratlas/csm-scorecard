@@ -16,7 +16,7 @@ export function usePayFixQueue() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ae_deals")
-        .select("id, customer_name, customer_email, mrr, one_time, pay_fix_note, pay_fix_flagged_at, ae_id")
+        .select("id, customer_name, customer_email, payment_email, customer_phone, mrr, one_time, expected_mrr, matched_stripe_customer_id, notes, meeting_at, closed_at, pay_fix_note, pay_fix_flagged_at, ae_id")
         .eq("pay_fix_status", "flagged")
         .order("pay_fix_flagged_at", { ascending: true });
       if (error) throw error;
