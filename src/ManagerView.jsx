@@ -40,7 +40,7 @@ async function fetchManagerData(weekKey) {
   return { allProfiles: profiles || [], scorecardData, submittedMap }
 }
 
-export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
+export default function ManagerView({ profile, initialTeam, initialMemberId, onSignOut, onSwitchToSelf, onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide, onSwitchToLeadership, onSwitchToCommissions, onProfileUpdated }) {
   const tier = accessTier(profile)
   const isExec = tier === 'executive'
   const headerRef = useGlassInteraction()
@@ -108,6 +108,15 @@ export default function ManagerView({ profile, initialTeam, onSignOut, onSwitchT
       }
     } catch {}
   }, [allProfiles])
+
+  // Deep-link: open a specific member's scorecard when navigated here with an id
+  // (e.g. from Mark's My View "open in AE's pipeline" links).
+  useEffect(() => {
+    if (initialMemberId && allProfiles.length) {
+      const m = allProfiles.find(p => p.id === initialMemberId)
+      if (m) setViewingMemberRaw(m)
+    }
+  }, [initialMemberId, allProfiles])
 
   // Filter profiles for team leads — they see their own team + managed_teams.
   // Also filter out archived users unless showArchived is enabled

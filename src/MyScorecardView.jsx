@@ -4,7 +4,7 @@ import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
 
 // Deals an AE flagged as having a payment arrangement that needs fixing in Stripe.
-function PayFixQueueSection() {
+function PayFixQueueSection({ onOpenAe }) {
   const { queue, loading, complete } = usePayFixQueue();
   const [busy, setBusy] = useState(null);
   const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
@@ -39,7 +39,13 @@ function PayFixQueueSection() {
                   <div className="font-medium text-stone-900 text-base">{d.customer_name || d.customer_email || "Customer"}</div>
                   <div className="text-[11px] text-stone-500">Flagged by {d.ae_name || "AE"}{d.pay_fix_flagged_at ? ` · ${fmtDate(d.pay_fix_flagged_at)}` : ""}</div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                  {onOpenAe && d.ae_id && (
+                    <button onClick={() => onOpenAe(d.ae_id)}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">
+                      In {(d.ae_name || "AE").split(" ")[0]}’s pipeline ↗
+                    </button>
+                  )}
                   {d.matched_stripe_customer_id && (
                     <a href={`https://dashboard.stripe.com/customers/${d.matched_stripe_customer_id}`} target="_blank" rel="noreferrer"
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Open in Stripe ↗</a>
@@ -86,7 +92,7 @@ function PayFixQueueSection() {
 // data-cleanup items he owns (starting with duplicate Stripe customers). Designed
 // to grow — add more personal widgets/sections over time.
 // ============================================================
-export default function MyScorecardView({ profile }) {
+export default function MyScorecardView({ profile, onOpenAe }) {
   const c = useCommissions();
   const firstName = (profile?.name || "").split(" ")[0] || "there";
 
@@ -102,7 +108,7 @@ export default function MyScorecardView({ profile }) {
         </p>
       </div>
 
-      <PayFixQueueSection />
+      <PayFixQueueSection onOpenAe={onOpenAe} />
 
       <section className="space-y-3">
         <div>

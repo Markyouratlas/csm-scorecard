@@ -59,8 +59,10 @@ export default function App() {
   // from a Quick Log department card; null means normal Manager nav (opens on the
   // exec Overview tab). Only consumed at ManagerView mount, so normal nav clears it.
   const [managerTeam, setManagerTeam] = useState(null)
-  const goToManager = useCallback(() => { setManagerTeam(null); setViewMode('manager') }, [setViewMode])
-  const goToManagerTeam = useCallback((teamKey) => { setManagerTeam(teamKey); setViewMode('manager') }, [setViewMode])
+  const [managerMember, setManagerMember] = useState(null) // deep-link: open a specific person's scorecard
+  const goToManager = useCallback(() => { setManagerTeam(null); setManagerMember(null); setViewMode('manager') }, [setViewMode])
+  const goToManagerTeam = useCallback((teamKey) => { setManagerTeam(teamKey); setManagerMember(null); setViewMode('manager') }, [setViewMode])
+  const goToManagerMember = useCallback((userId) => { setManagerMember(userId); setManagerTeam(null); setViewMode('manager') }, [setViewMode])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -331,6 +333,7 @@ export default function App() {
           profile={profile}
           onSignOut={handleSignOut}
           onSwitchToManagerTeam={canSeeManagerView ? goToManagerTeam : null}
+          onSwitchToManagerMember={canSeeManagerView ? goToManagerMember : null}
           onSwitchToSelf={canGoToSelf ? () => setViewMode('self') : null}
           onSwitchToManager={canSeeManagerView ? goToManager : null}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
@@ -411,6 +414,7 @@ export default function App() {
         <ManagerView
           profile={profile}
           initialTeam={managerTeam}
+          initialMemberId={managerMember}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}
@@ -435,6 +439,7 @@ export default function App() {
         <ManagerView
           profile={profile}
           initialTeam={managerTeam}
+          initialMemberId={managerMember}
           onSignOut={handleSignOut}
           onSwitchToSelf={() => setViewMode('self')}
           onSwitchToFeatureRequests={() => setViewMode('feature_requests')}

@@ -47,7 +47,7 @@ const GOLD = '#B8860B'
 // =============================================================================
 
 export default function LeadershipDashboardView({
-  profile, onSignOut, onSwitchToManager, onSwitchToManagerTeam, onSwitchToSelf,
+  profile, onSignOut, onSwitchToManager, onSwitchToManagerTeam, onSwitchToManagerMember, onSwitchToSelf,
   onSwitchToFeatureRequests, onSwitchToFulfillment, onSwitchToIntegrations, onSwitchToCancellations, onSwitchToApiGuide,
   onSwitchToCommissions,
   onProfileUpdated,
@@ -213,7 +213,7 @@ export default function LeadershipDashboardView({
 
       {mode === 'my' && (
         <div className="max-w-[1400px] mx-auto px-6 py-8">
-          <MyScorecardView profile={profile} />
+          <MyScorecardView profile={profile} onOpenAe={onSwitchToManagerMember} />
         </div>
       )}
 
