@@ -20,13 +20,7 @@ begin
           or v_role_type in ('ceo','coo','cto','cfo') or v_role_type = 'growth_manager') then
     raise exception 'Not authorized to read ad spend' using errcode = '42501';
   end if;
-  return query
-    select m.campaign_id, max(m.campaign_name) as campaign_name, coalesce(sum(m.spend), 0) as spend
-      from public.meta_ads_daily m
-     where p_since is null or m.date_start >= p_since
-     group by m.campaign_id
-    having coalesce(sum(m.spend), 0) > 0
-     order by coalesce(sum(m.spend), 0) desc;
+  return query select m.campaign_id, max(m.campaign_name), coalesce(sum(m.spend), 0) from public.meta_ads_daily m where p_since is null or m.date_start >= p_since group by m.campaign_id having coalesce(sum(m.spend), 0) > 0;
 end;
 $msbc$;
 grant execute on function public.meta_spend_by_campaign(date) to authenticated;

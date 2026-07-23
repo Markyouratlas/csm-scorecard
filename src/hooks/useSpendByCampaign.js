@@ -14,7 +14,9 @@ export function useSpendByCampaign(sinceDate = null) {
       return data || []
     },
   })
-  const campaigns = (data || []).map(r => ({ id: r.campaign_id, name: r.campaign_name || r.campaign_id, spend: Number(r.spend) || 0 }))
+  const campaigns = (data || [])
+    .map(r => ({ id: r.campaign_id, name: r.campaign_name || r.campaign_id, spend: Number(r.spend) || 0 }))
+    .sort((a, b) => b.spend - a.spend)
   const total = campaigns.reduce((s, c) => s + c.spend, 0)
   return { campaigns, total, loading: isPending, error: error ?? null }
 }
