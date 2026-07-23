@@ -38,10 +38,29 @@ export const REPS = {
   CSM: ["Matt", "Sean", "Noah"],
 };
 export const ALL_REPS = [...REPS.AE, ...REPS.CSM];
-export const isAE  = (rep, repList = null) =>
-  repList ? repList.AE.includes(rep)  : REPS.AE.includes(rep);
-export const isCSM = (rep, repList = null) =>
-  repList ? repList.CSM.includes(rep) : REPS.CSM.includes(rep);
+
+// ------------------------------------------------------------
+// Rep identity (UUID-based). A "rep" is now a profile object:
+//   { id, name, firstName, roleType, isAE, isCSM }
+// Legacy call sites may still pass a bare first-name STRING; every helper below
+// tolerates both so the migration is incremental and never regresses. Matching
+// prefers the profile id and falls back to first name when an id isn't present.
+// ------------------------------------------------------------
+export const repId = (rep) => (rep && typeof rep === "object") ? (rep.id || null) : null;
+export const repFirstName = (rep) =>
+  (rep && typeof rep === "object") ? (rep.firstName || (rep.name || "").trim().split(/\s+/)[0] || "") : (rep || "");
+
+export const isAE = (rep, repList = null) => {
+  if (rep && typeof rep === "object") return !!rep.isAE;
+  // string rep: look it up in the (object) repList by first name, else legacy REPS.
+  if (repList) return (repList.AE || []).some((r) => repFirstName(r) === rep);
+  return REPS.AE.includes(rep);
+};
+export const isCSM = (rep, repList = null) => {
+  if (rep && typeof rep === "object") return !!rep.isCSM;
+  if (repList) return (repList.CSM || []).some((r) => repFirstName(r) === rep);
+  return REPS.CSM.includes(rep);
+};
 
 // ============================================================
 // Dynamic rep resolution (additive — inert until consumers wire it)
@@ -65,6 +84,11 @@ const COMMISSION_ROLE_TYPE = {
   ae:  "account_executive",
   csm: "csm",
 };
+// FDEs earn on the CSM track (3% residual, no first-cash month). They're assigned
+// to customers via the Fulfillment view (fulfillment_clients.csm), same as CSMs.
+const FDE_ROLE_TYPES = new Set(["forward_deployed_engineer", "forward_deployed_engineer_lead"]);
+// Everything that earns on the CSM track (CSM + FDE).
+const CSM_TRACK_ROLE_TYPES = new Set(["csm", ...FDE_ROLE_TYPES]);
 
 // Profiles excluded regardless of role_type. Defense-in-depth — the
 // final positive whitelist in isCommissionRep already prevents any
@@ -80,28 +104,40 @@ function isCommissionRep(profile) {
   if (NON_COMMISSION_ROLE_TYPES.has(profile.role_type)) return false;
   return (
     profile.role_type === COMMISSION_ROLE_TYPE.ae ||
-    profile.role_type === COMMISSION_ROLE_TYPE.csm
+    CSM_TRACK_ROLE_TYPES.has(profile.role_type)   // csm + FDE
   );
+}
+
+// Build a rep object from a profile (the canonical rep identity going forward).
+export function repFromProfile(p) {
+  const isAErole = p.role_type === COMMISSION_ROLE_TYPE.ae;
+  return {
+    id: p.id,
+    name: p.name,
+    firstName: firstNameOf(p),
+    roleType: p.role_type,
+    isAE: isAErole,
+    isCSM: CSM_TRACK_ROLE_TYPES.has(p.role_type),
+  };
 }
 
 function firstNameOf(profile) {
   return ((profile && profile.name) || "").trim().split(/\s+/)[0] || "";
 }
 
-// { AE: [firstName,...], CSM: [firstName,...], all: [...] }
-// Same shape as the hardcoded REPS/ALL_REPS constants. Deduped.
+// { AE: [RepObj,...], CSM: [RepObj,...], all: [...] }
+// Each entry is a rep object keyed by profile id (NOT deduped by first name — two
+// reps who share a first name are two distinct entries, which is the whole point).
 export function repsFromProfiles(profiles) {
-  const aeSet = new Set();
-  const csmSet = new Set();
+  const AE = [];
+  const CSM = [];
   for (const p of profiles || []) {
     if (!isCommissionRep(p)) continue;
-    const fn = firstNameOf(p);
-    if (!fn) continue;
-    if (p.role_type === COMMISSION_ROLE_TYPE.ae)  aeSet.add(fn);
-    if (p.role_type === COMMISSION_ROLE_TYPE.csm) csmSet.add(fn);
+    if (!p.id) continue;
+    const rep = repFromProfile(p);
+    if (rep.isAE) AE.push(rep);
+    else if (rep.isCSM) CSM.push(rep);
   }
-  const AE  = Array.from(aeSet);
-  const CSM = Array.from(csmSet);
   return { AE, CSM, all: [...AE, ...CSM] };
 }
 
@@ -155,25 +191,30 @@ export const DEFAULT_CONFIG = {
 // Override resolution
 // ------------------------------------------------------------
 export function indexOverrides(repOverrides) {
-  const byRep = {};
+  const byId = {};
+  const byName = {};
+  const push = (bucket, key, o) => { if (!bucket[key]) bucket[key] = []; bucket[key].push(o); };
   for (const o of (repOverrides || [])) {
-    if (!o.rep_name) continue;
-    if (!byRep[o.rep_name]) byRep[o.rep_name] = [];
-    byRep[o.rep_name].push(o);
+    if (o.rep_profile_id) push(byId, o.rep_profile_id, o);
+    if (o.rep_name) push(byName, o.rep_name, o);
   }
-  for (const rep of Object.keys(byRep)) {
-    byRep[rep].sort((a, b) => (b.effective_date || "").localeCompare(a.effective_date || ""));
-  }
-  return byRep;
+  const sortDesc = (arr) => arr.sort((a, b) => (b.effective_date || "").localeCompare(a.effective_date || ""));
+  Object.values(byId).forEach(sortDesc);
+  Object.values(byName).forEach(sortDesc);
+  return { byId, byName };
 }
 
-export function resolveRepConfig(repName, dateISO, indexedOverrides, baseConfig) {
+// `rep` may be a rep object { id, firstName } or a legacy first-name string.
+// Prefer the profile-id override list; fall back to the name-keyed list.
+export function resolveRepConfig(rep, dateISO, indexedOverrides, baseConfig) {
   const base = baseConfig || DEFAULT_CONFIG;
-  if (!repName || !indexedOverrides || !indexedOverrides[repName]) {
-    return { ...base, _source: "default" };
-  }
+  const io = indexedOverrides || {};
+  const id = repId(rep);
+  const name = repFirstName(rep);
+  const list = (id && io.byId && io.byId[id]) || (name && io.byName && io.byName[name]) || null;
+  if (!list) return { ...base, _source: "default" };
   const date = (dateISO || new Date().toISOString().slice(0, 10));
-  const applicable = indexedOverrides[repName].find(o => (o.effective_date || "") <= date);
+  const applicable = list.find(o => (o.effective_date || "") <= date);
   if (!applicable) return { ...base, _source: "default" };
 
   return {
@@ -314,7 +355,22 @@ export function resolveAssignment(customer, assignmentsByStripeId, assignmentsBy
   if (customer.email && assignmentsByEmail[customer.email.toLowerCase()]) {
     return assignmentsByEmail[customer.email.toLowerCase()];
   }
-  return { ae: null, csm: null };
+  return { ae: null, csm: null, ae_id: null, csm_id: null };
+}
+
+// Does an assignment row belong to this rep? Prefers the profile-id match
+// (ae_id/csm_id vs rep.id); falls back to the legacy first-name match when the
+// row or the rep has no id. `ae` = whether we're matching the AE or CSM slot.
+export function assignmentMatchesRep(assignment, rep, ae) {
+  if (!assignment) return false;
+  const id = repId(rep);
+  const name = repFirstName(rep);
+  if (ae) {
+    if (id && assignment.ae_id) return assignment.ae_id === id;
+    return !!name && assignment.ae === name;
+  }
+  if (id && assignment.csm_id) return assignment.csm_id === id;
+  return !!name && assignment.csm === name;
 }
 
 export function indexAssignments(assignmentList) {
@@ -362,7 +418,7 @@ export function calcRepCommission(
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
-    return ae ? a.ae === rep : a.csm === rep;
+    return assignmentMatchesRep(a, rep, ae);
   });
 
   // Precompute firstCashMonth per customer (depends only on customer data, not month)
@@ -452,7 +508,7 @@ export function calcRepCommissionByCustomer(
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
-    return ae ? a.ae === rep : a.csm === rep;
+    return assignmentMatchesRep(a, rep, ae);
   });
 
   return book.map((c) => {
@@ -527,7 +583,7 @@ export function calcRepCommissionByCustomerByMonth(
 
   const book = customers.filter((c) => {
     const a = resolveAssignment(c, indexedAssignments.byStripeId, indexedAssignments.byEmail);
-    return ae ? a.ae === rep : a.csm === rep;
+    return assignmentMatchesRep(a, rep, ae);
   });
 
   // Precompute firstCashMonth per customer
@@ -646,7 +702,7 @@ export function calcTeamLeadOverride(
   if (!tlProfile || !tlProfile.is_team_lead) {
     return { totalOverride: 0, byReport: {}, monthly: monthCols.map((m) => ({ month: m, total: 0 })) };
   }
-  const tlFirstName = (tlProfile.name || "").split(" ")[0];
+  const tlRep = repFromProfile(tlProfile);
 
   const reports = (allProfiles || []).filter((p) => {
     if (p.id === tlProfile.id) return false;
@@ -664,11 +720,12 @@ export function calcTeamLeadOverride(
   const monthlyTotals = monthCols.map((m) => ({ month: m, total: 0 }));
 
   for (const r of reports) {
-    const repFirstName = (r.name || "").split(" ")[0];
-    if (!repFirstName) continue;
+    const reportRep = repFromProfile(r);
+    const reportKey = reportRep.name || reportRep.firstName;
+    if (!reportKey) continue;
 
     const reportCalc = calcRepCommission(
-      repFirstName,
+      reportRep,
       customers,
       indexedAssignments,
       config,
@@ -688,7 +745,7 @@ export function calcTeamLeadOverride(
         continue;
       }
 
-      const effCfg = resolveRepConfig(tlFirstName, m + "-01", indexedOverrides, config);
+      const effCfg = resolveRepConfig(tlRep, m + "-01", indexedOverrides, config);
       const pct = effCfg.teamLeadOverridePct || 0;
       const overrideEarned = reportTotalThisMonth * pct;
 
@@ -703,7 +760,7 @@ export function calcTeamLeadOverride(
     }
 
     if (reportBreakdown.total > 0) {
-      byReport[repFirstName] = reportBreakdown;
+      byReport[reportKey] = reportBreakdown;
     }
   }
 
@@ -862,13 +919,17 @@ export const fmtPct = (n) => {
 // existing number. The dashboard merges its output with the normal engine total.
 export function calcOneoffCommissionByRep(rep, includedOneoffs, monthCols, repList = null) {
   const ae = isAE(rep, repList);
+  const id = repId(rep);
+  const name = repFirstName(rep);
   const byMonth = Object.fromEntries(monthCols.map((m) => [m, 0]));
   const lines = [];
   for (const o of includedOneoffs || []) {
     // Safety: only ever count explicitly-included payments.
     if (!o || o.included_in_commission !== true) continue;
-    const isThisRepAE = ae && o.assigned_ae === rep;
-    const isThisRepCSM = !ae && o.assigned_csm === rep;
+    // Prefer the id columns (oneoff_payments already stores assigned_ae_id/csm_id);
+    // fall back to name for older rows.
+    const isThisRepAE  = ae  && (id && o.assigned_ae_id  ? o.assigned_ae_id  === id : o.assigned_ae  === name);
+    const isThisRepCSM = !ae && (id && o.assigned_csm_id ? o.assigned_csm_id === id : o.assigned_csm === name);
     if (!isThisRepAE && !isThisRepCSM) continue;
     // Manual per-payment rate the exec typed (not the config rate).
     const rate = Number(isThisRepAE ? o.ae_commission_rate : o.csm_commission_rate);

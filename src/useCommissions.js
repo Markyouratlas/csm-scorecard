@@ -86,28 +86,36 @@ export function useCommissions() {
     return Array.from(set).sort();
   }, [customers]);
 
-  const setAssignment = useCallback(async (customer, field, value) => {
+  const setAssignment = useCallback(async (customer, field, rep) => {
+    // `rep` may be a rep object { id, name, firstName }, a legacy name string, or null.
+    const repName = rep && typeof rep === "object" ? (rep.firstName || (rep.name || "").split(" ")[0]) : (rep || null);
+    const repProfileId = rep && typeof rep === "object" ? (rep.id || null) : null;
     const existing = assignments.find((a) =>
       (customer.stripe_customer_id && a.stripe_customer_id === customer.stripe_customer_id) ||
       (a.email?.toLowerCase() === customer.email?.toLowerCase())
     );
     try {
       if (existing) {
-        const newAe  = field === "ae"  ? value : existing.ae;
-        const newCsm = field === "csm" ? value : existing.csm;
+        const newAe    = field === "ae"  ? repName      : existing.ae;
+        const newAeId  = field === "ae"  ? repProfileId : existing.ae_id;
+        const newCsm   = field === "csm" ? repName      : existing.csm;
+        const newCsmId = field === "csm" ? repProfileId : existing.csm_id;
         if (!newAe && !newCsm) {
           const { error: delErr } = await supabase.from("commission_assignments").delete().eq("id", existing.id);
           if (delErr) throw delErr;
         } else {
-          const { error: upErr } = await supabase.from("commission_assignments").update({ ae: newAe, csm: newCsm }).eq("id", existing.id);
+          const { error: upErr } = await supabase.from("commission_assignments")
+            .update({ ae: newAe, ae_id: newAeId, csm: newCsm, csm_id: newCsmId }).eq("id", existing.id);
           if (upErr) throw upErr;
         }
       } else {
         const { error: insErr } = await supabase.from("commission_assignments").insert({
           stripe_customer_id: customer.stripe_customer_id || null,
           email: customer.email,
-          ae:  field === "ae"  ? value : null,
-          csm: field === "csm" ? value : null,
+          ae:     field === "ae"  ? repName      : null,
+          ae_id:  field === "ae"  ? repProfileId : null,
+          csm:    field === "csm" ? repName      : null,
+          csm_id: field === "csm" ? repProfileId : null,
         });
         if (insErr) throw insErr;
       }
@@ -120,6 +128,8 @@ export function useCommissions() {
   }, [assignments, refetch]);
 
   const bulkAssignAE = useCallback(async (customerList, rep) => {
+    const repName = rep && typeof rep === "object" ? (rep.firstName || (rep.name || "").split(" ")[0]) : (rep || null);
+    const repProfileId = rep && typeof rep === "object" ? (rep.id || null) : null;
     const targets = customerList.filter((c) => !c.is_self_serve);
     const updates = targets.map((c) => {
       const existing = assignments.find((a) =>
@@ -130,8 +140,10 @@ export function useCommissions() {
         ...(existing?.id ? { id: existing.id } : {}),
         stripe_customer_id: c.stripe_customer_id || null,
         email: c.email,
-        ae: rep,
+        ae: repName,
+        ae_id: repProfileId,
         csm: existing?.csm || null,
+        csm_id: existing?.csm_id || null,
       };
     });
     try {

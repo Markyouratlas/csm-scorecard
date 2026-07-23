@@ -36,7 +36,7 @@ import {
   calcRepCommission, calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
   calcOneoffCommissionByRep,
   detectFirstNameCollisions,
-  repsFromProfiles,
+  repsFromProfiles, repFirstName, repId,
   calcAccelerator, aeCustomerLifetimeProjection,
   projectCustomers, parseStripeCSV,
   resolveRepConfig,
@@ -240,22 +240,23 @@ function Stat({ label, value, sub, accent }) {
   );
 }
 
-function RepSelect({ value, onChange, type, disabled, ambiguousNames, repList }) {
-  const options = repList
-    ? (type === "AE" ? repList.AE : repList.CSM)
-    : (type === "AE" ? REPS.AE : REPS.CSM);
+// Id-based rep picker. `value` (legacy first name) + `valueId` (profile id) identify
+// the current selection; options are rep objects keyed by id and labelled with the
+// full name, so two reps who share a first name are distinct + pickable. onChange
+// emits the selected rep object (or null).
+function RepSelect({ value, valueId, onChange, type, disabled, repList }) {
+  const options = (repList ? (type === "AE" ? repList.AE : repList.CSM) : []) || [];
+  const selected = valueId
+    ? options.find((r) => repId(r) === valueId)
+    : (value ? options.find((r) => repFirstName(r) === value) : null);
   return (
-    <select value={value || ""} onChange={(e) => onChange(e.target.value || null)} disabled={disabled}
+    <select value={selected ? repId(selected) : ""} disabled={disabled}
+      onChange={(e) => onChange(options.find((r) => repId(r) === e.target.value) || null)}
       className="text-xs bg-transparent border border-stone-200 px-1.5 py-0.5 hover:border-stone-400 focus:outline-none disabled:bg-stone-50 disabled:cursor-not-allowed">
       <option value="">—</option>
-      {options.map((r) => {
-        const isAmbiguous = ambiguousNames && ambiguousNames.has(r);
-        return (
-          <option key={r} value={r} disabled={isAmbiguous}>
-            {isAmbiguous ? `${r} (ambiguous — resolve collision)` : r}
-          </option>
-        );
-      })}
+      {options.map((r) => (
+        <option key={repId(r)} value={repId(r)}>{r.name}</option>
+      ))}
     </select>
   );
 }
@@ -336,11 +337,15 @@ function RepOverridesPanel({ repName, c, isExecutive }) {
   const [expanded, setExpanded] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
 
+  // repName is now a rep object { id, name, firstName }. Match overrides by profile
+  // id (preferred) or the legacy rep_name text.
+  const rid = repId(repName);
+  const rfn = repFirstName(repName);
   const overridesForRep = useMemo(
     () => (c.repOverrides || [])
-      .filter((o) => o.rep_name === repName)
+      .filter((o) => (rid && o.rep_profile_id === rid) || (rfn && o.rep_name === rfn))
       .sort((a, b) => (b.effective_date || "").localeCompare(a.effective_date || "")),
-    [c.repOverrides, repName]
+    [c.repOverrides, rid, rfn]
   );
 
   const summary = overridesForRep.length > 0
@@ -644,7 +649,7 @@ function AddOverrideForm({ repName, onCancel, onSaved }) {
   const transformDollar     = (s) => s.trim() === "" ? null : Number(s);
 
   const dbValues = {
-    p_rep_name: repName,
+    p_rep_name: repFirstName(repName),
     p_effective_date: effectiveDate,
     p_ae_pct: transformRate(aePct),
     p_ae_residual_pct: transformRate(aeResidualPct),
@@ -687,7 +692,7 @@ function AddOverrideForm({ repName, onCancel, onSaved }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-1">Rep</div>
-          <div className="text-sm font-medium text-stone-900">{repName}</div>
+          <div className="text-sm font-medium text-stone-900">{repName?.name || repFirstName(repName)}</div>
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium mb-1">Effective date</div>
@@ -1246,9 +1251,9 @@ function OverviewTab({ c, onJumpTo, oneoffs, collisions, repList }) {
           </thead>
           <tbody>
             {perRep.map((r) => {
-              const expanded = expandedRep === r.rep;
+              const expanded = !!expandedRep && repId(expandedRep) === repId(r.rep);
               return (
-                <React.Fragment key={r.rep}>
+                <React.Fragment key={repId(r.rep)}>
                   <tr className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="px-2 py-2.5 w-8">
                       <button
@@ -1262,7 +1267,7 @@ function OverviewTab({ c, onJumpTo, oneoffs, collisions, repList }) {
                       </button>
                     </td>
                     <td className="px-5 py-2.5 font-medium text-stone-900 cursor-pointer"
-                        onClick={() => onJumpTo("byRep", r.rep)}>{r.rep}</td>
+                        onClick={() => onJumpTo("byRep", r.rep)}>{r.rep?.name || repFirstName(r.rep)}</td>
                     <td className="px-3 py-2.5">
                       <span className="text-xs px-1.5 py-0.5 border" style={r.isAE
                         ? { background: BRAND.purpleTint, color: BRAND.purpleDeep, borderColor: BRAND.purpleTintMid }
@@ -1449,7 +1454,7 @@ function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
   }, [c.customers, c.assignments, era, needsFilter, search]);
 
   const handleBulk = async (rep) => {
-    if (!confirm(`Assign ALL ${filtered.length} filtered customers to ${rep} as AE?`)) return;
+    if (!confirm(`Assign ALL ${filtered.length} filtered customers to ${rep?.name || rep} as AE?`)) return;
     try {
       await c.bulkAssignAE(filtered, rep);
     } catch (e) {
@@ -1485,18 +1490,15 @@ function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
       {filtered.length > 0 && filtered.length < 350 && (
         <div className="flex gap-2 items-center text-xs">
           <span className="text-stone-500">Bulk assign filtered → AE:</span>
-          {(repList?.AE || REPS.AE).map((r) => {
-            const isAmbiguous = ambiguousNames && ambiguousNames.has(r);
+          {(repList?.AE || []).map((r) => {
             return (
               <button
-                key={r}
+                key={repId(r)}
                 onClick={() => handleBulk(r)}
-                disabled={isAmbiguous}
-                title={isAmbiguous ? "Ambiguous first name — resolve collision before bulk-assigning" : undefined}
-                className="px-2 py-1 border disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2 py-1 border"
                 style={{ borderColor: BRAND.purpleTintMid, color: BRAND.purpleDeep, background: BRAND.purpleTint }}
               >
-                {r}{isAmbiguous ? " ⚠" : ""}
+                {r.name}
               </button>
             );
           })}
@@ -1533,10 +1535,10 @@ function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-stone-600">{fmtMoney(x.max_mrr)}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.ae} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} ambiguousNames={ambiguousNames} repList={repList} />}</td>
+                    : <RepSelect value={a.ae} valueId={a.ae_id} type="AE" onChange={(v) => c.setAssignment(x, "ae", v)} repList={repList} />}</td>
                   <td className="px-3 py-2">{x.is_self_serve
                     ? <span className="text-[11px] text-stone-400">n/a</span>
-                    : <RepSelect value={a.csm} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} ambiguousNames={ambiguousNames} repList={repList} />}</td>
+                    : <RepSelect value={a.csm} valueId={a.csm_id} type="CSM" onChange={(v) => c.setAssignment(x, "csm", v)} repList={repList} />}</td>
                   <td className="px-3 py-2">
                     {x.is_self_serve ? <span className="text-[11px] text-stone-500">Self-serve</span>
                       : x.is_ae_era   ? <span className="text-[11px]" style={{ color: BRAND.purpleDeep }}>AE-era</span>
@@ -1561,15 +1563,17 @@ function CustomersTab({ c, initialFilter, ambiguousNames, repList }) {
 // BY REP TAB (Phase 4.1.2: header labels Cash Collected + Initial CC)
 // ============================================================
 function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) {
-  const [selectedRep, setSelectedRep] = useState(initialRep || "Heather");
+  const [selectedRep, setSelectedRep] = useState(initialRep || null);
   const [expandedMonth, setExpandedMonth] = useState(null);
+  // Fall back to the first rep until one is picked (avoids a hardcoded name default).
+  const activeRep = selectedRep || (repList?.all || [])[0] || null;
 
   const calc = useMemo(
     () => calcRepCommissionByCustomerByMonth(
-      selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols,
+      activeRep, c.customers, c.indexedAssignments, c.config, c.monthCols,
       c.indexedOverrides, c.matchedDealsByCustomer, repList,
     ),
-    [selectedRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]
+    [activeRep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]
   );
 
   const ytd = useMemo(() => calc.monthly.reduce((a, m) => ({
@@ -1584,8 +1588,8 @@ function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) 
   const acc = useMemo(() => calc.isAE ? calcAccelerator(ytd.total, c.config) : null, [calc.isAE, ytd.total, c.config]);
 
   const oneoffCalc = useMemo(
-    () => calcOneoffCommissionByRep(selectedRep, oneoffs || [], c.monthCols, repList),
-    [selectedRep, oneoffs, c.monthCols, repList]
+    () => calcOneoffCommissionByRep(activeRep, oneoffs || [], c.monthCols, repList),
+    [activeRep, oneoffs, c.monthCols, repList]
   );
   const oneoffByMonth = useMemo(
     () => Object.fromEntries((oneoffCalc.monthly || []).map((m) => [m.month, m.oneoffCommission])),
@@ -1604,7 +1608,7 @@ function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) 
     const blob = new Blob([rows.map((r) => r.join(",")).join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `${selectedRep}_commission.csv`; a.click();
+    a.href = url; a.download = `${(activeRep?.name || "rep").replace(/\s+/g, "_")}_commission.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -1614,14 +1618,14 @@ function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) 
       <div className="bg-white border border-stone-200 px-4 py-3 flex items-center gap-2 flex-wrap">
         <span className="text-xs uppercase tracking-wider text-stone-500 font-medium mr-2">Rep</span>
         {(repList?.all || []).map((r) => {
-          const ae = isAE(r, repList), active = selectedRep === r;
+          const ae = isAE(r, repList), active = repId(activeRep) === repId(r);
           return (
-            <button key={r} onClick={() => { setSelectedRep(r); setExpandedMonth(null); }}
+            <button key={repId(r)} onClick={() => { setSelectedRep(r); setExpandedMonth(null); }}
               className="text-sm px-3 py-1 border transition"
               style={active
                 ? { background: BRAND.purple, color: "white", borderColor: BRAND.purple }
                 : { background: "white", color: "#44403c", borderColor: "#e7e5e4" }}>
-              {r} <span className="text-[10px] ml-1" style={{ opacity: active ? 0.7 : 0.5 }}>{ae ? "AE" : "CSM"}</span>
+              {r.name} <span className="text-[10px] ml-1" style={{ opacity: active ? 0.7 : 0.5 }}>{ae ? "AE" : "CSM"}</span>
             </button>
           );
         })}
@@ -1690,7 +1694,7 @@ function ByRepTab({ c, initialRep, oneoffs, collisions, repList, isExecutive }) 
       )}
 
       <RepOverridesPanel
-        repName={selectedRep}
+        repName={activeRep}
         c={c}
         isExecutive={isExecutive}
       />
@@ -1797,7 +1801,7 @@ function WhatIfTab({ c, repList }) {
     for (const rep of (repList?.all || [])) {
       const r = calcRepCommission(rep, c.customers, c.indexedAssignments, s.config, c.monthCols, null, null, repList);
       const ytd = r.monthly.reduce((sum, m) => sum + m.total, 0);
-      byRep[rep] = ytd;
+      byRep[repId(rep)] = ytd;
       total += ytd;
     }
     return { ...s, byRep, total };
@@ -1868,13 +1872,13 @@ function WhatIfTab({ c, repList }) {
           </thead>
           <tbody>
             {(repList?.all || []).map((rep) => (
-              <tr key={rep} className="border-b border-stone-100">
+              <tr key={repId(rep)} className="border-b border-stone-100">
                 <td className="px-5 py-2.5 font-medium text-stone-900">
-                  {rep} <span className="text-[10px] text-stone-400">{isAE(rep, repList) ? "AE" : "CSM"}</span>
+                  {rep.name} <span className="text-[10px] text-stone-400">{isAE(rep, repList) ? "AE" : "CSM"}</span>
                 </td>
                 {results.map((r, i) => {
-                  const val = r.byRep[rep];
-                  const delta = i > 0 ? val - base.byRep[rep] : null;
+                  const val = r.byRep[repId(rep)];
+                  const delta = i > 0 ? val - base.byRep[repId(rep)] : null;
                   return (
                     <td key={i} className="px-3 py-2.5 text-right font-mono tabular-nums">
                       <span className="text-stone-900">{fmtMoney(val)}</span>
@@ -1991,9 +1995,9 @@ function AnnualizeTab({ c, repList }) {
           </thead>
           <tbody>
             {projected.map((p) => (
-              <tr key={p.rep} className="border-b border-stone-100">
+              <tr key={repId(p.rep)} className="border-b border-stone-100">
                 <td className="px-5 py-3 font-medium text-stone-900">
-                  {p.rep} <span className="text-[10px] text-stone-400">{p.isAE ? "AE" : "CSM"}</span>
+                  {p.rep?.name || repFirstName(p.rep)} <span className="text-[10px] text-stone-400">{p.isAE ? "AE" : "CSM"}</span>
                 </td>
                 <td className="px-3 py-3 text-right font-mono tabular-nums text-stone-700">{fmtMoney(p.actualTotal)}</td>
                 <td className="px-3 py-3 text-right font-mono tabular-nums" style={{ color: BRAND.purpleLight }}>{fmtMoney(p.projTotal)}</td>
@@ -2337,8 +2341,10 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netA
   const decimalToPctStr = (r) =>
     r != null ? String(+(r * 100).toFixed(2)) : "";
 
-  const [assignedAe, setAssignedAe] = useState(p.assigned_ae || null);
-  const [assignedCsm, setAssignedCsm] = useState(p.assigned_csm || null);
+  // assignedAe/Csm hold rep objects now. Seed from the stored id (preferred) or name.
+  const findRep = (id, name) => (repList?.all || []).find((r) => (id && r.id === id) || (!id && name && r.firstName === name)) || null;
+  const [assignedAe, setAssignedAe] = useState(() => findRep(p.assigned_ae_id, p.assigned_ae));
+  const [assignedCsm, setAssignedCsm] = useState(() => findRep(p.assigned_csm_id, p.assigned_csm));
   const [aeRateInput, setAeRateInput] = useState(decimalToPctStr(p.ae_commission_rate));
   const [csmRateInput, setCsmRateInput] = useState(decimalToPctStr(p.csm_commission_rate));
   const [submitting, setSubmitting] = useState(false);
@@ -2349,8 +2355,9 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netA
   const aeRateValid = !isNaN(aeRatePct) && aeRatePct >= 0 && aeRatePct <= 100;
   const csmRateValid = !isNaN(csmRatePct) && csmRatePct >= 0 && csmRatePct <= 100;
 
-  const aeResolution = resolveRepProfile(assignedAe, profiles);
-  const csmResolution = resolveRepProfile(assignedCsm, profiles);
+  // Rep objects are always resolvable (they come from the id-based picker).
+  const aeResolution = { id: assignedAe?.id || null, status: assignedAe ? "ok" : "unassigned" };
+  const csmResolution = { id: assignedCsm?.id || null, status: assignedCsm ? "ok" : "unassigned" };
 
   const aePreview = (assignedAe && aeRateValid) ? netAmount * (aeRatePct / 100) : null;
   const csmPreview = (assignedCsm && csmRateValid) ? netAmount * (csmRatePct / 100) : null;
@@ -2367,12 +2374,12 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netA
       const { error: rpcErr } = await supabase.rpc("set_oneoff_inclusion", {
         p_charge_id: p.stripe_charge_id,
         p_include: true,
-        p_assigned_ae: assignedAe || null,
-        p_assigned_csm: assignedCsm || null,
+        p_assigned_ae: assignedAe?.firstName || null,
+        p_assigned_csm: assignedCsm?.firstName || null,
         p_ae_rate: assignedAe ? (aeRatePct / 100) : null,
         p_csm_rate: assignedCsm ? (csmRatePct / 100) : null,
-        p_assigned_ae_id: assignedAe ? aeResolution.id : null,
-        p_assigned_csm_id: assignedCsm ? csmResolution.id : null,
+        p_assigned_ae_id: assignedAe?.id || null,
+        p_assigned_csm_id: assignedCsm?.id || null,
       });
       if (rpcErr) throw rpcErr;
       await onSaved();
@@ -2418,7 +2425,7 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netA
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">AE</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="AE" value={assignedAe} onChange={setAssignedAe} disabled={submitting} ambiguousNames={ambiguousNames} repList={repList} />
+            <RepSelect type="AE" value={assignedAe?.firstName} valueId={assignedAe?.id} onChange={setAssignedAe} disabled={submitting} repList={repList} />
             {assignedAe && (
               <>
                 <input
@@ -2461,7 +2468,7 @@ function OneOffIncludeForm({ payment: p, profiles, ambiguousNames, repList, netA
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">CSM</div>
           <div className="flex items-center gap-2">
-            <RepSelect type="CSM" value={assignedCsm} onChange={setAssignedCsm} disabled={submitting} ambiguousNames={ambiguousNames} repList={repList} />
+            <RepSelect type="CSM" value={assignedCsm?.firstName} valueId={assignedCsm?.id} onChange={setAssignedCsm} disabled={submitting} repList={repList} />
             {assignedCsm && (
               <>
                 <input
