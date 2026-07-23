@@ -23,6 +23,8 @@ import { useAtlasBlueWebinar } from './hooks/useAtlasBlueWebinar.js'
 import { useBookedMeetingsDetail } from './hooks/useBookedMeetingsDetail.js'
 import { useCalBookingsAllTimeByType } from './hooks/useCalBookingsAllTimeByType.js'
 import { useTotalAdSpend } from './hooks/useTotalAdSpend.js'
+import { useSpendByCampaign } from './hooks/useSpendByCampaign.js'
+import EconomicsDrilldownModal from './EconomicsDrilldownModal'
 import { useGa4Metrics } from './hooks/useGa4Metrics.js'
 import AtlasBlueDrilldownModal from './AtlasBlueDrilldownModal'
 import BookedMeetingsDrilldownModal from './BookedMeetingsDrilldownModal'
@@ -397,14 +399,25 @@ const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const money2 = (v) => (v == null || isNaN(v) ? '—' : `$${Number(v).toFixed(2)}`)
 const fmtDay = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}` : '')
 
-// Lifetime hero stat card for the Atlas Blue Webinar tab.
-function HeroStat({ label, value, accent }) {
-  return (
-    <div className="border border-stone-200 rounded-xl p-4 bg-white">
-      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-1">{label}</div>
+// Hero stat card. Pass onClick to make it a clickable drill-down tile.
+function HeroStat({ label, value, accent, onClick }) {
+  const inner = (
+    <>
+      <div className="mono-font text-[10px] uppercase tracking-widest text-stone-400 mb-1 flex items-center gap-1">
+        {label}{onClick && <span className="text-stone-300">›</span>}
+      </div>
       <div className="display-font text-3xl font-medium leading-none" style={{ color: accent }}>{value}</div>
-    </div>
+    </>
   )
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick}
+        className="border border-stone-200 rounded-xl p-4 bg-white text-left w-full hover:border-stone-400 hover:shadow-sm transition-all cursor-pointer">
+        {inner}
+      </button>
+    )
+  }
+  return <div className="border border-stone-200 rounded-xl p-4 bg-white">{inner}</div>
 }
 
 // Read-only numeric cell (auto-derived columns). When onClick is passed the
@@ -994,11 +1007,14 @@ function BookedMeetingsSection() {
   const won = useMemo(() => {
     const rws = (detail.rows || []).filter(r => !r.is_test && r.deal_status === 'Closed Won' && adDrivenSlugs.has(r.event_type_slug))
     return {
+      rows: rws,
       count: rws.length,
       cash: rws.reduce((s, r) => s + (Number(r.one_time) || 0), 0),
       mrr: rws.reduce((s, r) => s + (Number(r.mrr) || 0), 0),
     }
   }, [detail.rows, adDrivenSlugs])
+  const spendByCampaign = useSpendByCampaign(spendSince)
+  const [tileDrill, setTileDrill] = useState(null) // 'won' | 'spend' | 'cac' | null
 
   // Per-booking detail grouped by event-type slug (for the drill-down modal).
   const detailBySlug = useMemo(() => {
@@ -1101,13 +1117,13 @@ function BookedMeetingsSection() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
-          <HeroStat label={`New customers · ${winLabel}`} value={won.count.toLocaleString()} accent="#065F46" />
-          <HeroStat label={`Cash collected · ${winLabel}`} value={fmtWhole(won.cash)} accent="#065F46" />
-          <HeroStat label={`MRR · ${winLabel}`} value={fmtWhole(won.mrr)} accent="#065F46" />
+          <HeroStat label={`New customers · ${winLabel}`} value={won.count.toLocaleString()} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
+          <HeroStat label={`Cash collected · ${winLabel}`} value={fmtWhole(won.cash)} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
+          <HeroStat label={`MRR · ${winLabel}`} value={fmtWhole(won.mrr)} accent="#065F46" onClick={won.count ? () => setTileDrill('won') : undefined} />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
-          <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" />
-          <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} />
+          <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" onClick={() => setTileDrill('spend')} />
+          <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} onClick={() => setTileDrill('cac')} />
         </div>
         <p className="text-[11px] text-stone-400 mb-6">
           Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
@@ -1173,6 +1189,16 @@ function BookedMeetingsSection() {
       {drill && (
         <BookedMeetingsDrilldownModal label={drill.label} rows={drillRows}
           onToggleTest={markTest} testBusy={testBusy} onClose={() => setDrill(null)} />
+      )}
+
+      {tileDrill === 'won' && (
+        <BookedMeetingsDrilldownModal label={`New customers · ${winLabel}`} rows={won.rows}
+          onToggleTest={markTest} testBusy={testBusy} onClose={() => setTileDrill(null)} />
+      )}
+      {(tileDrill === 'spend' || tileDrill === 'cac') && (
+        <EconomicsDrilldownModal mode={tileDrill} winLabel={winLabel}
+          spend={adSpend.spend} customers={won.count} campaigns={spendByCampaign.campaigns}
+          loading={spendByCampaign.loading} onClose={() => setTileDrill(null)} />
       )}
     </div>
   )
