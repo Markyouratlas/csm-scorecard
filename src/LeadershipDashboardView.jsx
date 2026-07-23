@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom'
 import {
   Crown, Clock, Activity,
   Zap, ChevronRight, AlertCircle, RefreshCw,
-  Info, Sparkles, Eye, Gem, Lock,
+  Info, Sparkles, Eye, Gem, Lock, ListChecks,
 } from 'lucide-react'
 import AtlasLogo from './AtlasLogo'
 import HeaderNav from './HeaderNav'
 import SettingsModal from './SettingsModal'
 import AtlasOdysseyPrototype from './AtlasOdysseyPrototype'
 import InvestorView from './InvestorView'
+import MyScorecardView from './MyScorecardView'
 import OdysseyView from './OdysseyView'
 import ProfitwellAllMetrics from './ProfitwellAllMetrics'
 import { accessTier } from './teams'
@@ -152,6 +153,20 @@ export default function LeadershipDashboardView({
               >
                 <Eye className="w-3 h-3" /> Prototype
               </button>
+              <button
+                onClick={() => setMode('my')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-all"
+                style={{
+                  background: mode === 'my' ? BRAND : 'transparent',
+                  color: mode === 'my' ? 'white' : '#56506A',
+                  boxShadow: mode === 'my' ? '0 1px 2px rgba(102,57,166,0.25)' : 'none',
+                }}
+                role="tab"
+                aria-selected={mode === 'my'}
+                title="My View — your personal queue"
+              >
+                <ListChecks className="w-3 h-3" /> My View
+              </button>
             </div>
           </div>
           <HeaderNav
@@ -193,6 +208,12 @@ export default function LeadershipDashboardView({
       {mode === 'odyssey' && (
         <div className="max-w-[1400px] mx-auto px-2 sm:px-6 pb-10">
           <OdysseyView onSwitchToManagerTeam={onSwitchToManagerTeam} profile={profile} />
+        </div>
+      )}
+
+      {mode === 'my' && (
+        <div className="max-w-[1400px] mx-auto px-6 py-8">
+          <MyScorecardView profile={profile} />
         </div>
       )}
 
