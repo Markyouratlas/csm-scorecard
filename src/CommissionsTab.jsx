@@ -38,7 +38,7 @@ import { useCommissions } from "./useCommissions";
 import {
   calcRepCommission, calcAccelerator, calcTeamLeadOverride,
   calcRepCommissionByCustomer, calcRepCommissionByCustomerByMonth,
-  repsFromProfiles,
+  repsFromProfiles, repFromProfile,
   monthLabel, fmtMoney, fmtPct, isAE,
 } from "./commissionEngine";
 import { CustomerDrilldownRow } from "./CommissionsView";
@@ -71,23 +71,25 @@ export default function CommissionsTab({ profile }) {
     [c.profiles]
   );
 
-  // Resolve "this user" to a rep name by first token of profile.name.
+  // Resolve "this user" to a rep OBJECT keyed by profile id (so two reps who share
+  // a first name each see only their own book). repName stays for display/DB writes.
+  const rep = useMemo(() => (profile ? repFromProfile(profile) : null), [profile]);
   const repName = (profile?.name || "").split(" ")[0];
-  const userIsAE = isAE(repName, repList);
+  const userIsAE = isAE(rep, repList);
 
   const calc = useMemo(() => {
-    if (!repName) return null;
-    return calcRepCommission(repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList);
-  }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols, repList]);
+    if (!rep) return null;
+    return calcRepCommission(rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList);
+  }, [rep, c.customers, c.indexedAssignments, c.config, c.monthCols, repList]);
 
   // Phase 3: per-customer-per-month breakdown for the drill-down
   const calcByMonth = useMemo(() => {
-    if (!repName) return null;
+    if (!rep) return null;
     return calcRepCommissionByCustomerByMonth(
-      repName, c.customers, c.indexedAssignments, c.config, c.monthCols,
+      rep, c.customers, c.indexedAssignments, c.config, c.monthCols,
       c.indexedOverrides, c.matchedDealsByCustomer, repList,
     );
-  }, [repName, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]);
+  }, [rep, c.customers, c.indexedAssignments, c.config, c.monthCols, c.indexedOverrides, c.matchedDealsByCustomer, repList]);
 
   // If the current user is a team lead, compute their TL override earnings
   const tlOverrideCalc = useMemo(() => {
@@ -108,9 +110,9 @@ export default function CommissionsTab({ profile }) {
   // Per-customer commission breakdown — shows which customers drive each
   // line item in the monthly table.
   const byCustomer = useMemo(() => {
-    if (!repName) return [];
+    if (!rep) return [];
     return calcRepCommissionByCustomer(
-      repName,
+      rep,
       c.customers,
       c.indexedAssignments,
       c.config,
