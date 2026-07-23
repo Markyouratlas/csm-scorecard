@@ -395,6 +395,8 @@ function NumCell({ value, onChange, prefix }) {
 //  Stripe via useAtlasBlueFunnel. See src/13-atlas-blue-funnel.sql.
 // ============================================================================
 const AB_BLUE = '#2563EB'
+// Assumed customer lifetime for LTV = cash + MRR × months. Adjust if Finance sets a real figure.
+const LTV_LIFETIME_MONTHS = 24
 const fmtWhole = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 const money2 = (v) => (v == null || isNaN(v) ? '—' : `$${Number(v).toFixed(2)}`)
 const fmtDay = (d) => (d ? `${d.slice(5, 7)}/${d.slice(8, 10)}` : '')
@@ -1011,6 +1013,8 @@ function BookedMeetingsSection() {
       count: rws.length,
       cash: rws.reduce((s, r) => s + (Number(r.one_time) || 0), 0),
       mrr: rws.reduce((s, r) => s + (Number(r.mrr) || 0), 0),
+      // LTV = upfront cash + recurring MRR over the assumed lifetime.
+      ltv: rws.reduce((s, r) => s + (Number(r.one_time) || 0) + (Number(r.mrr) || 0) * LTV_LIFETIME_MONTHS, 0),
     }
   }, [detail.rows, adDrivenSlugs])
   const spendByCampaign = useSpendByCampaign(spendSince)
@@ -1124,9 +1128,11 @@ function BookedMeetingsSection() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-2">
           <HeroStat label={`Ad spend · ${winLabel}`} value={fmtWhole(adSpend.spend)} accent="#1877F2" onClick={() => setTileDrill('spend')} />
           <HeroStat label={`CAC (blended) · ${winLabel}`} value={won.count ? fmtWhole(adSpend.spend / won.count) : '—'} accent={AB_BLUE} onClick={() => setTileDrill('cac')} />
+          <HeroStat label={`LTV · ${winLabel}`} value={fmtWhole(won.ltv)} accent="#6639A6" onClick={won.count ? () => setTileDrill('won') : undefined} />
         </div>
         <p className="text-[11px] text-stone-400 mb-6">
           Closed Won from ad-driven booked meetings (test-excluded). CAC is blended: total Meta ad spend ÷ new customers.
+          LTV = cash + MRR × {LTV_LIFETIME_MONTHS} months (assumed lifetime).
           {isAllTime ? ' All-time ad spend covers synced history (Meta daily data accumulates over time).' : ''}
         </p>
 
