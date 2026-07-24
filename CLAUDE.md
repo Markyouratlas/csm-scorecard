@@ -149,6 +149,38 @@ When Stripe / ProfitWell / Amplitude / HubSpot integrations come online, they sh
 - `SharedPagesView.jsx` — feature requests, integrations, cancellations pages (last is gated to executives + CS + FDE).
 - `ScorecardShell.jsx` — common header/footer chrome (logo, submit footer, view-switcher buttons) used by every personal scorecard.
 
+### My View — Mark's exec action center (`MyScorecardView.jsx`)
+
+A per-exec "your queue" screen, reached as a mode in `LeadershipDashboardView` (the ListChecks
+icon) → `<MyScorecardView profile onOpenAe={onSwitchToManagerMember} />`. `onOpenAe(aeId)` deep-links
+into that AE's `ScorecardViewer` via `App.jsx`'s `goToManagerMember`/`initialMemberId` plumbing
+through `ManagerView`. It's a growing stack of data-hygiene widgets, each backed by its own hook and
+each **self-hiding when clean** (no empty-state noise except where useful):
+- **Collected but not closed** (`useCollectedNotClosed` → `collected_not_closed()` rpc,
+  `src/43-collected-not-closed.sql`) — open `ae_deals` whose customer is already paying in Stripe.
+  Tags **paid-in-full** vs **partial · likely deposit** (`is_full` = collected ≥ `one_time`) and flags
+  **already has a Closed Won ⚠** (`already_closed`, the double-close guard). The same list surfaces to
+  the AE as a "💰 paid but not closed" banner in `AeDealsPipeline` with Close Won / Deposit buttons.
+- **Auto-close (Phase B)** — the `collected-not-closed-autoclose` edge fn (daily cron
+  `supabase-collected-not-closed-cron.sql`, deploy `--no-verify-jwt`, auth = `CRON_SHARED_SECRET`)
+  flips **confident-full** open+paid deals to Closed Won, stamping `ae_deals.auto_closed_at` + an audit
+  note (fires the normal Closed-Won triggers → `closed_at` + Fulfillment). **Guards:** never a deposit
+  (bar = `one_time` if set, else one month of `mrr`; below bar = skip), never `already_closed`, skips
+  "Deposit collected". Has a `{dryRun:true}` mode (returns `wouldClose`/`skipped*`, mutates nothing).
+  `useAutoClosed` renders the **Auto-closed** list in My View. Commission math is unaffected — it's
+  cash-based off `commission_customers`, not the close event.
+- **Unlinked Closed Won** (`useUnlinkedClosedWon` → `src/44-unlinked-closed-won.sql`: `unlinked_closed_won()`
+  / `stripe_candidates_for_deal()` / `link_deal_to_stripe()`, all exec-gated via `_is_exec()`) — Closed
+  Won deals with `matched_stripe_customer_id IS NULL` (the Greg-McCue email-mismatch case). Per-deal
+  ranked Stripe candidates (email/name/domain + collected cash); **Link** writes the id onto the deal
+  **and** its `fulfillment_clients` row at once.
+- **Stripe payment fixes** (`usePayFix` / `src/41-deal-payment-fix.sql` + `src/42-pay-fix-complete-rpc.sql`)
+  — AE flags a deal with a note → exec queue here → `pay_fix_complete()` → AE ack → permanent
+  "Modified payment" badge. `pay_fix_status` flagged→fixed→done.
+- **Data cleanup** — `DuplicateCustomersAlert` (same-email Stripe twins with a $0 sibling, from
+  `useCommissions`) + `DuplicateDealsAlert` (`useDuplicateDeals`: customers with 2+ Closed Won deals,
+  grouped by `matched_stripe_customer_id` else email).
+
 ### Data model (see `supabase-setup.sql` and migrations)
 
 - `profiles` — one row per `auth.users` row. Columns include `name`, `team`, `role_type`, `role`, `is_team_lead`, `work_days`, `color`, `archived_at`, `banned`/`banned_at`/`banned_by`, `channel_partner_enabled`, `tracks_channel_intros`, `twilio_number`, `ghl_user_id`, `email`. **`profiles` is world-readable** (`select using(true)`), so anything sensitive (e.g. salaries) must live in a separate exec-only table, NOT a profiles column.
