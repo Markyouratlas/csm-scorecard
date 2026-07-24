@@ -90,6 +90,7 @@ function DunningRow({ r, kase, dunning }) {
         <label className="flex items-center gap-1 text-stone-500">Snooze
           <input type="date" value={kase?.status === "snoozed" ? (kase.snooze_until || "") : ""} onChange={(e) => e.target.value && setStatus({ status: "snoozed", snooze_until: e.target.value, resolved_at: null })} className="border border-stone-300 rounded px-1.5 py-0.5 bg-white" /></label>
         <button onClick={() => setStatus({ status: "contacted" })} disabled={busy} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-50">Mark contacted</button>
+        <button onClick={() => setStatus({ status: "recovered", resolved_at: new Date().toISOString() })} disabled={busy} className="font-semibold px-2 py-1 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">✓ Mark paid / resolved</button>
         <button onClick={() => setStatus({ status: "churned", resolved_at: new Date().toISOString() })} disabled={busy} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 disabled:opacity-50">Write off</button>
         <button onClick={() => setShowLog((s) => !s)} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-700 hover:bg-stone-50">+ Note</button>
       </div>
@@ -121,11 +122,16 @@ function DunningRow({ r, kase, dunning }) {
 // with a phone (our deals/fulfillment first, else GHL) so Mark can call from the
 // dialer, plus a tracked case per customer (status / promise date / touch log).
 function FailedPaymentsSection() {
-  const { rows, generatedAt, loading, fetching, error, refresh } = useFailedPayments();
+  const { rows: allRows, generatedAt, loading, fetching, error, refresh } = useFailedPayments();
   const dunning = useDunningCases();
+  const isDone = (id) => { const k = dunning.byStripe[id]; return k && (k.status === "recovered" || k.status === "churned"); };
+  // Customers you've already resolved (paid / written off) drop out of the active
+  // list even if Stripe still lists them this cycle.
+  const rows = allRows.filter((r) => !isDone(r.customer_id));
+  const doneCount = allRows.length - rows.length;
   const total = rows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
-  const liveIds = new Set(rows.map((r) => r.customer_id).filter(Boolean));
-  // Open cases whose customer is no longer failing = they paid → recovered.
+  const liveIds = new Set(allRows.map((r) => r.customer_id).filter(Boolean));
+  // Open cases whose customer is no longer failing at all = they paid → recovered.
   const resolved = dunning.cases.filter((c) => !liveIds.has(c.stripe_customer_id) && c.status !== "recovered" && c.status !== "churned");
   return (
     <section className="space-y-3">
@@ -166,7 +172,7 @@ function FailedPaymentsSection() {
         <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4 text-sm text-emerald-800">✓ No failed payments right now — nothing in dunning.</div>
       ) : (
         <>
-          <div className="text-xs text-stone-500">{rows.length} customer{rows.length > 1 ? "s" : ""} · {money(total)} at risk</div>
+          <div className="text-xs text-stone-500">{rows.length} customer{rows.length === 1 ? "" : "s"} · {money(total)} at risk{doneCount > 0 ? ` · ${doneCount} resolved this cycle` : ""}</div>
           <div className="space-y-2">
             {rows.map((r) => (
               <DunningRow key={r.invoice_id} r={r} kase={dunning.byStripe[r.customer_id]} dunning={dunning} />
