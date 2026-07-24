@@ -73,19 +73,20 @@ async function stripePaginate(resource: string, sk: string, query = ""): Promise
   return items;
 }
 
-// GHL contacts search by email → E.164 phone (mirrors cal-booking-inbound).
-async function ghlPhoneByEmail(email: string, key: string, loc: string): Promise<string> {
+// GHL contacts search by email → { phone (E.164), id } (mirrors cal-booking-inbound,
+// plus the contact id so we can deep-link to the CRM profile).
+async function ghlContact(email: string, key: string, loc: string): Promise<{ phone: string; id: string }> {
   try {
     const g = await fetch(
       `${GHL_HOST}/contacts/?locationId=${encodeURIComponent(loc)}&query=${encodeURIComponent(email)}`,
       { headers: { Authorization: `Bearer ${key}`, Version: GHL_VER } },
     );
-    if (!g.ok) return "";
+    if (!g.ok) return { phone: "", id: "" };
     const gj = await g.json().catch(() => ({}));
     const list: any[] = gj?.contacts || [];
-    const hit = list.find((c) => lc(c?.email) === lc(email) && c?.phone) || list.find((c) => c?.phone);
-    return e164(hit?.phone || "");
-  } catch { return ""; }
+    const hit = list.find((c) => lc(c?.email) === lc(email)) || list.find((c) => c?.phone) || list[0] || null;
+    return { phone: e164(hit?.phone || ""), id: hit?.id || "" };
+  } catch { return { phone: "", id: "" }; }
 }
 
 const unix = (n: any) => (n ? new Date(Number(n) * 1000).toISOString() : null);
@@ -162,6 +163,7 @@ serve(async (req: Request) => {
         plan: line?.description || null,
         hosted_invoice_url: inv.hosted_invoice_url || null,
         subscription_id: (typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id) || null,
+        crm_url: null as string | null,
       };
     });
 
@@ -187,17 +189,21 @@ serve(async (req: Request) => {
       for (const r of (f1 as any).data || []) remember(r.matched_stripe_customer_id, null, r.poc_phone);
     }
 
-    // GHL fallback for anyone still without a phone (dedup by email).
+    // GHL lookup (dedup by email) — gives us the contact id for a CRM deep-link and
+    // a phone fallback. We prefer our own Atlas phone but always fetch the contact
+    // so every row gets a CRM link when GHL knows them.
     const ghlKey = Deno.env.get("GHL_API_KEY") || "";
     const ghlLoc = Deno.env.get("GHL_LOCATION_ID") || "";
-    const ghlCache = new Map<string, string>();
+    const ghlDomain = Deno.env.get("GHL_APP_DOMAIN") || "app.gohighlevel.com";
+    const ghlCache = new Map<string, { phone: string; id: string }>();
     for (const r of rows) {
       let phone = (r.customer_id && byStripe.get(r.customer_id)) || byEmail.get(r.email) || "";
       let source: string | null = phone ? "atlas" : null;
-      if (!phone && r.email && ghlKey && ghlLoc) {
-        if (!ghlCache.has(r.email)) ghlCache.set(r.email, await ghlPhoneByEmail(r.email, ghlKey, ghlLoc));
-        phone = ghlCache.get(r.email) || "";
-        if (phone) source = "ghl";
+      if (r.email && ghlKey && ghlLoc) {
+        if (!ghlCache.has(r.email)) ghlCache.set(r.email, await ghlContact(r.email, ghlKey, ghlLoc));
+        const g = ghlCache.get(r.email)!;
+        if (g.id) r.crm_url = `https://${ghlDomain}/v2/location/${ghlLoc}/contacts/detail/${g.id}`;
+        if (!phone && g.phone) { phone = g.phone; source = "ghl"; }
       }
       r.phone = phone;
       r.phone_source = source;

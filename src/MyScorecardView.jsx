@@ -76,6 +76,9 @@ function DunningRow({ r, kase, dunning }) {
               <button onClick={text} disabled={busy} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1 whitespace-nowrap disabled:opacity-50"><MessageSquare size={12} /> Text</button>
             </>
           )}
+          {r.crm_url && (
+            <a href={r.crm_url} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 whitespace-nowrap">CRM ↗</a>
+          )}
           {r.hosted_invoice_url && (
             <a href={r.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">Invoice ↗</a>
           )}
