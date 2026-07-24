@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Phone, MessageSquare, RefreshCw } from "lucide-react";
+import { Phone, MessageSquare, RefreshCw, Search } from "lucide-react";
 import { useDialer } from "./DialerContext";
 import { useFailedPayments } from "./useFailedPayments";
 import { useDunningCases } from "./useDunningCases";
@@ -124,12 +124,17 @@ function DunningRow({ r, kase, dunning }) {
 function FailedPaymentsSection() {
   const { rows: allRows, generatedAt, loading, fetching, error, refresh } = useFailedPayments();
   const dunning = useDunningCases();
+  const [query, setQuery] = useState("");
   const isDone = (id) => { const k = dunning.byStripe[id]; return k && (k.status === "recovered" || k.status === "churned"); };
   // Customers you've already resolved (paid / written off) drop out of the active
   // list even if Stripe still lists them this cycle.
-  const rows = allRows.filter((r) => !isDone(r.customer_id));
-  const doneCount = allRows.length - rows.length;
-  const total = rows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  const active = allRows.filter((r) => !isDone(r.customer_id));
+  const doneCount = allRows.length - active.length;
+  const total = active.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  // Search by name/email, then newest failing invoice first.
+  const q = query.trim().toLowerCase();
+  const rows = (q ? active.filter((r) => `${r.name || ""} ${r.email || ""}`.toLowerCase().includes(q)) : active)
+    .slice().sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0));
   const liveIds = new Set(allRows.map((r) => r.customer_id).filter(Boolean));
   // Open cases whose customer is no longer failing at all = they paid → recovered.
   const resolved = dunning.cases.filter((c) => !liveIds.has(c.stripe_customer_id) && c.status !== "recovered" && c.status !== "churned");
@@ -168,16 +173,27 @@ function FailedPaymentsSection() {
         <div className="text-sm text-stone-400">Checking Stripe…</div>
       ) : error ? (
         <div className="border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-800">Couldn’t load failed payments: {error}</div>
-      ) : rows.length === 0 ? (
+      ) : active.length === 0 ? (
         <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4 text-sm text-emerald-800">✓ No failed payments right now — nothing in dunning.</div>
       ) : (
         <>
-          <div className="text-xs text-stone-500">{rows.length} customer{rows.length === 1 ? "" : "s"} · {money(total)} at risk{doneCount > 0 ? ` · ${doneCount} resolved this cycle` : ""}</div>
-          <div className="space-y-2">
-            {rows.map((r) => (
-              <DunningRow key={r.invoice_id} r={r} kase={dunning.byStripe[r.customer_id]} dunning={dunning} />
-            ))}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-xs text-stone-500">{active.length} customer{active.length === 1 ? "" : "s"} · {money(total)} at risk{doneCount > 0 ? ` · ${doneCount} resolved this cycle` : ""}{q ? ` · ${rows.length} match${rows.length === 1 ? "" : "es"}` : ""}</div>
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or email…"
+                className="text-xs border border-stone-300 rounded-md pl-7 pr-2 py-1.5 bg-white w-56 focus:outline-none focus:ring-1 focus:ring-stone-300" />
+            </div>
           </div>
+          {rows.length === 0 ? (
+            <div className="text-sm text-stone-400 py-2">No matches for “{query}”.</div>
+          ) : (
+            <div className="space-y-2">
+              {rows.map((r) => (
+                <DunningRow key={r.invoice_id} r={r} kase={dunning.byStripe[r.customer_id]} dunning={dunning} />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>
