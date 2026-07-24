@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Phone, MessageSquare, RefreshCw } from "lucide-react";
 import { useDialer } from "./DialerContext";
 import { useFailedPayments } from "./useFailedPayments";
+import { useDunningCases } from "./useDunningCases";
 import { useCommissions } from "./useCommissions";
 import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
@@ -10,23 +11,129 @@ import { useCollectedNotClosed } from "./useCollectedNotClosed";
 import { useAutoClosed } from "./useAutoClosed";
 import { useUnlinkedClosedWon } from "./useUnlinkedClosedWon";
 
+const money = (v, cur) => `${cur && cur !== "usd" ? cur.toUpperCase() + " " : "$"}${Math.round(Number(v) || 0).toLocaleString()}`;
+const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"; } catch { return "—"; } };
+const fmtTime = (iso) => { try { return iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""; } catch { return ""; } };
+const CASE_PILL = {
+  contacted: ["Contacted", "bg-blue-100 text-blue-700"],
+  promised: ["Promised", "bg-emerald-100 text-emerald-700"],
+  snoozed: ["Snoozed", "bg-stone-100 text-stone-600"],
+  recovered: ["Recovered", "bg-emerald-100 text-emerald-700"],
+  churned: ["Churned", "bg-stone-200 text-stone-600"],
+};
+const TOUCH_ICON = { call: "📞", text: "💬", email: "✉️", note: "📝" };
+
+// One failed-payment card, overlaid with its tracked dunning case (status,
+// promise date, touch log). Call/Text auto-log a touch.
+function DunningRow({ r, kase, dunning }) {
+  const { openDialer, openMessages, available } = useDialer();
+  const [showLog, setShowLog] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const gaveUp = r.status === "uncollectible";
+  const meta = { name: r.name, email: r.email, amount: r.amount_due };
+  const run = async (fn) => { setBusy(true); try { await fn(); } catch (e) { console.error("dunning action failed:", e); } finally { setBusy(false); } };
+
+  const call = () => { if (r.phone) { openDialer(r.phone, { name: r.name }); run(() => dunning.logTouch(r.customer_id, "call", {}, meta)); } };
+  const text = () => { if (r.phone) { openMessages(r.phone, { name: r.name }); run(() => dunning.logTouch(r.customer_id, "text", {}, meta)); } };
+  const setStatus = (patch) => run(() => dunning.updateCase(r.customer_id, patch, meta));
+  const saveNote = () => { if (!noteDraft.trim()) return; run(() => dunning.logTouch(r.customer_id, "note", { note: noteDraft.trim() }, meta)).then(() => setNoteDraft("")); };
+
+  const pill = kase ? CASE_PILL[kase.status] : null;
+  return (
+    <div className={`border rounded-lg p-3 ${gaveUp ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-stone-900 flex items-center gap-2 flex-wrap">
+            {r.name || r.email || "Customer"}
+            {gaveUp
+              ? <span className="text-[10px] font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">Stripe gave up — final</span>
+              : <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">retrying</span>}
+            {pill && <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pill[1]}`}>{pill[0]}{kase.status === "promised" && kase.promised_pay_date ? ` ${fmtDate(kase.promised_pay_date)}` : ""}{kase.status === "snoozed" && kase.snooze_until ? ` → ${fmtDate(kase.snooze_until)}` : ""}</span>}
+          </div>
+          <div className="text-[11px] text-stone-500">
+            {money(r.amount_due, r.currency)} owed · {r.attempt_count} failed attempt{r.attempt_count === 1 ? "" : "s"}
+            {r.next_attempt && !gaveUp ? ` · next retry ${fmtDate(r.next_attempt)}` : ""}
+            {r.plan ? ` · ${r.plan}` : ""}
+            {r.created ? ` · since ${fmtDate(r.created)}` : ""}
+          </div>
+          <div className="text-[11px] text-stone-400 mt-0.5">
+            {r.email || "no email"}
+            {r.phone
+              ? <> · {r.phone} <span className="text-[9px] uppercase tracking-wide text-stone-400">({r.phone_source === "ghl" ? "from GHL" : "from Atlas"})</span></>
+              : <> · <span className="text-stone-400">no phone found</span></>}
+            {kase && kase.touch_count > 0 && (
+              <> · <button onClick={() => setShowLog((s) => !s)} className="text-stone-500 hover:text-stone-700 underline">{kase.touch_count} touch{kase.touch_count === 1 ? "" : "es"}{kase.last_touch_at ? ` · last ${fmtDate(kase.last_touch_at)}` : ""}</button></>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {r.phone && available && (
+            <>
+              <button onClick={call} disabled={busy} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 whitespace-nowrap disabled:opacity-50"><Phone size={12} /> Call</button>
+              <button onClick={text} disabled={busy} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1 whitespace-nowrap disabled:opacity-50"><MessageSquare size={12} /> Text</button>
+            </>
+          )}
+          {r.hosted_invoice_url && (
+            <a href={r.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">Invoice ↗</a>
+          )}
+          {r.customer_id && (
+            <a href={`https://dashboard.stripe.com/customers/${r.customer_id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Stripe ↗</a>
+          )}
+        </div>
+      </div>
+
+      {/* Tracking controls */}
+      <div className="mt-2.5 pt-2.5 border-t border-black/5 flex items-center gap-2 flex-wrap text-[11px]">
+        <label className="flex items-center gap-1 text-stone-500">Promised to pay
+          <input type="date" value={kase?.status === "promised" ? (kase.promised_pay_date || "") : ""} onChange={(e) => e.target.value && setStatus({ status: "promised", promised_pay_date: e.target.value, resolved_at: null })} className="border border-stone-300 rounded px-1.5 py-0.5 bg-white" /></label>
+        <label className="flex items-center gap-1 text-stone-500">Snooze
+          <input type="date" value={kase?.status === "snoozed" ? (kase.snooze_until || "") : ""} onChange={(e) => e.target.value && setStatus({ status: "snoozed", snooze_until: e.target.value, resolved_at: null })} className="border border-stone-300 rounded px-1.5 py-0.5 bg-white" /></label>
+        <button onClick={() => setStatus({ status: "contacted" })} disabled={busy} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-50">Mark contacted</button>
+        <button onClick={() => setStatus({ status: "churned", resolved_at: new Date().toISOString() })} disabled={busy} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-600 hover:bg-stone-100 disabled:opacity-50">Write off</button>
+        <button onClick={() => setShowLog((s) => !s)} className="font-semibold px-2 py-1 rounded border border-stone-300 bg-white text-stone-700 hover:bg-stone-50">+ Note</button>
+      </div>
+
+      {showLog && (
+        <div className="mt-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveNote()} placeholder="Add a note…" className="flex-1 text-xs border border-stone-300 rounded px-2 py-1.5 bg-white" />
+            <button onClick={saveNote} disabled={busy || !noteDraft.trim()} className="text-xs font-semibold px-2.5 py-1.5 rounded border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-50">Save</button>
+          </div>
+          {kase?.touches?.length > 0 && (
+            <div className="space-y-1">
+              {kase.touches.map((t) => (
+                <div key={t.id} className="text-[11px] text-stone-600 flex gap-2">
+                  <span className="shrink-0">{TOUCH_ICON[t.kind] || "•"}</span>
+                  <span className="text-stone-400 shrink-0 w-14">{fmtDate(t.at)}</span>
+                  <span className="min-w-0">{t.note || t.outcome || t.kind}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Failed payments (dunning) — customers whose Stripe auto-charge failed, enriched
 // with a phone (our deals/fulfillment first, else GHL) so Mark can call from the
-// dialer. Live snapshot via the stripe-failed-payments edge function.
+// dialer, plus a tracked case per customer (status / promise date / touch log).
 function FailedPaymentsSection() {
   const { rows, generatedAt, loading, fetching, error, refresh } = useFailedPayments();
-  const { openDialer, openMessages, available } = useDialer();
-  const money = (v, cur) => `${cur && cur !== "usd" ? cur.toUpperCase() + " " : "$"}${Math.round(Number(v) || 0).toLocaleString()}`;
-  const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"; } catch { return "—"; } };
-  const fmtTime = (iso) => { try { return iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""; } catch { return ""; } };
+  const dunning = useDunningCases();
   const total = rows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  const liveIds = new Set(rows.map((r) => r.customer_id).filter(Boolean));
+  // Open cases whose customer is no longer failing = they paid → recovered.
+  const resolved = dunning.cases.filter((c) => !liveIds.has(c.stripe_customer_id) && c.status !== "recovered" && c.status !== "churned");
   return (
     <section className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="display-font text-xl font-medium text-stone-900">Failed payments · dunning</h2>
           <p className="text-sm text-stone-500">
-            Customers whose Stripe auto-charge failed. Call them to recover the payment.
+            Customers whose Stripe auto-charge failed. Call to recover, then track the outcome.
             {generatedAt && <span className="text-stone-400"> · updated {fmtTime(generatedAt)}</span>}
           </p>
         </div>
@@ -35,6 +142,21 @@ function FailedPaymentsSection() {
           <RefreshCw size={13} className={fetching ? "animate-spin" : ""} /> {fetching ? "Checking…" : "Refresh"}
         </button>
       </div>
+
+      {resolved.length > 0 && (
+        <div className="border-l-4 border-emerald-400 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <div className="font-semibold mb-1">✓ {resolved.length} recovered — no longer failing in Stripe</div>
+          <div className="space-y-1">
+            {resolved.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
+                <span>{c.customer_name || c.customer_email}{c.amount_at_risk ? ` · was ${money(c.amount_at_risk)}` : ""}{c.touch_count ? ` · ${c.touch_count} touch${c.touch_count === 1 ? "" : "es"}` : ""}</span>
+                <button onClick={() => dunning.updateCase(c.stripe_customer_id, { status: "recovered", resolved_at: new Date().toISOString() })}
+                  className="font-semibold text-emerald-700 hover:underline shrink-0">Mark recovered</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-stone-400">Checking Stripe…</div>
@@ -46,57 +168,9 @@ function FailedPaymentsSection() {
         <>
           <div className="text-xs text-stone-500">{rows.length} customer{rows.length > 1 ? "s" : ""} · {money(total)} at risk</div>
           <div className="space-y-2">
-            {rows.map((r) => {
-              const gaveUp = r.status === "uncollectible";
-              return (
-                <div key={r.invoice_id} className={`border rounded-lg p-3 ${gaveUp ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-stone-900 flex items-center gap-2 flex-wrap">
-                        {r.name || r.email || "Customer"}
-                        {gaveUp
-                          ? <span className="text-[10px] font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">Stripe gave up — final</span>
-                          : <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">retrying</span>}
-                      </div>
-                      <div className="text-[11px] text-stone-500">
-                        {money(r.amount_due, r.currency)} owed · {r.attempt_count} failed attempt{r.attempt_count === 1 ? "" : "s"}
-                        {r.next_attempt && !gaveUp ? ` · next retry ${fmtDate(r.next_attempt)}` : ""}
-                        {r.plan ? ` · ${r.plan}` : ""}
-                        {r.created ? ` · since ${fmtDate(r.created)}` : ""}
-                      </div>
-                      <div className="text-[11px] text-stone-400 mt-0.5">
-                        {r.email || "no email"}
-                        {r.phone
-                          ? <> · {r.phone} <span className="text-[9px] uppercase tracking-wide text-stone-400">({r.phone_source === "ghl" ? "from GHL" : "from Atlas"})</span></>
-                          : <> · <span className="text-stone-400">no phone found</span></>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      {r.phone && available && (
-                        <>
-                          <button onClick={() => openDialer(r.phone, { name: r.name })}
-                            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 whitespace-nowrap">
-                            <Phone size={12} /> Call
-                          </button>
-                          <button onClick={() => openMessages(r.phone, { name: r.name })}
-                            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1 whitespace-nowrap">
-                            <MessageSquare size={12} /> Text
-                          </button>
-                        </>
-                      )}
-                      {r.hosted_invoice_url && (
-                        <a href={r.hosted_invoice_url} target="_blank" rel="noreferrer"
-                          className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">Invoice ↗</a>
-                      )}
-                      {r.customer_id && (
-                        <a href={`https://dashboard.stripe.com/customers/${r.customer_id}`} target="_blank" rel="noreferrer"
-                          className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Stripe ↗</a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {rows.map((r) => (
+              <DunningRow key={r.invoice_id} r={r} kase={dunning.byStripe[r.customer_id]} dunning={dunning} />
+            ))}
           </div>
         </>
       )}
