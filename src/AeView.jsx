@@ -728,6 +728,8 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
   const isWire = deal.payment_method === 'wire_ach'
   const when = deal.meeting_at ? new Date(deal.meeting_at) : null
   const setField = (patch) => onSave(deal.id, patch).catch(e => console.error('ae_deals save:', e))
+  const [payFixNote, setPayFixNote] = useState('')
+  const [showPayFix, setShowPayFix] = useState(false)
   const [matching, setMatching] = useState(false)
   const [matchMsg, setMatchMsg] = useState(null)
   // Controlled copy of the override email so "Match" uses what's typed RIGHT NOW,
@@ -873,6 +875,40 @@ function MeetingRow({ deal, canEdit, expanded, onToggle, onSave, onRemove, onMat
               <div>
                 <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Notes</div>
                 <input key={deal.notes || 'empty'} disabled={!canEdit} defaultValue={deal.notes || ''} onBlur={(e) => setField({ notes: e.target.value.trim() || null })} className={`w-full ${ctrl}`} />
+              </div>
+              <div className="sm:col-span-2">
+                <div className="mono-font text-[10px] uppercase tracking-widest text-stone-500 mb-1">Payment arrangement</div>
+                {deal.pay_fix_status === 'flagged' ? (
+                  <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
+                    ⏳ Payment fix requested — waiting on the team to update Stripe.
+                    {deal.pay_fix_note && <div className="mt-1 text-stone-700 whitespace-pre-wrap">“{deal.pay_fix_note}”</div>}
+                  </div>
+                ) : deal.pay_fix_status === 'fixed' ? (
+                  <div className="flex items-center justify-between gap-2 text-xs bg-emerald-50 border border-emerald-200 rounded p-2 text-emerald-800">
+                    <span>✅ The payment was updated in Stripe — confirm you’ve reviewed it.</span>
+                    <button disabled={!canEdit} onClick={() => setField({ pay_fix_status: 'done', pay_fix_ack_at: new Date().toISOString() })}
+                      className="shrink-0 font-semibold px-2.5 py-1 rounded border border-emerald-300 bg-white hover:bg-emerald-100">Acknowledge</button>
+                  </div>
+                ) : showPayFix ? (
+                  <div className="space-y-1.5">
+                    <textarea value={payFixNote} onChange={(e) => setPayFixNote(e.target.value)} rows={2}
+                      placeholder="Describe the real terms so they can be fixed in Stripe (e.g. $3k split over 3 months, not upfront)"
+                      className={`w-full ${ctrl}`} />
+                    <div className="flex gap-2">
+                      <button disabled={!canEdit || !payFixNote.trim()}
+                        onClick={() => { setField({ pay_fix_status: 'flagged', pay_fix_note: payFixNote.trim(), pay_fix_flagged_by: deal.ae_id, pay_fix_flagged_at: new Date().toISOString() }); setShowPayFix(false) }}
+                        className="text-xs font-semibold px-2.5 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50">Send to team</button>
+                      <button onClick={() => setShowPayFix(false)} className="text-xs px-2.5 py-1 text-stone-500">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button disabled={!canEdit} onClick={() => { setPayFixNote(deal.pay_fix_note || ''); setShowPayFix(true) }}
+                      className="text-xs font-medium px-2.5 py-1 rounded border border-stone-200 hover:border-stone-400 text-stone-700">⚑ Flag payment fix</button>
+                    {deal.pay_fix_status === 'done' && <span className="mono-font text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: 'rgba(102,57,166,0.1)', color: '#6639A6' }}>Modified payment ✓</span>}
+                  </div>
+                )}
+                <div className="text-[10px] text-stone-400 mt-1">Flag if you closed on terms that don’t match the Stripe payment link — an exec will fix Stripe and notify you back here.</div>
               </div>
               {tracksIntros && deal.status !== 'Intro' && (
                 <div>
@@ -1037,8 +1073,25 @@ function AeDealsPipeline({ profile, canEdit }) {
     </button>
   )
 
+  const payFixFixed = deals.filter(d => d.pay_fix_status === 'fixed')
+
   return (
     <div className="space-y-6">
+      {payFixFixed.length > 0 && (
+        <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4">
+          <div className="font-semibold text-emerald-900 text-sm">✅ {payFixFixed.length} payment arrangement{payFixFixed.length > 1 ? 's' : ''} updated in Stripe — please confirm</div>
+          <div className="mt-2 space-y-1.5">
+            {payFixFixed.map(d => (
+              <div key={d.id} className="flex items-center justify-between gap-3 text-sm bg-white border border-emerald-200 rounded px-3 py-2">
+                <span className="text-stone-800">{d.customer_name || d.customer_email || 'Customer'}</span>
+                <button disabled={!canEdit}
+                  onClick={() => saveDeal(d.id, { pay_fix_status: 'done', pay_fix_ack_at: new Date().toISOString() })}
+                  className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">Acknowledge</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <PipeTile label="Active deals" value={openDeals.length} />
         <PipeTile label="Pipeline MRR" value={`$${Math.round(pipelineMrr).toLocaleString()}`} />
