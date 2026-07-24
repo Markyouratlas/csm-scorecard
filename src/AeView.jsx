@@ -5,6 +5,7 @@ import AeFunnelDrilldownModal from './AeFunnelDrilldownModal'
 import { supabase } from './supabase'
 import { useScorecard } from './useScorecard'
 import { useAeDeals } from './hooks/useAeDeals'
+import { useCollectedNotClosed } from './useCollectedNotClosed'
 import RocketLoader from './RocketLoader'
 import { useTargets } from './useTargets'
 import { useMtdData, getMonthKey, formatMonthLabel } from './useMtd'
@@ -1074,9 +1075,32 @@ function AeDealsPipeline({ profile, canEdit }) {
   )
 
   const payFixFixed = deals.filter(d => d.pay_fix_status === 'fixed')
+  const cnc = useCollectedNotClosed()
+  const myCnc = (cnc.deals || []).filter(d => d.ae_id === profile.id)
+  const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`
 
   return (
     <div className="space-y-6">
+      {myCnc.length > 0 && (
+        <div className="border-l-4 border-amber-400 bg-amber-50 p-4">
+          <div className="font-semibold text-amber-900 text-sm">💰 {myCnc.length} customer{myCnc.length > 1 ? 's' : ''} paid but not closed</div>
+          <p className="text-xs text-amber-800 mt-0.5">These are paying in Stripe. Close the deal to trigger onboarding, or mark it a deposit if they only paid part of the agreed amount.</p>
+          <div className="mt-2 space-y-1.5">
+            {myCnc.map(d => (
+              <div key={d.deal_id} className="flex items-center justify-between gap-2 text-sm bg-white border border-amber-200 rounded px-3 py-2">
+                <div className="min-w-0">
+                  <span className="text-stone-800 font-medium">{d.customer_name || d.customer_email}</span>
+                  <span className="text-[11px] text-stone-500 ml-2">collected {money(d.collected)}{d.one_time ? ` of ${money(d.one_time)}` : ''}{d.already_closed ? ' · already closed elsewhere ⚠' : ''}</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {canEdit && !d.already_closed && <button onClick={() => saveDeal(d.deal_id, { status: 'Closed Won' })} className="text-xs font-semibold px-2 py-1 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">Close Won</button>}
+                  {canEdit && <button onClick={() => saveDeal(d.deal_id, { status: 'Deposit collected' })} className="text-xs font-semibold px-2 py-1 rounded border border-amber-300 bg-white text-amber-800 hover:bg-amber-100">Deposit</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {payFixFixed.length > 0 && (
         <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4">
           <div className="font-semibold text-emerald-900 text-sm">✅ {payFixFixed.length} payment arrangement{payFixFixed.length > 1 ? 's' : ''} updated in Stripe — please confirm</div>

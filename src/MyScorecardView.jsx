@@ -3,6 +3,55 @@ import { useCommissions } from "./useCommissions";
 import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
 import { useDuplicateDeals } from "./useDuplicateDeals";
+import { useCollectedNotClosed } from "./useCollectedNotClosed";
+
+// Customers paying in Stripe whose deal is still open (should be closed → onboarding,
+// unless it's a deposit / already-closed). Read-only surfacing — the AE closes them
+// in their pipeline (or the Phase-B job auto-closes the confident-full ones).
+function CollectedNotClosedSection({ onOpenAe }) {
+  const { deals, loading } = useCollectedNotClosed();
+  const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="display-font text-xl font-medium text-stone-900">Collected but not closed</h2>
+        <p className="text-sm text-stone-500">Customers paying in Stripe whose deal is still open. Paid-in-full ones should be closed (→ onboarding); partials are likely deposits.</p>
+      </div>
+      {loading ? (
+        <div className="text-sm text-stone-400">Loading…</div>
+      ) : deals.length === 0 ? (
+        <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4 text-sm text-emerald-800">✓ Nothing collected-but-not-closed.</div>
+      ) : (
+        <div className="space-y-2">
+          {deals.map((d) => (
+            <div key={d.deal_id} className={`border rounded-lg p-3 ${d.is_full ? "border-amber-200 bg-amber-50" : "border-stone-200 bg-white"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-stone-900">
+                    {d.customer_name || d.customer_email || "Customer"}
+                    {d.is_full
+                      ? <span className="ml-2 text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">paid in full</span>
+                      : <span className="ml-2 text-[10px] font-semibold text-stone-600 bg-stone-100 px-1.5 py-0.5 rounded">partial · likely deposit</span>}
+                    {d.already_closed && <span className="ml-2 text-[10px] font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">already has a Closed Won ⚠</span>}
+                  </div>
+                  <div className="text-[11px] text-stone-500">{d.ae_name || "AE"} · {d.status} · collected {money(d.collected)}{d.one_time ? ` of ${money(d.one_time)} expected` : ""}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                  {onOpenAe && d.ae_id && (
+                    <button onClick={() => onOpenAe(d.ae_id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">In {(d.ae_name || "AE").split(" ")[0]}’s pipeline ↗</button>
+                  )}
+                  {d.stripe_customer_id && (
+                    <a href={`https://dashboard.stripe.com/customers/${d.stripe_customer_id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Stripe ↗</a>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 // Customers with more than one Closed Won deal (double-count risk).
 function DuplicateDealsAlert({ onOpenAe }) {
@@ -144,6 +193,8 @@ export default function MyScorecardView({ profile, onOpenAe }) {
           Things that need your attention. This is your space — we’ll keep adding to it.
         </p>
       </div>
+
+      <CollectedNotClosedSection onOpenAe={onOpenAe} />
 
       <PayFixQueueSection onOpenAe={onOpenAe} />
 
