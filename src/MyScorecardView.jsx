@@ -5,6 +5,7 @@ import { usePayFixQueue } from "./usePayFix";
 import { useDuplicateDeals } from "./useDuplicateDeals";
 import { useCollectedNotClosed } from "./useCollectedNotClosed";
 import { useAutoClosed } from "./useAutoClosed";
+import { useUnlinkedClosedWon } from "./useUnlinkedClosedWon";
 
 // Customers paying in Stripe whose deal is still open (should be closed → onboarding,
 // unless it's a deposit / already-closed). Read-only surfacing — the AE closes them
@@ -50,6 +51,86 @@ function CollectedNotClosedSection({ onOpenAe }) {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+// One unlinked Closed Won deal — expands to a ranked Stripe-candidate picker.
+function UnlinkedRow({ deal, candidates, link, onOpenAe }) {
+  const [open, setOpen] = useState(false);
+  const [cands, setCands] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
+  const toggle = async () => {
+    const next = !open; setOpen(next);
+    if (next && cands === null) {
+      try { setCands(await candidates(deal.deal_id)); } catch (e) { console.error("candidates failed:", e); setCands([]); }
+    }
+  };
+  const onLink = async (sid) => {
+    setBusy(sid);
+    try { await link(deal.deal_id, sid); } catch (e) { console.error("link failed:", e); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="border border-stone-200 bg-white rounded-lg p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-stone-900">{deal.customer_name || deal.customer_email || "Customer"}</div>
+          <div className="text-[11px] text-stone-500">{deal.ae_name || "AE"} · {deal.customer_email || "no email"}{deal.payment_email && deal.payment_email !== deal.customer_email ? ` · pays as ${deal.payment_email}` : ""}{deal.one_time ? ` · ${money(deal.one_time)} upfront` : ""}{deal.mrr ? ` · ${money(deal.mrr)}/mo` : ""}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {onOpenAe && deal.ae_id && (
+            <button onClick={() => onOpenAe(deal.ae_id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">In {(deal.ae_name || "AE").split(" ")[0]}’s pipeline ↗</button>
+          )}
+          <button onClick={toggle} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">{open ? "Hide" : "Find in Stripe"}</button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2.5 border-t border-stone-100 pt-2.5">
+          {cands === null ? (
+            <div className="text-xs text-stone-400">Searching Stripe…</div>
+          ) : cands.length === 0 ? (
+            <div className="text-xs text-stone-500">No likely match found. Search Stripe manually by email, then link with the deal’s Stripe field.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {cands.map((c) => (
+                <div key={c.stripe_customer_id} className="flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <span className="text-stone-800 font-medium">{c.name || c.email || c.stripe_customer_id}</span>
+                    <span className="text-stone-500 ml-2">{c.email}{Number(c.collected) > 0 ? ` · ${money(c.collected)} collected` : ""}</span>
+                    <span className="ml-2 text-[10px] font-semibold text-stone-400">match {c.score}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <a href={`https://dashboard.stripe.com/customers/${c.stripe_customer_id}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Stripe ↗</a>
+                    <button onClick={() => onLink(c.stripe_customer_id)} disabled={busy === c.stripe_customer_id} className="font-semibold px-2 py-1 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">{busy === c.stripe_customer_id ? "Linking…" : "Link"}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Closed Won deals never matched to a Stripe customer (email-mismatch stragglers).
+function UnlinkedClosedWonSection({ onOpenAe }) {
+  const { deals, loading, candidates, link } = useUnlinkedClosedWon();
+  if (loading) return null;
+  if (deals.length === 0) return null; // quiet when everything's linked
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="display-font text-xl font-medium text-stone-900">Unlinked Closed Won</h2>
+        <p className="text-sm text-stone-500">Closed deals we never matched to a Stripe customer (usually the deal email ≠ the payment email). Until linked, their cash is invisible to commission + Fulfillment. Pick the right Stripe customer to link everywhere at once.</p>
+      </div>
+      <div className="space-y-2">
+        {deals.map((d) => (
+          <UnlinkedRow key={d.deal_id} deal={d} candidates={candidates} link={link} onOpenAe={onOpenAe} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -230,6 +311,8 @@ export default function MyScorecardView({ profile, onOpenAe }) {
       </div>
 
       <CollectedNotClosedSection onOpenAe={onOpenAe} />
+
+      <UnlinkedClosedWonSection onOpenAe={onOpenAe} />
 
       <AutoClosedSection onOpenAe={onOpenAe} />
 
