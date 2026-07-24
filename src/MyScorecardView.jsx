@@ -4,6 +4,7 @@ import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
 import { useDuplicateDeals } from "./useDuplicateDeals";
 import { useCollectedNotClosed } from "./useCollectedNotClosed";
+import { useAutoClosed } from "./useAutoClosed";
 
 // Customers paying in Stripe whose deal is still open (should be closed → onboarding,
 // unless it's a deposit / already-closed). Read-only surfacing — the AE closes them
@@ -49,6 +50,40 @@ function CollectedNotClosedSection({ onOpenAe }) {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+// Deals the Phase-B job auto-closed (customer was already paying in full).
+function AutoClosedSection({ onOpenAe }) {
+  const { deals, loading } = useAutoClosed();
+  const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
+  const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"; } catch { return "—"; } };
+  if (loading || deals.length === 0) return null; // quiet until something auto-closes
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="display-font text-xl font-medium text-stone-900">Auto-closed</h2>
+        <p className="text-sm text-stone-500">Deals the system closed for you because the customer was already paying in full in Stripe. Onboarding fired automatically.</p>
+      </div>
+      <div className="space-y-2">
+        {deals.map((d) => (
+          <div key={d.id} className="border border-emerald-200 bg-emerald-50 rounded-lg p-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-medium text-stone-900">{d.customer_name || d.customer_email || "Customer"}</div>
+              <div className="text-[11px] text-stone-500">{d.ae_name || "AE"} · {d.one_time ? `${money(d.one_time)} upfront` : ""}{d.mrr ? ` · ${money(d.mrr)}/mo` : ""} · auto-closed {fmtDate(d.auto_closed_at)}</div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+              {onOpenAe && d.ae_id && (
+                <button onClick={() => onOpenAe(d.ae_id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">In {(d.ae_name || "AE").split(" ")[0]}’s pipeline ↗</button>
+              )}
+              {d.matched_stripe_customer_id && (
+                <a href={`https://dashboard.stripe.com/customers/${d.matched_stripe_customer_id}`} target="_blank" rel="noreferrer" className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Stripe ↗</a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -195,6 +230,8 @@ export default function MyScorecardView({ profile, onOpenAe }) {
       </div>
 
       <CollectedNotClosedSection onOpenAe={onOpenAe} />
+
+      <AutoClosedSection onOpenAe={onOpenAe} />
 
       <PayFixQueueSection onOpenAe={onOpenAe} />
 
