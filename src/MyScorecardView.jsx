@@ -48,6 +48,8 @@ function DunningRow({ r, kase, dunning }) {
             {r.name || r.email || "Customer"}
             {gaveUp
               ? <span className="text-[10px] font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">Stripe gave up — final</span>
+              : r.status === "incomplete"
+              ? <span className="text-[10px] font-semibold text-orange-800 bg-orange-100 px-1.5 py-0.5 rounded">incomplete — first payment failed</span>
               : <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">retrying</span>}
             {pill && <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pill[1]}`}>{pill[0]}{kase.status === "promised" && kase.promised_pay_date ? ` ${fmtDate(kase.promised_pay_date)}` : ""}{kase.status === "snoozed" && kase.snooze_until ? ` → ${fmtDate(kase.snooze_until)}` : ""}</span>}
           </div>

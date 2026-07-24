@@ -110,24 +110,37 @@ serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // ---- 1. Invoices in dunning: open (auto, failed attempt) + uncollectible ----
-    const open = await stripePaginate("invoices", sk, "status=open");
-    const uncollectible = await stripePaginate("invoices", sk, "status=uncollectible");
+    // ---- 1. Find every payment problem ----
+    // Detect from the SUBSCRIPTION status (incomplete / past_due / unpaid) — this
+    // catches "incomplete" first-payment failures that never log an invoice
+    // attempt_count — plus uncollectible + attempted-open invoices as a backstop
+    // (final notices / subs Stripe already canceled). Dedup by invoice id; the
+    // richer signal wins (incomplete > uncollectible > retrying).
     const seen = new Set<string>();
-    const dunning: any[] = [];
-    for (const inv of [...uncollectible, ...open]) {
-      if (!inv?.id || seen.has(inv.id)) continue;
-      if (inv.collection_method !== "charge_automatically") continue; // send_invoice = manual, not dunning
+    const dunning: { inv: any; kind: string }[] = [];
+    const add = (inv: any, kind: string) => {
+      if (!inv || typeof inv !== "object" || !inv.id || seen.has(inv.id)) return;
+      if (inv.collection_method !== "charge_automatically") return; // send_invoice = manual, not card dunning
       const owed = (inv.amount_remaining != null ? inv.amount_remaining : inv.amount_due) || 0;
-      if (owed <= 0) continue;
-      const isFailed = inv.status === "uncollectible" || (inv.attempt_count || 0) > 0;
-      if (!isFailed) continue; // open-but-never-attempted isn't a failed payment yet
+      if (owed <= 0) return;
       seen.add(inv.id);
-      dunning.push(inv);
+      dunning.push({ inv, kind });
+    };
+
+    // Problem subscriptions (latest_invoice expanded gives us the failing invoice).
+    for (const st of ["incomplete", "past_due", "unpaid"]) {
+      const subs = await stripePaginate("subscriptions", sk, `status=${st}&expand[]=data.latest_invoice`);
+      for (const s of subs) add(s.latest_invoice, st.startsWith("incomplete") ? "incomplete" : "open");
+    }
+    // Uncollectible invoices — Stripe gave up (sub may already be canceled).
+    for (const inv of await stripePaginate("invoices", sk, "status=uncollectible")) add(inv, "uncollectible");
+    // Attempted-but-still-open invoices — backstop for anything the subs missed.
+    for (const inv of await stripePaginate("invoices", sk, "status=open")) {
+      if ((inv.attempt_count || 0) > 0) add(inv, "open");
     }
 
     // ---- 2. Shape rows ----
-    const rows = dunning.map((inv) => {
+    const rows = dunning.map(({ inv, kind }) => {
       const line = Array.isArray(inv.lines?.data) ? inv.lines.data[0] : null;
       return {
         invoice_id: inv.id,
@@ -140,10 +153,10 @@ serve(async (req: Request) => {
         attempt_count: inv.attempt_count || 0,
         next_attempt: unix(inv.next_payment_attempt),
         created: unix(inv.created),
-        status: inv.status, // 'open' (retrying) | 'uncollectible' (given up)
+        status: kind, // 'incomplete' (first payment failed) | 'open' (retrying) | 'uncollectible' (given up)
         plan: line?.description || null,
         hosted_invoice_url: inv.hosted_invoice_url || null,
-        subscription_id: inv.subscription || null,
+        subscription_id: (typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id) || null,
       };
     });
 
