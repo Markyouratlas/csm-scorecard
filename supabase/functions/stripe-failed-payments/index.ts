@@ -120,7 +120,6 @@ serve(async (req: Request) => {
     const dunning: { inv: any; kind: string }[] = [];
     const add = (inv: any, kind: string) => {
       if (!inv || typeof inv !== "object" || !inv.id || seen.has(inv.id)) return;
-      if (inv.collection_method !== "charge_automatically") return; // send_invoice = manual, not card dunning
       const owed = (inv.amount_remaining != null ? inv.amount_remaining : inv.amount_due) || 0;
       if (owed <= 0) return;
       seen.add(inv.id);
@@ -128,15 +127,20 @@ serve(async (req: Request) => {
     };
 
     // Problem subscriptions (latest_invoice expanded gives us the failing invoice).
-    for (const st of ["incomplete", "past_due", "unpaid"]) {
+    // NO collection_method filter here — a past_due/unpaid/incomplete customer is
+    // overdue whether they're auto-charged or billed by sent invoice (e.g. higher
+    // plans like Atlas Growth invoiced manually).
+    for (const st of ["incomplete", "incomplete_expired", "past_due", "unpaid"]) {
       const subs = await stripePaginate("subscriptions", sk, `status=${st}&expand[]=data.latest_invoice`);
       for (const s of subs) add(s.latest_invoice, st.startsWith("incomplete") ? "incomplete" : "open");
     }
     // Uncollectible invoices — Stripe gave up (sub may already be canceled).
     for (const inv of await stripePaginate("invoices", sk, "status=uncollectible")) add(inv, "uncollectible");
-    // Attempted-but-still-open invoices — backstop for anything the subs missed.
+    // Attempted-but-still-open AUTO-charge invoices — backstop for anything the
+    // subs missed (here we DO require auto-charge + a failed attempt, so we don't
+    // pull in send_invoice invoices that are simply awaiting their due date).
     for (const inv of await stripePaginate("invoices", sk, "status=open")) {
-      if ((inv.attempt_count || 0) > 0) add(inv, "open");
+      if (inv.collection_method === "charge_automatically" && (inv.attempt_count || 0) > 0) add(inv, "open");
     }
 
     // ---- 2. Shape rows ----
@@ -153,6 +157,7 @@ serve(async (req: Request) => {
         attempt_count: inv.attempt_count || 0,
         next_attempt: unix(inv.next_payment_attempt),
         created: unix(inv.created),
+        auto: inv.collection_method === "charge_automatically",
         status: kind, // 'incomplete' (first payment failed) | 'open' (retrying) | 'uncollectible' (given up)
         plan: line?.description || null,
         hosted_invoice_url: inv.hosted_invoice_url || null,
