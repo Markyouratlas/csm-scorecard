@@ -2,6 +2,43 @@ import React, { useState } from "react";
 import { useCommissions } from "./useCommissions";
 import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
+import { useDuplicateDeals } from "./useDuplicateDeals";
+
+// Customers with more than one Closed Won deal (double-count risk).
+function DuplicateDealsAlert({ onOpenAe }) {
+  const { dupes, loading } = useDuplicateDeals();
+  const money = (v) => `$${Math.round(Number(v) || 0).toLocaleString()}`;
+  const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"; } catch { return "—"; } };
+  if (loading) return <div className="text-sm text-stone-400">Loading…</div>;
+  if (dupes.length === 0) return <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4 text-sm text-emerald-800">✓ No duplicate Closed Won deals.</div>;
+  return (
+    <div className="border-l-4 border-amber-400 bg-amber-50 p-4">
+      <div className="font-semibold text-amber-900 flex items-center gap-2">⚠ {dupes.length} customer{dupes.length > 1 ? "s" : ""} with duplicate Closed Won deals</div>
+      <p className="text-sm text-amber-800 mt-1">The same customer has more than one Closed Won deal — this double-counts revenue + commission and can double-onboard. Keep one and set the extra to <strong>Deleted</strong> in the AE's pipeline.</p>
+      <div className="mt-3 space-y-2">
+        {dupes.map((g) => (
+          <div key={g.key} className="text-xs bg-white border border-amber-200 rounded p-2.5">
+            <div className="font-medium text-stone-800 mb-1.5">
+              {g.list[0].customer_name || g.list[0].customer_email} · {g.list.length} deals{g.list[0].ae_name ? ` · ${g.list[0].ae_name}` : ""}
+            </div>
+            <div className="space-y-1">
+              {g.list.map((d) => (
+                <div key={d.id} className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-stone-500">{d.id.slice(0, 8)}</span>
+                  <span className="text-stone-700 flex-1">{d.one_time ? `${money(d.one_time)} upfront` : "no upfront"}{d.mrr ? ` · ${money(d.mrr)}/mo` : ""}</span>
+                  <span className="text-stone-500 whitespace-nowrap">closed {fmtDate(d.closed_at)}</span>
+                </div>
+              ))}
+            </div>
+            {onOpenAe && g.list[0].ae_id && (
+              <button onClick={() => onOpenAe(g.list[0].ae_id)} className="mt-2 text-[11px] font-semibold text-blue-700 hover:underline">Open in the AE's pipeline →</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Deals an AE flagged as having a payment arrangement that needs fixing in Stripe.
 function PayFixQueueSection({ onOpenAe }) {
@@ -113,7 +150,7 @@ export default function MyScorecardView({ profile, onOpenAe }) {
       <section className="space-y-3">
         <div>
           <h2 className="display-font text-xl font-medium text-stone-900">Data cleanup</h2>
-          <p className="text-sm text-stone-500">Duplicate Stripe customers from failed-payment retries — delete the $0 one in Stripe.</p>
+          <p className="text-sm text-stone-500">Duplicate Stripe customers (failed-payment retries) and customers with more than one Closed Won deal.</p>
         </div>
         {c.loading ? (
           <div className="text-sm text-stone-400">Loading…</div>
@@ -124,6 +161,7 @@ export default function MyScorecardView({ profile, onOpenAe }) {
             emptyMessage="✓ No duplicate Stripe customers right now — all clean."
           />
         )}
+        <DuplicateDealsAlert onOpenAe={onOpenAe} />
       </section>
     </div>
   );
