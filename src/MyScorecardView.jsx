@@ -1,4 +1,7 @@
 import React, { useState } from "react";
+import { Phone, MessageSquare, RefreshCw } from "lucide-react";
+import { useDialer } from "./DialerContext";
+import { useFailedPayments } from "./useFailedPayments";
 import { useCommissions } from "./useCommissions";
 import DuplicateCustomersAlert from "./DuplicateCustomersAlert";
 import { usePayFixQueue } from "./usePayFix";
@@ -6,6 +9,100 @@ import { useDuplicateDeals } from "./useDuplicateDeals";
 import { useCollectedNotClosed } from "./useCollectedNotClosed";
 import { useAutoClosed } from "./useAutoClosed";
 import { useUnlinkedClosedWon } from "./useUnlinkedClosedWon";
+
+// Failed payments (dunning) — customers whose Stripe auto-charge failed, enriched
+// with a phone (our deals/fulfillment first, else GHL) so Mark can call from the
+// dialer. Live snapshot via the stripe-failed-payments edge function.
+function FailedPaymentsSection() {
+  const { rows, generatedAt, loading, fetching, error, refresh } = useFailedPayments();
+  const { openDialer, openMessages, available } = useDialer();
+  const money = (v, cur) => `${cur && cur !== "usd" ? cur.toUpperCase() + " " : "$"}${Math.round(Number(v) || 0).toLocaleString()}`;
+  const fmtDate = (iso) => { try { return iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"; } catch { return "—"; } };
+  const fmtTime = (iso) => { try { return iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : ""; } catch { return ""; } };
+  const total = rows.reduce((s, r) => s + (Number(r.amount_due) || 0), 0);
+  return (
+    <section className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="display-font text-xl font-medium text-stone-900">Failed payments · dunning</h2>
+          <p className="text-sm text-stone-500">
+            Customers whose Stripe auto-charge failed. Call them to recover the payment.
+            {generatedAt && <span className="text-stone-400"> · updated {fmtTime(generatedAt)}</span>}
+          </p>
+        </div>
+        <button onClick={() => refresh()} disabled={fetching}
+          className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-50 flex items-center gap-1.5 shrink-0">
+          <RefreshCw size={13} className={fetching ? "animate-spin" : ""} /> {fetching ? "Checking…" : "Refresh"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-sm text-stone-400">Checking Stripe…</div>
+      ) : error ? (
+        <div className="border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-800">Couldn’t load failed payments: {error}</div>
+      ) : rows.length === 0 ? (
+        <div className="border-l-4 border-emerald-400 bg-emerald-50 p-4 text-sm text-emerald-800">✓ No failed payments right now — nothing in dunning.</div>
+      ) : (
+        <>
+          <div className="text-xs text-stone-500">{rows.length} customer{rows.length > 1 ? "s" : ""} · {money(total)} at risk</div>
+          <div className="space-y-2">
+            {rows.map((r) => {
+              const gaveUp = r.status === "uncollectible";
+              return (
+                <div key={r.invoice_id} className={`border rounded-lg p-3 ${gaveUp ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-stone-900 flex items-center gap-2 flex-wrap">
+                        {r.name || r.email || "Customer"}
+                        {gaveUp
+                          ? <span className="text-[10px] font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded">Stripe gave up — final</span>
+                          : <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">retrying</span>}
+                      </div>
+                      <div className="text-[11px] text-stone-500">
+                        {money(r.amount_due, r.currency)} owed · {r.attempt_count} failed attempt{r.attempt_count === 1 ? "" : "s"}
+                        {r.next_attempt && !gaveUp ? ` · next retry ${fmtDate(r.next_attempt)}` : ""}
+                        {r.plan ? ` · ${r.plan}` : ""}
+                        {r.created ? ` · since ${fmtDate(r.created)}` : ""}
+                      </div>
+                      <div className="text-[11px] text-stone-400 mt-0.5">
+                        {r.email || "no email"}
+                        {r.phone
+                          ? <> · {r.phone} <span className="text-[9px] uppercase tracking-wide text-stone-400">({r.phone_source === "ghl" ? "from GHL" : "from Atlas"})</span></>
+                          : <> · <span className="text-stone-400">no phone found</span></>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      {r.phone && available && (
+                        <>
+                          <button onClick={() => openDialer(r.phone, { name: r.name })}
+                            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 flex items-center gap-1 whitespace-nowrap">
+                            <Phone size={12} /> Call
+                          </button>
+                          <button onClick={() => openMessages(r.phone, { name: r.name })}
+                            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 flex items-center gap-1 whitespace-nowrap">
+                            <MessageSquare size={12} /> Text
+                          </button>
+                        </>
+                      )}
+                      {r.hosted_invoice_url && (
+                        <a href={r.hosted_invoice_url} target="_blank" rel="noreferrer"
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-stone-300 bg-white text-stone-700 hover:bg-stone-50 whitespace-nowrap">Invoice ↗</a>
+                      )}
+                      {r.customer_id && (
+                        <a href={`https://dashboard.stripe.com/customers/${r.customer_id}`} target="_blank" rel="noreferrer"
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 whitespace-nowrap">Stripe ↗</a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
 
 // Customers paying in Stripe whose deal is still open (should be closed → onboarding,
 // unless it's a deposit / already-closed). Read-only surfacing — the AE closes them
@@ -309,6 +406,8 @@ export default function MyScorecardView({ profile, onOpenAe }) {
           Things that need your attention. This is your space — we’ll keep adding to it.
         </p>
       </div>
+
+      <FailedPaymentsSection />
 
       <CollectedNotClosedSection onOpenAe={onOpenAe} />
 
